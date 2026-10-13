@@ -150,7 +150,9 @@ extern "C" FPV_API fpv_result fpv_drone_tick(fpv_drone *d, float frameDt, fpv_fr
     Vec3 camFwd = rotate(rot, {0, std::sin(tilt), std::cos(tilt)});
     Vec3 camUp = rotate(rot, {0, std::cos(tilt), -std::sin(tilt)});
     float k1 = p.camera.k1, k2 = p.camera.k2, zoom = p.camera.zoom;
-    if (L.settings.cameraFisheye > 0) {
+    bool lens = !(L.config.flags & FPV_INIT_NO_LENS_DISTORTION);
+    if (!lens) k1 = k2 = 0, zoom = 1;
+    if (lens && L.settings.cameraFisheye > 0) {
         // Barrel lens filling the whole frame: the corners (r = 1) sample
         // the corners of the rendered image, so there are no black borders.
         float s = std::min(L.settings.cameraFisheye, 1.0f);
