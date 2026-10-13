@@ -1,5 +1,7 @@
 # libfpv
 
+![SM64 FPV](sm64-fpv.gif)
+
 A drop-in FPV quadcopter for any game. libfpv runs real Betaflight firmware
 (through [SimITL](https://github.com/AJ92/SimITL)) on its own 1 kHz
 simulation thread, reads the player's radio or gamepad, and gives the game
