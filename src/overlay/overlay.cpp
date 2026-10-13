@@ -710,8 +710,12 @@ void Overlay::tabCamera() {
         L.settings.cameraUptilt = tilt;
         L.settings.cameraFov = fov;
     }
-    ImGui::SliderFloat("Fisheye lens", &L.settings.cameraFisheye, 0, 1, L.settings.cameraFisheye > 0 ? "%.2f" : "off");
-    done |= ImGui::IsItemDeactivatedAfterEdit();
+    if (L.config.flags & FPV_INIT_NO_LENS_DISTORTION) {
+        ImGui::TextDisabled("Fisheye lens: not drawn by this game");
+    } else {
+        ImGui::SliderFloat("Fisheye lens", &L.settings.cameraFisheye, 0, 1, L.settings.cameraFisheye > 0 ? "%.2f" : "off");
+        done |= ImGui::IsItemDeactivatedAfterEdit();
+    }
     if (done) saveSettings();
     if (ImGui::Button("Use the drone's defaults")) {
         L.settings.cameraUptilt = -1;

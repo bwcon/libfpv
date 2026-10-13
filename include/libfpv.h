@@ -174,7 +174,11 @@ enum fpv_init_flags {
     /* Keep simulating when the host stops calling fpv_drone_tick(). By default
      * libfpv auto-pauses after `auto_pause_seconds` without a tick, so a game
      * pause menu or loading screen freezes the drone too. */
-    FPV_INIT_NO_AUTO_PAUSE = 1u << 2
+    FPV_INIT_NO_AUTO_PAUSE = 1u << 2,
+    /* The host does not draw the lens distortion post-process: frame.camera
+     * keeps the chosen FOV with k1 = k2 = 0, and the overlay's fisheye
+     * setting is shown as unavailable. */
+    FPV_INIT_NO_LENS_DISTORTION = 1u << 3
 };
 
 typedef struct fpv_global_config {
@@ -329,7 +333,8 @@ typedef struct fpv_camera {
      * corners and r2 = dot(c, c), sample the rendered scene at
      * c * (1 + k1 * r2 + k2 * r2 * r2) / zoom. k1 = k2 = 0 = no distortion.
      * When the player enables the fisheye (F8 > Camera, on by default)
-     * fov_y_degrees is already widened to make up for the zoom. */
+     * fov_y_degrees is already widened to make up for the zoom, unless the
+     * host passed FPV_INIT_NO_LENS_DISTORTION. */
     float distortion_k1;
     float distortion_k2;
     float distortion_zoom;  /* scale applied after distortion, 1 = none */
