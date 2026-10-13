@@ -83,6 +83,9 @@ cmake -S . -B build/win -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64-x86_64
 cmake --build build/win -j
 ```
 
+For 32-bit games (such as GTA IV), use `cmake/toolchains/mingw-w64-i686.cmake`
+with `-B build/win32` instead.
+
 MSVC hosts can make an import library with `lib /def:libfpv.def /machine:x64`
 or load the DLL with `LoadLibrary`.
 

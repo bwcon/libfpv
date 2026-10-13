@@ -307,6 +307,15 @@ rather than an implicit `int` that would truncate the pointer. Betaflight's
 structs use GCC bitfield layout (`-mno-ms-bitfields`), applied to C and
 C++ alike inside the core.
 
+### D19b. 32-bit Windows (i686) for 32-bit host games
+
+`cmake/toolchains/mingw-w64-i686.cmake` mirrors the x86_64 one for 32-bit
+hosts such as GTA IV (a PE32 executable, so it can only load a 32-bit
+DLL). It adds `-msse2 -mfpmath=sse`: with GCC's default x87 maths,
+`wall_crash` failed (a 63 m/s drone tunnelled through the wall). With SSE2
+the full suite passes (20 tests, 321 checks) on Windows 11 through WSL
+interop. MSVC hosts use `lib /def:libfpv.def /machine:x86`.
+
 ### D20. Whole-archive linking of the core
 
 Betaflight's parameter groups register themselves in a linker section that
