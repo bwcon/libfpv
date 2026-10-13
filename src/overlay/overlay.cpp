@@ -311,6 +311,16 @@ void Overlay::tabFly() {
         bool paused = L.runner.paused();
         if (ImGui::Checkbox("Pause", &paused)) L.runner.setPaused(paused);
     }
+    if (!L.hostActions.empty()) {
+        sectionTitle("Game");
+        for (size_t i = 0; i < L.hostActions.size(); i++) {
+            const Lib::HostAction &a = L.hostActions[i];
+            if (i) ImGui::SameLine();
+            ImGui::PushID((int)a.id);
+            if (ImGui::Button(a.label.c_str())) L.clickedActions.push_back(a.id);
+            ImGui::PopID();
+        }
+    }
     sectionTitle("Input");
     InputStatus st = L.input.status();
     static const char *src[] = {"none", "radio", "gamepad (degraded)", "keyboard (degraded)", "game/script"};

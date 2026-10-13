@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <cstdint>
 
 #include "config/preset.h"
 #include "input/input.h"
@@ -65,6 +66,14 @@ struct Lib {
     Vec3 chasePos;
     bool chaseValid = false;
     std::vector<ImpactEvent> impactScratch;
+
+    // host buttons in the Fly tab (fpv_overlay_set_action)
+    struct HostAction {
+        uint32_t id;
+        std::string label;
+    };
+    std::vector<HostAction> hostActions;
+    std::vector<uint32_t> clickedActions;  // oldest first
 
     // created lazily, never destroyed (see lib())
     Overlay *overlay = nullptr;

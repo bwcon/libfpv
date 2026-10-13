@@ -181,6 +181,30 @@ FPV_API void fpv_overlay_text(const char *utf8) {
     std::lock_guard<std::recursive_mutex> lock(lib().mutex);
     overlay().text(utf8);
 }
+FPV_API void fpv_overlay_set_action(uint32_t id, const char *label) {
+    if (!id) return;
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    auto &v = L.hostActions;
+    auto it = std::find_if(v.begin(), v.end(), [id](const Lib::HostAction &a) { return a.id == id; });
+    if (!label || !label[0]) {
+        if (it != v.end()) v.erase(it);
+        L.clickedActions.erase(std::remove(L.clickedActions.begin(), L.clickedActions.end(), id),
+                               L.clickedActions.end());
+    } else if (it != v.end()) {
+        it->label = label;
+    } else {
+        v.push_back({id, label});
+    }
+}
+FPV_API uint32_t fpv_overlay_poll_action(void) {
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    if (L.clickedActions.empty()) return 0;
+    uint32_t id = L.clickedActions.front();
+    L.clickedActions.erase(L.clickedActions.begin());
+    return id;
+}
 FPV_API const fpv_draw_data *fpv_overlay_render(float dt) {
     Lib &L = lib();
     std::lock_guard<std::recursive_mutex> lock(L.mutex);

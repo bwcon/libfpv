@@ -34,6 +34,11 @@ void main() {
 
 3. Draw the OSD (`fpv_osd_draw_data`) and the overlay on top, undistorted.
 
+Without shaders (for example fixed-function D3D9), draw the copied scene
+through a grid of about 64x36 cells instead. Give each vertex at output
+position `uv` the texture coordinate `suv` from the formula above. The warp
+is smooth, so the result matches the shader to within a pixel.
+
 The player turns the fisheye on or off and sets its strength in F8 > Camera >
 "Fisheye lens". It is on by default. When it is on, libfpv picks `k1`, `k2`
 and a `zoom` that keep the image's corners filled (no black borders), and
