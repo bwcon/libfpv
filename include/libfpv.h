@@ -573,6 +573,13 @@ FPV_API void fpv_overlay_mouse_button(int button, int down);   /* 0 left, 1 righ
 FPV_API void fpv_overlay_mouse_wheel(float dx, float dy);
 FPV_API void fpv_overlay_text(const char *utf8);
 
+/* Host buttons, drawn in the overlay's Fly tab (for example "Move the player
+ * here"). `id` is the host's choice (non-zero); setting a NULL or empty label
+ * removes the button. Clicks are queued: fpv_overlay_poll_action() returns
+ * the id of the next clicked button, or 0. Any thread. */
+FPV_API void fpv_overlay_set_action(uint32_t id, const char *label);
+FPV_API uint32_t fpv_overlay_poll_action(void);
+
 /* Builds the overlay for this frame. Returns NULL when closed. Valid until
  * the next call. */
 FPV_API const fpv_draw_data *fpv_overlay_render(float frame_dt);

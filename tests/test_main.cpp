@@ -843,6 +843,13 @@ void testOsdAudioOverlay() {
     CHECK(fontCmd, "overlay uses its font texture");
     CHECK(fpv_texture_get(FPV_TEXTURE_OVERLAY_FONT, &tex) == FPV_OK && tex.width >= 256, "overlay font %ux%u", tex.width,
           tex.height);
+    // host buttons render in the Fly tab; nothing is clicked yet
+    fpv_overlay_set_action(7, "Move player here");
+    fpv_overlay_set_action(7, "Move the player here");
+    CHECK(fpv_overlay_render(0.016f) != nullptr, "renders with a host button");
+    CHECK(fpv_overlay_poll_action() == 0, "no host button clicked");
+    fpv_overlay_set_action(7, nullptr);
+    CHECK(fpv_overlay_render(0.016f) != nullptr, "renders after removing the host button");
     // click through every tab (the tab bar is at the top of the centred window)
     for (int tab = 0; tab < 10; tab++) {
         fpv_overlay_mouse_move(0, 0);
