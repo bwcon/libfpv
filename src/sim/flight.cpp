@@ -344,12 +344,13 @@ void Flight::setHome(const Vec3 *home) {
     if (home) m_home = *home;
 }
 
-void Flight::step(float dt, const float channels[8], bool radioLost) {
+void Flight::step(float dt, const float channels[kChannelCount], bool radioLost) {
     std::unique_lock<std::mutex> worldLock(m_world->mutex());
 
     m_simTime += dt;
     // --- inputs for SimITL ----------------------------------------------
-    for (int i = 0; i < 8; i++) m_input.rcData[i] = std::clamp(channels[i], -1.0f, 1.0f);
+    for (int i = 0; i < kChannelCount; i++) m_input.rcData[i] = std::clamp(channels[i], -1.0f, 1.0f);
+    for (int i = kChannelCount; i < 16; i++) m_input.rcData[i] = -1.0f;  // unused AUX7+
     if (!m_active) {
         // parked: never armed, Betaflight still runs for the Configurator
         m_input.rcData[4] = -1.0f;
@@ -461,13 +462,14 @@ void Flight::step(float dt, const float channels[8], bool radioLost) {
     m_snap.modeAngle = (modes & 1u) != 0;    // ANGLE_MODE
     m_snap.modeHorizon = (modes & 2u) != 0;  // HORIZON_MODE
     m_snap.turtle = m_input.motorsReversed != 0;
+    m_snap.osdDisabled = bfb_osd_disabled() != 0;
     m_snap.onGround = m_active && m_lastGroundContact >= 0 && m_simTime - m_lastGroundContact < 0.05;
     m_snap.crashed = m_active && (anyBurned || anyBroken);
     if (std::memcmp(m_snap.osd.data(), out.osd, m_snap.osd.size()) != 0) {
         std::memcpy(m_snap.osd.data(), out.osd, m_snap.osd.size());
         m_snap.osdRevision++;
     }
-    for (int i = 0; i < 8; i++) m_snap.channels[i] = m_input.rcData[i];
+    for (int i = 0; i < kChannelCount; i++) m_snap.channels[i] = m_input.rcData[i];
     if (m_active) {
         float t;
         Vec3 n;

@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <string>
 #include <thread>
@@ -47,8 +48,8 @@ void logCb(void *, fpv_log_level level, const char *msg) {
 }
 
 struct Rc {
-    float ch[8] = {0, 0, -1, 0, -1, -1, -1, -1};
-    void send() { fpv_input_set_channels(ch, 8); }
+    float ch[FPV_CHANNEL_COUNT] = {0, 0, -1, 0, -1, -1, -1, -1, -1, -1};
+    void send() { fpv_input_set_channels(ch, FPV_CHANNEL_COUNT); }
 };
 
 // Simple test world in a given convention. Ground at "up" = 0 and a wall
@@ -279,7 +280,8 @@ void testTurtle() {
 }
 
 // An EEPROM from before turtle mode gets the AUX4 switch and the crash flip
-// cut-off once; after that the player's own edits stay.
+// cut-off once, one from before the air mode and OSD switches gets AUX5 and
+// AUX6 once; after that the player's own edits stay.
 void testEepromUpgrade() {
     namespace fs = std::filesystem;
     auto cli = [](const char *cmd) {
@@ -301,15 +303,34 @@ void testEepromUpgrade() {
     fs::path marker = fs::path(g_dataDir) / "eeprom";
     for (auto &e : fs::directory_iterator(marker))
         if (e.path().extension() == ".upgrade") fs::remove(e.path());
-    cli("aux 3 0 0 900 900 0 0\nset crashflip_rate = 0\nsave");  // an old EEPROM
+    // an old EEPROM, with another mode on AUX6
+    cli("aux 3 0 0 900 900 0 0\naux 4 0 0 900 900 0 0\naux 5 0 0 900 900 0 0\naux 6 2 5 1700 2100 0 0\n"
+        "set crashflip_rate = 0\nsave");
     activate(other.c_str());
     activate(first.c_str());
-    CHECK(cli("aux").find("aux 3 35 3 1700 2100") != std::string::npos, "turtle switch added");
+    std::string aux = cli("aux");
+    CHECK(aux.find("aux 3 35 3 1700 2100") != std::string::npos, "turtle switch added: %s", aux.c_str());
+    CHECK(aux.find("aux 4 28 4 1700 2100") != std::string::npos, "air mode switch added: %s", aux.c_str());
+    CHECK(aux.find(" 19 5 ") == std::string::npos, "OSD switch not put on a used AUX6: %s", aux.c_str());
     CHECK(cli("get crashflip_rate").find("crashflip_rate = 30") != std::string::npos, "crash flip cut-off set");
-    cli("aux 3 0 0 900 900 0 0\nsave");  // the player removes it again
+    cli("aux 3 0 0 900 900 0 0\naux 4 0 0 900 900 0 0\nsave");  // the player removes them again
     activate(other.c_str());
     activate(first.c_str());
-    CHECK(cli("aux").find("aux 3 35 3") == std::string::npos, "removed turtle switch stays removed");
+    aux = cli("aux");
+    CHECK(aux.find("aux 3 35 3") == std::string::npos, "removed turtle switch stays removed");
+    CHECK(aux.find(" 28 4 ") == std::string::npos, "removed air mode switch stays removed");
+    // an EEPROM upgraded for turtle only gets just the new switches
+    cli("aux 6 0 0 900 900 0 0\nsave");
+    activate(other.c_str());
+    for (auto &e : fs::directory_iterator(marker)) {
+        if (e.path().extension() != ".upgrade") continue;
+        std::ofstream(e.path(), std::ios::binary | std::ios::trunc) << "turtle-2";
+    }
+    activate(first.c_str());
+    aux = cli("aux");
+    CHECK(aux.find("aux 3 35 3") == std::string::npos, "turtle not re-added after turtle-2");
+    CHECK(aux.find(" 28 4 1700 2100") != std::string::npos, "air mode switch added after turtle-2: %s", aux.c_str());
+    CHECK(aux.find(" 19 5 1700 2100") != std::string::npos, "OSD switch added after turtle-2: %s", aux.c_str());
     // the simulated GPS is always on (D22)
     cli("feature -GPS\nsave");
     activate(other.c_str());
@@ -645,6 +666,8 @@ void testCli() {
     CHECK(out && std::strstr(out, "123"), "value stored: %s", out ? out : "");
     fpv_free(out);    CHECK(fpv_cli_exec("aux", &out) == FPV_OK, "aux");
     CHECK(out && std::strstr(out, "aux 3 35 3 1700 2100"), "turtle on AUX4 by default: %s", out ? out : "");
+    CHECK(out && std::strstr(out, "aux 4 28 4 1700 2100"), "air mode on AUX5 by default: %s", out ? out : "");
+    CHECK(out && std::strstr(out, "aux 5 19 5 1700 2100"), "OSD disable on AUX6 by default: %s", out ? out : "");
     fpv_free(out);
     CHECK(fpv_cli_exec("get crashflip_rate", &out) == FPV_OK, "get crashflip_rate");
     CHECK(out && std::strstr(out, "crashflip_rate = 30"), "turtle cut-off on by default: %s", out ? out : "");
@@ -925,6 +948,21 @@ void testOsdAudioOverlay() {
     int chars = 0;
     for (uint8_t c : s.f.osd) chars += (c != 0 && c != ' ');
     CHECK(chars > 10, "Betaflight OSD has content (%d characters)", chars);
+    CHECK(!(s.f.flags & FPV_DRONE_OSD_DISABLED), "OSD enabled by default");
+    // the OSD disable switch (AUX6) blanks it and tells the host
+    auto osdChars = [&] {
+        int n = 0;
+        for (uint8_t c : s.f.osd) n += (c != 0 && c != ' ');
+        return n;
+    };
+    s.rc.ch[9] = 1;
+    s.run(0.5f);
+    CHECK(s.f.flags & FPV_DRONE_OSD_DISABLED, "OSD disabled flag on AUX6");
+    CHECK(osdChars() == 0, "OSD blank while disabled (%d characters)", osdChars());
+    s.rc.ch[9] = -1;
+    s.run(0.5f);
+    CHECK(!(s.f.flags & FPV_DRONE_OSD_DISABLED), "OSD disabled flag cleared");
+    CHECK(osdChars() == chars, "OSD back after the switch (%d of %d characters)", osdChars(), chars);
     fpv_texture tex{};
     CHECK(fpv_texture_get(FPV_TEXTURE_OSD_FONT, &tex) == FPV_OK && tex.width > 0 && tex.rgba, "OSD font texture");
     for (int style = 0; style < 2; style++) {

@@ -35,7 +35,8 @@ engine or mod loader.
 - **Collisions.** The game provides static meshes, moving objects or a
   raycast callback, and libfpv reports impacts and prop damage.
 - **Input.** Radios and gamepads are read through an embedded, hidden SDL3,
-  with a radio setup wizard (arm, angle, beeper and turtle switches).
+  with a radio setup wizard (arm, angle, beeper, turtle, air mode and OSD
+  disable switches).
   Keyboard and gamepad fallbacks are included.
 - **Presentation.** The OSD uses Betaflight's MAX7456 fonts (analog or HD
   look). A Dear ImGui overlay opens on F8, and synthesized motor sound comes

@@ -12,6 +12,7 @@
 
 #include "config/preset.h"
 #include "fpv_math.h"
+#include "input/input.h"
 #include "network/packets.h"
 #include "world/collision.h"
 
@@ -40,13 +41,13 @@ struct FlightSnapshot {
     std::array<MotorSnapshot, 4> motors{};
     float batVoltage = 0, batVoltageSag = 0, batCurrent = 0, mahDrawn = 0;
     bool armed = false, failsafe = false, beeper = false, onGround = false, crashed = false;
-    bool modeAngle = false, modeHorizon = false, turtle = false;
+    bool modeAngle = false, modeHorizon = false, turtle = false, osdDisabled = false;
     uint32_t armingDisableFlags = 0;
     float altitude = -1;
     float videoNoise = 0, videoBreakup = 0, videoSignal = 1;
     std::array<uint8_t, 16 * 30> osd{};
     uint32_t osdRevision = 0;
-    std::array<float, 8> channels{};
+    std::array<float, kChannelCount> channels{};
 };
 
 class Flight {
@@ -68,8 +69,8 @@ public:
     const DronePreset &preset() const { return m_preset; }
 
     // One simulation step of dt seconds with Betaflight channel values
-    // (AETR + AUX1..4, -1..1). `radioLost` puts Betaflight into failsafe.
-    void step(float dt, const float channels[8], bool radioLost);
+    // (AETR + AUX1..6, -1..1). `radioLost` puts Betaflight into failsafe.
+    void step(float dt, const float channels[kChannelCount], bool radioLost);
 
     const FlightSnapshot &snapshot() const { return m_snap; }
     // Impacts accumulated since the last call.

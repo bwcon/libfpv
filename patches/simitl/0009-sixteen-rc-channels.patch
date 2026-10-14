@@ -1,0 +1,43 @@
+diff --git a/src/network/packets.h b/src/network/packets.h
+--- a/src/network/packets.h
++++ b/src/network/packets.h
+@@ -95,7 +95,7 @@
+   float delta = 0.0f;
+ 
+   // Normalised RC channel values in the range -1.0 to 1.0.
+-  float rcData[8] {};
++  float rcData[16] {};  // SIMULATOR_MAX_RC_CHANNELS
+ 
+   // Open-loop motor PWM override [-1.0, 1.0].
+   // When openLoop is non-zero, these values are fed directly to the physics
+diff --git a/src/sim/bf.cpp b/src/sim/bf.cpp
+--- a/src/sim/bf.cpp
++++ b/src/sim/bf.cpp
+@@ -23,12 +23,12 @@
+       }
+     }
+ 
+-    void setRcData(const float (&data)[8])
++    void setRcData(const float (&data)[16])
+     {
+       uint32_t timeUs = BF::micros_passed & 0xFFFFFFFF;
+ 
+-      std::array<uint16_t, 8> rcData;
+-      for (int i = 0; i < 8; i++)
++      std::array<uint16_t, 16> rcData;
++      for (int i = 0; i < 16; i++)
+       {
+         rcDataCache[i] = uint16_t(1500 + data[i] * 500);
+       }
+diff --git a/src/sim/bf.h b/src/sim/bf.h
+--- a/src/sim/bf.h
++++ b/src/sim/bf.h
+@@ -29,7 +29,7 @@
+      * \brief Resets rc channels to default values.
+      * Prevents initial random channel states.
+      */
+-    void setRcData(const float (&data)[8]);
++    void setRcData(const float (&data)[16]);
+ 
+     /**
+      * \brief Sets an eeprom name, where the virtual fc writes to and reads from.

@@ -13,6 +13,8 @@ namespace fpv {
 
 void updatePresentation(const fpv_frame &f);  // api_present.cpp
 
+static_assert(FPV_CHANNEL_COUNT == kChannelCount, "fpv_frame.channels matches the input channels");
+
 static void put3(float out[3], Vec3 v) {
     out[0] = v.x;
     out[1] = v.y;
@@ -124,6 +126,7 @@ extern "C" FPV_API fpv_result fpv_drone_tick(fpv_drone *d, float frameDt, fpv_fr
     if (cur.modeAngle) flags |= FPV_DRONE_MODE_ANGLE;
     if (cur.modeHorizon) flags |= FPV_DRONE_MODE_HORIZON;
     if (cur.turtle) flags |= FPV_DRONE_TURTLE;
+    if (cur.osdDisabled) flags |= FPV_DRONE_OSD_DISABLED;
     f.flags = flags;
     f.arming_disable_flags = cur.armingDisableFlags;
     std::string why;
@@ -244,7 +247,7 @@ extern "C" FPV_API fpv_result fpv_drone_tick(fpv_drone *d, float frameDt, fpv_fr
 
     memcpy(f.osd, cur.osd.data(), sizeof(f.osd));
     f.osd_revision = cur.osdRevision;
-    for (int i = 0; i < 8; i++) f.channels[i] = cur.channels[i];
+    for (int i = 0; i < kChannelCount; i++) f.channels[i] = cur.channels[i];
 
     updatePresentation(f);
     L.lastFrame = f;

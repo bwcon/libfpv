@@ -348,7 +348,7 @@ PWM (D5), so instead `bfb_crash_flip_active()` (armed and
 `isCrashFlipModeActive()`) feeds `StateInput::motorsReversed` every step.
 Betaflight's own crash flip mixer picks the motors from the sticks.
 Fresh EEPROMs get turtle on AUX4 (`aux 3 35 3 1700 2100 0 0`). The F8
-radio wizard's last switch step binds AUX4, the keyboard fallback toggles
+radio wizard's turtle switch step binds AUX4, the keyboard fallback toggles
 it with T and the gamepad fallback with Y / Triangle.
 `FPV_DRONE_TURTLE` is set while armed in turtle mode.
 
@@ -373,6 +373,42 @@ EEPROMs made before this get, once, the turtle switch on AUX4 (if there is
 no crash flip mode yet and AUX4 is free) and `crashflip_rate = 30` (if it
 is 0). A `<eeprom>.upgrade` file records that this ran, so later edits by
 the player stay.
+
+### D23. Air mode and OSD disable switches (AUX5, AUX6)
+
+Two more Betaflight modes that pilots keep on switches: AIR MODE (box 28)
+on AUX5 and OSD DISABLE (box 19) on AUX6, both on the high position, in
+mode slots 4 and 5 of fresh EEPROMs. The F8 radio wizard binds them after
+turtle, both optional, with the same position logic as beeper and turtle
+(D21): one 3-position switch can carry air mode in the middle and OSD
+disable at the top. The keyboard and gamepad fallbacks leave both off.
+
+libfpv now drives 10 channels (AETR + AUX1..6, `FPV_CHANNEL_COUNT`).
+SimITL passed only 8 to Betaflight; `0009-sixteen-rc-channels.patch`
+widens `StateInput::rcData` and `BF::setRcData` to Betaflight's
+`SIMULATOR_MAX_RC_CHANNELS` (16). libfpv sends -1 on AUX7 and up.
+`fpv_frame.channels` grew to 10 at the end of the struct, so hosts built
+against the old header still get the first 8 (`struct_size`), and
+`fpv_input_set_channels` with 8 channels leaves AUX5/AUX6 off.
+
+Air mode: Betaflight's AIRMODE feature is on by default, and then air
+mode is always on and the switch changes nothing, exactly like on a real
+quad. The switch matters when the player turns the feature off
+(`feature -AIRMODE`, or a `diff all` from a quad flown that way).
+
+OSD disable: Betaflight clears the whole OSD while the mode is on
+(including warnings and the post-flight statistics), so `frame.osd` is
+blank. `FPV_DRONE_OSD_DISABLED` (from `IS_RC_MODE_ACTIVE(BOXOSD)`) tells
+the host, which must then hide every bit of its own UI that it still
+draws over the FPV view (INTEGRATION.md, "OSD disable switch"); the
+player asked for a clean picture.
+
+Older EEPROMs get both switches once, each only if that mode is not
+configured yet and its channel is free, through the same `.upgrade` file.
+Upgrades are now an ordered list and the file holds the last one applied
+(`turtle-2`, then `air-osd-3`), so an EEPROM already upgraded for turtle
+gets only the new switches, and turtle is never re-added after the player
+removed it. A `diff all` import may now move modes to AUX2..AUX6.
 
 ## Sensors
 

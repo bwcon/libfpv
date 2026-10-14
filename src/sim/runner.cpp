@@ -139,7 +139,7 @@ bool Runner::shouldSimulate() {
 
 void Runner::stepOnce(double wall) {
     float dt = 1.0f / m_cfg.simRateHz;
-    float ch[8];
+    float ch[kChannelCount];
     bool radioLost = false;
     m_input.update(wall, dt, ch, radioLost);
     auto t0 = std::chrono::steady_clock::now();

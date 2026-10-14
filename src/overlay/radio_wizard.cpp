@@ -34,6 +34,8 @@ int RadioWizard::channelForStep(Step s) const {
     case Step::AngleSwitch: return kAux2;
     case Step::BeeperSwitch: return kAux3;
     case Step::TurtleSwitch: return kAux4;
+    case Step::AirModeSwitch: return kAux5;
+    case Step::OsdSwitch: return kAux6;
     default: return -1;
     }
 }
@@ -54,7 +56,7 @@ bool RadioWizard::stickAxisUsed(int axis) const {
 // switch: beeper in the middle, turtle at the top), but only in a position
 // none of them uses.
 bool RadioWizard::positionFree(int axis, float value) const {
-    for (int c = kAux1; c < 8; c++) {
+    for (int c = kAux1; c < kChannelCount; c++) {
         const ChannelBinding &b = m_mapping.channels[c];
         if (b.axis == axis && std::fabs(value - b.switchOn()) < kMoveThreshold) return false;
     }
@@ -62,7 +64,7 @@ bool RadioWizard::positionFree(int axis, float value) const {
 }
 
 int RadioWizard::sharedWith(int axis) const {
-    for (int c = kAux1; c < 8; c++)
+    for (int c = kAux1; c < kChannelCount; c++)
         if (m_mapping.channels[c].axis == axis) return c;
     return -1;
 }
@@ -201,7 +203,9 @@ bool RadioWizard::next(std::string &hint) {
     case Step::ArmSwitch: m_step = Step::AngleSwitch; break;
     case Step::AngleSwitch: m_step = Step::BeeperSwitch; break;
     case Step::BeeperSwitch: m_step = Step::TurtleSwitch; break;
-    case Step::TurtleSwitch:
+    case Step::TurtleSwitch: m_step = Step::AirModeSwitch; break;
+    case Step::AirModeSwitch: m_step = Step::OsdSwitch; break;
+    case Step::OsdSwitch:
         m_step = Step::Done;
         m_mapping.complete = true;
         break;
@@ -214,7 +218,7 @@ void RadioWizard::skip() {
     if (!canSkip()) return;
     m_mapping.channels[channelForStep(m_step)] = ChannelBinding{};
     m_candidate = -1;
-    if (m_step == Step::TurtleSwitch) {
+    if (m_step == Step::OsdSwitch) {
         m_step = Step::Done;
         m_mapping.complete = true;
     } else {
@@ -244,6 +248,8 @@ const char *RadioWizard::title() const {
     case Step::AngleSwitch: return "Angle (self-level) switch";
     case Step::BeeperSwitch: return "Beeper switch";
     case Step::TurtleSwitch: return "Turtle (crash flip) switch";
+    case Step::AirModeSwitch: return "Air mode switch";
+    case Step::OsdSwitch: return "OSD disable switch";
     case Step::Done: return "All set";
     }
     return "";
@@ -272,6 +278,13 @@ const char *RadioWizard::instruction() const {
         return "Optional: flip a switch to the position that should turn on TURTLE mode (flip over after crash), or "
                "Skip. It can be another position of the beeper's switch. To use it upside down: switch on, arm, hold "
                "the stick towards the side to roll over, then switch it off to fly away.";
+    case Step::AirModeSwitch:
+        return "Optional: flip a switch to the position that should force AIR MODE on (full stick authority at zero "
+               "throttle), or Skip. It only matters when the AIRMODE feature is off, as on quads that keep air mode "
+               "on a switch. A 3-position switch can carry this and the next switch.";
+    case Step::OsdSwitch:
+        return "Optional: flip a switch to the position that should DISABLE THE OSD (hide everything drawn over the "
+               "video), or Skip. It can be another position of the air mode switch.";
     case Step::Done:
         return "Your radio is mapped. Check the bars below, then close this window and fly. Throttle down and flip "
                "the arm switch to arm.";

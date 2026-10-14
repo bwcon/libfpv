@@ -378,7 +378,11 @@ enum fpv_drone_flags {
     FPV_DRONE_MODE_ANGLE = 1u << 6,
     FPV_DRONE_MODE_HORIZON = 1u << 7,
     /* Armed in turtle (crash flip) mode: the props spin backwards. */
-    FPV_DRONE_TURTLE = 1u << 8
+    FPV_DRONE_TURTLE = 1u << 8,
+    /* The pilot's OSD disable switch is on: Betaflight draws no OSD, and the
+     * game must hide any UI it still shows over the FPV view too. See
+     * docs/INTEGRATION.md#osd-disable-switch. */
+    FPV_DRONE_OSD_DISABLED = 1u << 9
 };
 
 typedef struct fpv_impact {
@@ -394,6 +398,8 @@ typedef struct fpv_impact {
 #define FPV_MAX_IMPACTS 16
 #define FPV_OSD_ROWS 16
 #define FPV_OSD_COLS 30
+/* AETR + AUX1..AUX6 */
+#define FPV_CHANNEL_COUNT 10
 
 typedef struct fpv_video_state {
     /* 0 = perfect, 1 = unwatchable. Derived from distance to the pilot,
@@ -436,8 +442,10 @@ typedef struct fpv_frame {
     uint8_t osd[FPV_OSD_ROWS * FPV_OSD_COLS];
     uint32_t osd_revision;
 
-    /* Radio channels as Betaflight sees them, AETR + AUX1..4, -1..1. */
-    float channels[8];
+    /* Radio channels as Betaflight sees them, AETR + AUX1..6, -1..1:
+     * AUX1 arm, AUX2 angle, AUX3 beeper, AUX4 turtle, AUX5 air mode,
+     * AUX6 OSD disable. */
+    float channels[FPV_CHANNEL_COUNT];
 } fpv_frame;
 
 /* Advances presentation by frame_dt seconds of host time and fills `frame`.
@@ -504,7 +512,8 @@ typedef struct fpv_input_status {
 
 FPV_API fpv_result fpv_input_get_status(fpv_input_status *status);
 
-/* Host-injected channels (AETR, AUX1..AUX4, -1..1, throttle -1 = idle).
+/* Host-injected channels (AETR, AUX1..AUX6, -1..1, throttle -1 = idle;
+ * missing AUX channels are off).
  * While injected channels are fresher than 0.5 s they take precedence over
  * devices. Use for scripted tests, replays or a host-side input system. */
 FPV_API void fpv_input_set_channels(const float *channels, uint32_t count);

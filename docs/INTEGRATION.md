@@ -108,6 +108,37 @@ On the OSD, values update a few times a second and altitude trails the
 drone by up to about a second (DECISIONS D22). Don't build gameplay on
 reading them back; use `fpv_frame` (position, speed, altitude) instead.
 
+## OSD disable switch
+
+Pilots put Betaflight's OSD DISABLE mode on a switch to get a clean view
+for recording or for looking at the scenery. libfpv maps it to AUX6 (the
+radio wizard's "OSD disable switch"). While it is on, Betaflight draws no
+OSD, so `frame.osd` is blank, and `frame.flags` has
+`FPV_DRONE_OSD_DISABLED`.
+
+**While `FPV_DRONE_OSD_DISABLED` is set, the game must hide all of its own
+UI over the FPV view too.** Normally the game's HUD is already hidden in
+FPV ([Drawing the OSD and the overlay](#drawing-the-osd-and-the-overlay-d3d9-and-other-hooked-renderers)),
+but most games keep a few things on screen while flying: a lap or race
+timer, checkpoint markers, objective text, subtitles, notifications, a
+crosshair, a speedometer, a watermark or the mod's own hint text. The
+switch means "nothing on top of the video", so hide all of it, every frame
+the flag is set, and show it again as soon as the flag clears. The flag
+follows the switch whether or not the drone is armed.
+
+Keep showing:
+
+- the overlay (F8). The player opened it on purpose, and it does not draw
+  when closed.
+- the game's pause menu and loading screens, which are not drawn over the
+  flight.
+- video effects that are part of the picture, such as the fisheye, the
+  analog noise and breakup (`frame.video`) and a frozen digital image. They
+  are not UI.
+
+If the game cannot hide some element (it is baked into the engine), list it
+in the mod's README, so players know why it stays.
+
 ## Lessons from real integrations
 
 These notes come from integrating libfpv into GTA IV
@@ -238,7 +269,8 @@ hit. What worked in GTA IV:
   with it (no OSD after "Load Game"). Detect the restart, and register the
   draw hook again if no frame arrives soon after.
 - Hide the game's own HUD and minimap while flying (every frame, if that
-  is how the engine does it).
+  is how the engine does it). Whatever stays on screen in FPV must go too
+  while `FPV_DRONE_OSD_DISABLED` is set ([OSD disable switch](#osd-disable-switch)).
 
 ### Input
 

@@ -256,8 +256,10 @@ void Overlay::notifyUnmappedRadio(const std::string &guid) {
 // --- tabs ------------------------------------------------------------------------
 
 void Overlay::channelBars(const float *ch) {
-    static const char *names[8] = {"Roll", "Pitch", "Throttle", "Yaw", "AUX1 arm", "AUX2 angle", "AUX3 beeper", "AUX4 turtle"};
-    for (int i = 0; i < 8; i++) {
+    static const char *names[kChannelCount] = {"Roll",        "Pitch",       "Throttle",     "Yaw",
+                                               "AUX1 arm",    "AUX2 angle",  "AUX3 beeper",  "AUX4 turtle",
+                                               "AUX5 air mode", "AUX6 OSD off"};
+    for (int i = 0; i < kChannelCount; i++) {
         char label[32];
         snprintf(label, sizeof label, "%d", (int)std::lround(1500 + ch[i] * 500));
         ImGui::ProgressBar((ch[i] + 1) * 0.5f, ImVec2(ImGui::GetFontSize() * 14, 0), label);

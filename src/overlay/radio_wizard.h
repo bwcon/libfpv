@@ -24,6 +24,8 @@ public:
         AngleSwitch,
         BeeperSwitch,
         TurtleSwitch,
+        AirModeSwitch,
+        OsdSwitch,
         Done
     };
 
@@ -42,7 +44,7 @@ public:
 
     const char *title() const;
     const char *instruction() const;
-    bool canSkip() const { return m_step >= Step::AngleSwitch && m_step <= Step::TurtleSwitch; }
+    bool canSkip() const { return m_step >= Step::AngleSwitch && m_step <= Step::OsdSwitch; }
     // Live detection feedback for the UI.
     bool detected() const { return m_candidate >= 0; }
     std::string detectedLabel() const;  // e.g. "stick 3, reversed"

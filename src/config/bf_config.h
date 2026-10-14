@@ -14,12 +14,22 @@ namespace fpv {
 // SimITL drives), ARM on AUX1, no power-on grace, MSP receiver, OSD.
 std::string betaflightBaseDefaults();
 // The out-of-the-box tune for a fresh EEPROM: base defaults + modes on
-// AUX2-4 + a readable OSD layout.
+// AUX2-6 + a readable OSD layout.
 std::string betaflightFirstRunScript();
-// For EEPROMs made before turtle mode existed: given the CLI's `aux`
-// output, the `aux` line that puts turtle on AUX4, or "" when turtle is
-// configured already or AUX4 is used by another mode.
-std::string betaflightTurtleMigration(const std::string &auxDump);
+
+// A mode switch libfpv sets up: Betaflight box id (permanent id, as the
+// `aux` command takes it) on the high position of an aux channel (0 = AUX1).
+struct ModeSwitch {
+    int boxId, channel;
+};
+constexpr ModeSwitch kTurtleSwitch{35, 3};   // FLIP OVER AFTER CRASH on AUX4
+constexpr ModeSwitch kAirModeSwitch{28, 4};  // AIR MODE on AUX5
+constexpr ModeSwitch kOsdSwitch{19, 5};      // OSD DISABLE on AUX6
+
+// For EEPROMs made before a switch existed: given the CLI's `aux` output,
+// the `aux` lines that add `modes` in free slots. A mode is left out when it
+// is configured already or its channel is used by another mode.
+std::string betaflightSwitchMigration(const std::string &auxDump, const std::vector<ModeSwitch> &modes);
 
 struct CliFilterResult {
     std::string script;                 // what to run
