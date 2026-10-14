@@ -64,11 +64,19 @@ the release text. Write it for someone who has never modded the game:
 3. **The folder tree** the player should see afterwards, with each file
    labelled by the step it came from. Most "it doesn't work" reports are a
    missing or misplaced file, and the tree lets players check themselves.
-4. **How to fly**: the key that starts it, the controls, and one line on
-   setting up a radio (F8 > radio wizard) and on the keyboard fallback.
-5. **Updating** (extract the new ZIP over the old files) and
+4. **How to fly**: a small controls table (for example F7: launch the
+   drone, F8: settings, plus the mod's camera, respawn and other keys),
+   then one line on setting up a radio (F8 > radio wizard) and on the
+   keyboard fallback.
+5. **Betaflight Configurator**: tell players they can tune the drone like a
+   real quad. In [Configurator](https://app.betaflight.com), turn on manual
+   connection mode in Options, pick Manual Selection, enter
+   `ws://localhost:5761` as the port and connect, while the drone is
+   running in the game. Mention that F8 > Configurator shows the same
+   address, and that Betaflight won't arm while Configurator is connected.
+6. **Updating** (extract the new ZIP over the old files) and
    **uninstalling** (the exact list of files and folders to delete).
-6. **Troubleshooting**: the one or two most common mistakes, where the log
+7. **Troubleshooting**: the one or two most common mistakes, where the log
    file is, and where to report a problem with that log attached.
 
 Leave out build instructions, architecture notes and history; those belong
