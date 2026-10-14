@@ -16,17 +16,17 @@ option(LIBFPV_BUILD_EXAMPLES "Build the examples" ON)
 include(cmake/SimITLCore.cmake)
 include(cmake/EmbedFiles.cmake)
 
-# --- embedded data -------------------------------------------------------------
+# --- embedded assets -----------------------------------------------------------
 file(GLOB_RECURSE LIBFPV_PRESET_FILES CONFIGURE_DEPENDS
-  ${PROJECT_SOURCE_DIR}/data/presets/*.json
-  ${PROJECT_SOURCE_DIR}/data/presets/*.diff.txt)
+  ${PROJECT_SOURCE_DIR}/assets/presets/*.json
+  ${PROJECT_SOURCE_DIR}/assets/presets/*.diff.txt)
 list(SORT LIBFPV_PRESET_FILES)
 set(LIBFPV_GEN_DIR ${CMAKE_BINARY_DIR}/generated)
 libfpv_embed_files(${LIBFPV_GEN_DIR}/embedded_presets.cpp kEmbeddedPresets
-  ${PROJECT_SOURCE_DIR}/data/presets ${LIBFPV_PRESET_FILES})
-file(GLOB LIBFPV_FONT_FILES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/data/fonts/*.mcm)
+  ${PROJECT_SOURCE_DIR}/assets/presets ${LIBFPV_PRESET_FILES})
+file(GLOB LIBFPV_FONT_FILES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/assets/fonts/*.mcm)
 libfpv_embed_files(${LIBFPV_GEN_DIR}/embedded_fonts.cpp kEmbeddedFonts
-  ${PROJECT_SOURCE_DIR}/data/fonts ${LIBFPV_FONT_FILES})
+  ${PROJECT_SOURCE_DIR}/assets/fonts ${LIBFPV_FONT_FILES})
 
 # --- libfpv --------------------------------------------------------------------
 set(LIBFPV_SOURCES

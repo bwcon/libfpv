@@ -26,7 +26,7 @@ engine or mod loader.
   Configurator can connect over WebSocket (`ws://localhost:5761`). The Betaflight
   CLI is available in-process, and `diff all` from a real quad can be imported.
 - **Physics presets.** Frame, motor, propeller, battery, VTX and camera are
-  set in JSON presets (`data/presets/`), with a separate EEPROM for each quad.
+  set in JSON presets (`assets/presets/`), with a separate EEPROM for each quad.
 - **Collisions.** The game provides static meshes, moving objects or a
   raycast callback, and libfpv reports impacts and prop damage.
 - **Input.** Radios and gamepads are read through an embedded, hidden SDL3,
@@ -176,7 +176,7 @@ fpv_global_terminate();                       // on unload / exit
 ```
 include/      public C API (libfpv.h)
 src/          library: sim/, config/, input/, world/, osd/, overlay/, audio/
-data/         presets and OSD fonts (embedded into the library at build time)
+assets/       presets and OSD fonts (embedded into the library at build time)
 patches/      patch series applied to the SimITL and Betaflight submodules
 third_party/  SimITL, Betaflight, libwebsockets, fmt, SDL, Dear ImGui, nlohmann/json
 examples/     fpv_minimal and fpv_standalone
