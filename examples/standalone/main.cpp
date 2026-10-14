@@ -352,7 +352,7 @@ static void savePpm(const char *path, int w, int h) {
 // --- main -------------------------------------------------------------------------------
 
 int main(int argc, char **argv) {
-    std::string dataDir = "libfpv-data", screenshot;
+    std::string dataDir = "data", screenshot;
     int frames = 0, width = 1280, height = 720, camMode = 0;
     bool autopilot = false, openOverlay = false;
     for (int i = 1; i < argc; i++) {

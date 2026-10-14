@@ -20,7 +20,7 @@ static void log_cb(void *user, fpv_log_level level, const char *msg) {
 int main(int argc, char **argv) {
     fpv_global_config cfg;
     fpv_global_config_defaults(&cfg);
-    cfg.data_dir = argc > 1 ? argv[1] : "libfpv-data";
+    cfg.data_dir = argc > 1 ? argv[1] : "data";
     cfg.coords = fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1.0f);
     cfg.timing = FPV_TIMING_MANUAL; /* deterministic: we advance time with fpv_step */
     cfg.flags = FPV_INIT_NO_DEVICE_INPUT | FPV_INIT_NO_CONFIGURATOR;
