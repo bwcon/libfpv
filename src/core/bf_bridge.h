@@ -61,6 +61,8 @@ int bfb_calibrating(void);
 int bfb_yaw_motors_reversed(void);
 /* Armed in crash flip (turtle) mode: the motors spin backwards. */
 int bfb_crash_flip_active(void);
+/* The OSD DISABLE mode is on: Betaflight clears the OSD. */
+int bfb_osd_disabled(void);
 /* Calibration, RX recovery or boot grace still pending. */
 int bfb_settling(void);
 

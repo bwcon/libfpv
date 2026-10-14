@@ -26,13 +26,14 @@ int g_failures = 0, g_checks = 0;
     } while (0)
 
 // Axes: 0 roll, 1 pitch, 2 throttle, 3 yaw, 4 arm (2-pos), 5 angle (2-pos),
-// 6 beeper + turtle (3-pos: -1 off, 0 beeper, +1 turtle).
+// 6 beeper + turtle (3-pos: -1 off, 0 beeper, +1 turtle),
+// 7 air mode + OSD disable (3-pos: -1 off, 0 air mode, +1 OSD off).
 struct FakeRadio {
     RawDevice d;
     FakeRadio() {
         d.guid = "fake";
         d.name = "Fake radio";
-        d.axes = {0, 0, -1, 0, -1, -1, -1};
+        d.axes = {0, 0, -1, 0, -1, -1, -1, -1};
     }
 };
 
@@ -83,6 +84,13 @@ void testSharedThreePositionSwitch() {
     CHECK(w.detected(), "same switch in another position is detected");
     std::printf("    turtle detected as: %s\n", w.detectedLabel().c_str());
     CHECK(step(w, r), "turtle");
+    CHECK(w.step() == RadioWizard::Step::AirModeSwitch, "air mode step after turtle");
+    r.d.axes[7] = 0;  // second 3-pos switch to the middle: air mode
+    CHECK(step(w, r), "air mode");
+    w.update(r.d);
+    CHECK(!w.detected(), "air mode's position is not offered for OSD");
+    r.d.axes[7] = 1;  // all the way up: OSD disable
+    CHECK(step(w, r), "OSD disable");
     CHECK(w.step() == RadioWizard::Step::Done, "wizard done");
 
     const DeviceMapping &m = w.mapping();
@@ -95,6 +103,13 @@ void testSharedThreePositionSwitch() {
         float b = switchPosition(m, kAux3, c.raw), t = switchPosition(m, kAux4, c.raw);
         CHECK(b == c.beeper && t == c.turtle, "raw %.1f: beeper %.0f (want %.0f), turtle %.0f (want %.0f)", c.raw, b,
               c.beeper, t, c.turtle);
+    }
+    CHECK(m.channels[kAux5].axis == 7 && m.channels[kAux6].axis == 7, "air mode and OSD share axis 7: %d %d",
+          m.channels[kAux5].axis, m.channels[kAux6].axis);
+    for (auto &c : cases) {
+        float a = switchPosition(m, kAux5, c.raw), o = switchPosition(m, kAux6, c.raw);
+        CHECK(a == c.beeper && o == c.turtle, "raw %.1f: air mode %.0f (want %.0f), OSD off %.0f (want %.0f)", c.raw,
+              a, c.beeper, o, c.turtle);
     }
     // plain 2-position switches still work
     CHECK(switchPosition(m, kAux1, 1) == 1 && switchPosition(m, kAux1, -1) == -1, "arm switch");
@@ -116,8 +131,40 @@ void testMiddleOnly() {
 
 }  // namespace
 
+// The optional switches can all be skipped.
+void testSkipOptionalSwitches() {
+    FakeRadio r;
+    RadioWizard w;
+    w.start(r.d);
+    step(w, r);
+    for (int a : {2, 3, 1, 0}) {
+        r.d.axes[a] = 1;
+        step(w, r);
+        r.d.axes[a] = a == 2 ? -1 : 0;
+    }
+    for (float v : {-1.0f, 1.0f, 0.0f}) {
+        for (int a = 0; a < 4; a++) r.d.axes[a] = v;
+        w.update(r.d);
+    }
+    r.d.axes[0] = r.d.axes[1] = r.d.axes[3] = 0;
+    r.d.axes[2] = -1;
+    step(w, r);
+    r.d.axes[4] = 1;
+    CHECK(step(w, r), "arm");
+    int skipped = 0;
+    while (w.canSkip()) {
+        w.skip();
+        skipped++;
+    }
+    CHECK(skipped == 5, "angle, beeper, turtle, air mode and OSD are optional (%d skipped)", skipped);
+    CHECK(w.step() == RadioWizard::Step::Done && w.mapping().complete, "done after skipping");
+    for (int c = kAux2; c < kChannelCount; c++)
+        CHECK(w.mapping().channels[c].axis < 0 && w.mapping().channels[c].button < 0, "AUX%d unbound", c - kAux1 + 1);
+}
+
 int main() {
     testSharedThreePositionSwitch();
+    testSkipOptionalSwitches();
     testMiddleOnly();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;

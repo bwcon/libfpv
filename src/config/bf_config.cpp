@@ -60,8 +60,12 @@ int osdPos(int x, int y) { return (x & 31) | ((y & 31) << 5) | (1 << 11); }
 }  // namespace
 
 namespace {
-// FLIP OVER AFTER CRASH (turtle) on AUX4 high, in mode slot `slot`.
-std::string turtleModeLine(int slot) { return "aux " + std::to_string(slot) + " 35 3 1700 2100 0 0"; }
+// Mode `boxId` on the high position of aux channel `channel` (0 = AUX1), in
+// mode slot `slot`.
+std::string modeLine(int slot, ModeSwitch m) {
+    return "aux " + std::to_string(slot) + " " + std::to_string(m.boxId) + " " + std::to_string(m.channel) +
+           " 1700 2100 0 0";
+}
 }  // namespace
 
 std::string betaflightBaseDefaults() {
@@ -77,7 +81,9 @@ std::string betaflightFirstRunScript() {
     s << betaflightBaseDefaults();
     s << "aux 1 1 1 1700 2100 0 0\n";   // ANGLE on AUX2 high
     s << "aux 2 13 2 1700 2100 0 0\n";  // BEEPER on AUX3 high
-    s << turtleModeLine(3) << "\n";      // FLIP OVER AFTER CRASH on AUX4 high
+    s << modeLine(3, kTurtleSwitch) << "\n";   // FLIP OVER AFTER CRASH on AUX4 high
+    s << modeLine(4, kAirModeSwitch) << "\n";  // AIR MODE on AUX5 high
+    s << modeLine(5, kOsdSwitch) << "\n";      // OSD DISABLE on AUX6 high
     s << "set crashflip_rate = 30\n";   // turtle cuts power past ~90 deg and fast spins
     s << "set osd_avg_cell_voltage_pos = " << osdPos(1, 14) << "\n";
     s << "set osd_vbat_pos = " << osdPos(1, 13) << "\n";
@@ -95,18 +101,35 @@ std::string betaflightFirstRunScript() {
     return s.str();
 }
 
-std::string betaflightTurtleMigration(const std::string &auxDump) {
-    int freeSlot = -1;
+std::string betaflightSwitchMigration(const std::string &auxDump, const std::vector<ModeSwitch> &modes) {
+    struct Slot {
+        int slot, mode, channel;
+        bool used;
+    };
+    std::vector<Slot> slots;
     for (const std::string &raw : splitLines(auxDump)) {
         std::vector<std::string> w = splitWords(trim(raw));
         if (w.size() < 6 || w[0] != "aux") continue;
-        int slot = std::atoi(w[1].c_str()), mode = std::atoi(w[2].c_str()), ch = std::atoi(w[3].c_str());
         int start = std::atoi(w[4].c_str()), end = std::atoi(w[5].c_str());
-        bool used = start < end;
-        if (used && (mode == 35 || ch == 3)) return "";  // turtle set up already, or AUX4 taken
-        if (!used && freeSlot < 0) freeSlot = slot;
+        Slot s{std::atoi(w[1].c_str()), std::atoi(w[2].c_str()), std::atoi(w[3].c_str()), start < end};
+        // a later line for the same slot (a script run after the dump) wins
+        auto it = std::find_if(slots.begin(), slots.end(), [&](const Slot &o) { return o.slot == s.slot; });
+        if (it != slots.end()) *it = s;
+        else slots.push_back(s);
     }
-    return freeSlot < 0 ? "" : turtleModeLine(freeSlot) + "\n";
+    std::string out;
+    for (const ModeSwitch &m : modes) {
+        bool taken = false;  // the mode is set up already, or its channel is used
+        for (const Slot &s : slots) taken |= s.used && (s.mode == m.boxId || s.channel == m.channel);
+        if (taken) continue;
+        for (Slot &s : slots) {
+            if (s.used) continue;
+            s = {s.slot, m.boxId, m.channel, true};
+            out += modeLine(s.slot, m) + "\n";
+            break;
+        }
+    }
+    return out;
 }
 
 CliFilterResult filterCliCommands(const std::string &commands) {
@@ -348,7 +371,7 @@ DiffImport buildDiffImport(const std::string &diffText) {
         body.push_back(line);
     }
 
-    // --- modes: ARM -> AUX1, other used channels -> AUX2..AUX4 ---------------
+    // --- modes: ARM -> AUX1, other used channels -> AUX2..AUX6 ---------------
     int armChannel = -1;
     for (auto &a : auxLines) {
         if (a.mode == 0 && a.start < a.end && !(a.start == 900 && a.end == 900)) {
@@ -365,9 +388,9 @@ DiffImport buildDiffImport(const std::string &diffText) {
         if (a.mode == 0) continue;
         if (a.start >= a.end || (a.start == 900 && a.end == 900)) continue;  // unused slot
         if (channelMap.find(a.channel) == channelMap.end()) {
-            if (nextAux > 3) {
+            if (nextAux > 5) {
                 imp.skipped.push_back(a.original + "  -> " + betaflightModeName(a.mode) +
-                                      ": more switches than AUX2-AUX4 available");
+                                      ": more switches than AUX2-AUX6 available");
                 continue;
             }
             channelMap[a.channel] = nextAux++;

@@ -47,7 +47,7 @@ void InputManager::stopDevices() {
 
 void InputManager::setHostChannels(const float *ch, uint32_t count, double wallTime) {
     std::lock_guard<std::mutex> lock(m_mutex);
-    for (uint32_t i = 0; i < 8; i++) m_host[i] = (i < count && std::isfinite(ch[i])) ? std::clamp(ch[i], -1.0f, 1.0f) : (i == 2 || i >= 4 ? -1.0f : 0.0f);
+    for (uint32_t i = 0; i < kChannelCount; i++) m_host[i] = (i < count && std::isfinite(ch[i])) ? std::clamp(ch[i], -1.0f, 1.0f) : (i == 2 || i >= 4 ? -1.0f : 0.0f);
     m_hostTime = wallTime;
 }
 
@@ -77,7 +77,7 @@ void InputManager::loadMappings() {
             m.name = jm.value("name", "");
             m.complete = jm.value("complete", false);
             auto &chs = jm.at("channels");
-            for (size_t i = 0; i < 8 && i < chs.size(); i++) {
+            for (size_t i = 0; i < (size_t)kChannelCount && i < chs.size(); i++) {
                 ChannelBinding &b = m.channels[i];
                 b.axis = chs[i].value("axis", -1);
                 b.button = chs[i].value("button", -1);
@@ -157,8 +157,8 @@ static float applyCalibration(const ChannelBinding &b, float raw) {
     return b.inverted ? -v : v;
 }
 
-bool InputManager::mapRadio(const RawDevice &d, const DeviceMapping &m, float out[8]) {
-    for (int c = 0; c < 8; c++) {
+bool InputManager::mapRadio(const RawDevice &d, const DeviceMapping &m, float out[kChannelCount]) {
+    for (int c = 0; c < kChannelCount; c++) {
         const ChannelBinding &b = m.channels[c];
         float v = (c == kThrottle || c >= kAux1) ? -1.0f : 0.0f;
         if (b.axis >= 0 && b.axis < (int)d.axes.size()) {
@@ -179,7 +179,7 @@ static float deadband(float v, float db) {
 
 // Gamepad (degraded): mode 2 sticks, throttle from the left stick where the
 // centre is idle, A toggles arm, Y toggles turtle, ANGLE mode on (AUX2 high).
-void InputManager::mapGamepad(const RawDevice &d, float dt, float out[8]) {
+void InputManager::mapGamepad(const RawDevice &d, float dt, float out[kChannelCount]) {
     (void)dt;
     const float db = 0.08f;
     float thr = std::max(0.0f, deadband(-d.pad[1], db));
@@ -201,7 +201,7 @@ void InputManager::mapGamepad(const RawDevice &d, float dt, float out[8]) {
 
 // Keyboard (degraded): W/S throttle, A/D yaw, arrows pitch/roll, Enter arms,
 // T toggles turtle, ANGLE mode on.
-void InputManager::mapKeyboard(float dt, float out[8]) {
+void InputManager::mapKeyboard(float dt, float out[kChannelCount]) {
     auto k = [&](int code) { return m_keys[code]; };
     float thrRate = 1.2f;
     if (k('W')) m_kbThrottle += thrRate * dt;
@@ -226,18 +226,18 @@ void InputManager::mapKeyboard(float dt, float out[8]) {
     out[kAux4] = m_kbTurtle ? 1.0f : -1.0f;
 }
 
-void InputManager::update(double wallTime, float dt, float out[8], bool &radioLost) {
+void InputManager::update(double wallTime, float dt, float out[kChannelCount], bool &radioLost) {
     std::lock_guard<std::mutex> lock(m_mutex);
     radioLost = false;
     if (m_backend) m_backend->poll(m_devices);
 
     InputStatus st;
     st.deviceCount = (int)m_devices.size();
-    float ch[8] = {0, 0, -1, 0, -1, -1, -1, -1};
+    float ch[kChannelCount] = {0, 0, -1, 0, -1, -1, -1, -1, -1, -1};
 
     // Host channels win while fresh.
     if (wallTime - m_hostTime < 0.5) {
-        std::copy(m_host, m_host + 8, ch);
+        std::copy(m_host, m_host + kChannelCount, ch);
         st.source = InputSource::Host;
         st.deviceName = "host";
     } else {
@@ -271,7 +271,7 @@ void InputManager::update(double wallTime, float dt, float out[8], bool &radioLo
                 // The radio that was flying disappeared: let Betaflight
                 // failsafe, exactly like a real receiver losing link.
                 radioLost = true;
-                std::copy(m_lastOut, m_lastOut + 8, ch);
+                std::copy(m_lastOut, m_lastOut + kChannelCount, ch);
                 st.source = InputSource::Radio;
                 st.deviceName = "radio disconnected";
             } else if (pad) {
@@ -295,8 +295,8 @@ void InputManager::update(double wallTime, float dt, float out[8], bool &radioLo
         ch[kThrottle] = -1;
         ch[kAux1] = -1;
     }
-    std::copy(ch, ch + 8, out);
-    if (!radioLost) std::copy(ch, ch + 8, m_lastOut);
+    std::copy(ch, ch + kChannelCount, out);
+    if (!radioLost) std::copy(ch, ch + kChannelCount, m_lastOut);
     m_status = st;
 }
 

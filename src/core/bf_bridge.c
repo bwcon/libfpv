@@ -21,6 +21,7 @@
 #include "fc/controlrate_profile.h"
 #include "fc/core.h"
 #include "fc/rc_controls.h"
+#include "fc/rc_modes.h"
 #include "fc/runtime_config.h"
 #include "flight/failsafe.h"
 #include "flight/mixer.h"
@@ -291,6 +292,11 @@ int bfb_crash_flip_active(void)
 {
     /* on a real quad, disarming sends the ESCs back to normal direction */
     return ARMING_FLAG(ARMED) && isCrashFlipModeActive();
+}
+
+int bfb_osd_disabled(void)
+{
+    return IS_RC_MODE_ACTIVE(BOXOSD) ? 1 : 0;
 }
 
 int bfb_calibrating(void)

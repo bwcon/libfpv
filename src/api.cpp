@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <iterator>
 
 #include "config/bf_config.h"
 #include "core/bf_bridge.h"
@@ -120,9 +121,11 @@ int runCli(const std::string &script, std::string &output) {
     return rc;
 }
 
-// One-time upgrades of EEPROMs made by older libfpv versions are recorded
-// in a file next to the EEPROM, so a player's later edits are never undone.
-static const char kEepromUpgrade[] = "turtle-2";
+// One-time upgrades of EEPROMs made by older libfpv versions, in order. The
+// last one applied is recorded in a file next to the EEPROM, so a player's
+// later edits are never undone.
+static const char *const kEepromUpgrades[] = {"turtle-2", "air-osd-3"};
+static const char *const kEepromUpgrade = kEepromUpgrades[std::size(kEepromUpgrades) - 1];
 static fs::path upgradeMarker(const std::string &eeprom) { return pathFromUtf8(eeprom + ".upgrade"); }
 
 // libfpv's first-run configuration plus the preset's own tune, applied to
@@ -166,19 +169,32 @@ static void ensureEssentials() {
     }
     if (!bfb_gps_running()) bfb_reboot();
 
-    // turtle mode (D21): the AUX4 switch and the crash flip cut-off
     std::string done;
     readTextFile(upgradeMarker(g_activeEeprom), done);
-    if (done == kEepromUpgrade) return;
+    size_t next = 0;  // first upgrade not applied yet
+    for (size_t i = 0; i < std::size(kEepromUpgrades); i++)
+        if (done == kEepromUpgrades[i]) next = i + 1;
+    if (next == std::size(kEepromUpgrades)) return;
     bfb_cli_run("aux", &o);
-    std::string script = betaflightTurtleMigration(o ? o : "");
+    std::string aux = o ? o : "";
     bfb_free(o);
-    bfb_cli_run("get crashflip_rate", &o);
-    const char *rate = o ? std::strstr(o, "crashflip_rate = ") : nullptr;
-    if (rate && std::atoi(rate + 17) == 0) script += "set crashflip_rate = 30\n";
-    bfb_free(o);
+    std::string script;
+    if (next == 0) {
+        // turtle mode (D21): the AUX4 switch and the crash flip cut-off
+        script += betaflightSwitchMigration(aux, {kTurtleSwitch});
+        bfb_cli_run("get crashflip_rate", &o);
+        const char *rate = o ? std::strstr(o, "crashflip_rate = ") : nullptr;
+        if (rate && std::atoi(rate + 17) == 0) script += "set crashflip_rate = 30\n";
+        bfb_free(o);
+    }
+    if (next <= 1) {
+        // the air mode (AUX5) and OSD disable (AUX6) switches (D23); after
+        // the turtle line, so they never take the slot it was given
+        aux += script;
+        script += betaflightSwitchMigration(aux, {kAirModeSwitch, kOsdSwitch});
+    }
     if (!script.empty()) {
-        FPV_LOGI("upgrading Betaflight configuration for turtle mode");
+        FPV_LOGI("upgrading Betaflight configuration for new mode switches");
         bfb_cli_run((script + "save noreboot").c_str(), &o);
         bfb_free(o);
     }
@@ -246,7 +262,7 @@ static bool materializePresets(std::string &error) {
 static void warmUpBetaflight() {
     Lib &L = lib();
     const float dt = 1.0f / std::max(200.0f, L.config.sim_rate_hz);
-    const float idle[8] = {0, 0, -1, 0, -1, -1, -1, -1};
+    const float idle[kChannelCount] = {0, 0, -1, 0, -1, -1, -1, -1, -1, -1};
     double t0 = wallSeconds();
     int steps = 0;
     // the flag only appears once the scheduler ran, so always run 0.5 s first

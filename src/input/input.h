@@ -1,5 +1,5 @@
 // libfpv - input manager: radios, gamepads, keyboard fallback and host
-// channels, mapped to Betaflight's AETR + AUX1..4.
+// channels, mapped to Betaflight's AETR + AUX1..6.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
@@ -18,7 +18,8 @@ namespace fpv {
 enum class InputSource { None = 0, Radio = 1, Gamepad = 2, Keyboard = 3, Host = 4 };
 
 // Channel indices as Betaflight sees them (default map AETR1234).
-enum Channel { kRoll = 0, kPitch = 1, kThrottle = 2, kYaw = 3, kAux1 = 4, kAux2 = 5, kAux3 = 6, kAux4 = 7 };
+enum Channel { kRoll = 0, kPitch = 1, kThrottle = 2, kYaw = 3, kAux1 = 4, kAux2 = 5, kAux3 = 6, kAux4 = 7, kAux5 = 8, kAux6 = 9 };
+constexpr int kChannelCount = 10;
 
 // Mapping of one raw device axis/button to a channel.
 struct ChannelBinding {
@@ -36,7 +37,7 @@ struct ChannelBinding {
 struct DeviceMapping {
     std::string guid;
     std::string name;
-    std::array<ChannelBinding, 8> channels{};
+    std::array<ChannelBinding, kChannelCount> channels{};
     bool complete = false;
 };
 
@@ -47,7 +48,7 @@ inline float switchPosition(const DeviceMapping &m, int c, float raw) {
     const ChannelBinding &b = m.channels[c];
     float on = b.switchOn();
     float nearest = std::fabs(b.switchOff() - on);
-    for (int o = kAux1; o < 8; o++) {
+    for (int o = kAux1; o < kChannelCount; o++) {
         const ChannelBinding &ob = m.channels[o];
         if (o == c || ob.axis != b.axis) continue;
         float d = std::fabs(ob.switchOn() - on);
@@ -106,7 +107,7 @@ public:
     // --- simulation thread ----------------------------------------------
     // Polls devices and produces Betaflight channels. `radioLost` is true
     // when the active radio disappeared while it was the input source.
-    void update(double wallTime, float dt, float out[8], bool &radioLost);
+    void update(double wallTime, float dt, float out[kChannelCount], bool &radioLost);
 
     // After the radio vanished, failsafe holds until Betaflight disarmed;
     // then other sources (gamepad, keyboard) may take over.
@@ -124,9 +125,9 @@ public:
 private:
     void loadMappings();
     void saveMappings();
-    bool mapRadio(const RawDevice &d, const DeviceMapping &m, float out[8]);
-    void mapGamepad(const RawDevice &d, float dt, float out[8]);
-    void mapKeyboard(float dt, float out[8]);
+    bool mapRadio(const RawDevice &d, const DeviceMapping &m, float out[kChannelCount]);
+    void mapGamepad(const RawDevice &d, float dt, float out[kChannelCount]);
+    void mapKeyboard(float dt, float out[kChannelCount]);
 
     std::mutex m_mutex;
     std::string m_dataDir;
@@ -134,7 +135,7 @@ private:
     std::vector<RawDevice> m_devices;
     std::vector<DeviceMapping> m_mappings;
 
-    float m_host[8] = {0, 0, -1, 0, -1, -1, -1, -1};
+    float m_host[kChannelCount] = {0, 0, -1, 0, -1, -1, -1, -1, -1, -1};
     double m_hostTime = -1e9;
     std::array<bool, 512> m_keys{};
     std::atomic<bool> m_keyboardEnabled{true};
@@ -146,7 +147,7 @@ private:
     bool m_kbTurtle = false, m_kbTurtleKeyPrev = false;
     bool m_padArmed = false, m_padArmPrev = false;
     bool m_padTurtle = false, m_padTurtlePrev = false;
-    float m_lastOut[8] = {0, 0, -1, 0, -1, -1, -1, -1};
+    float m_lastOut[kChannelCount] = {0, 0, -1, 0, -1, -1, -1, -1, -1, -1};
 
     InputStatus m_status;
     std::string m_activeGuid;
