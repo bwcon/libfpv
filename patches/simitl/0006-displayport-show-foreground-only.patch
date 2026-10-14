@@ -1,0 +1,25 @@
+diff --git a/extern/betaflightext/src/main/io/displayport_fake.c b/extern/betaflightext/src/main/io/displayport_fake.c
+index df9070e..06842d7 100644
+--- a/extern/betaflightext/src/main/io/displayport_fake.c
++++ b/extern/betaflightext/src/main/io/displayport_fake.c
+@@ -63,15 +63,11 @@ static int clearScreen(displayPort_t *displayPort, displayClearOption_e options)
+ static bool drawScreen(displayPort_t *displayPort) {
+     UNUSED(displayPort);
+     //printf("drawScreen\n");
+-    memcpy(osdBackBuffer, osdBackground, 16 * 30);
+-    uint8_t * sourceBuffer = (uint8_t*)osdForeground;
+-    uint8_t * targetBuffer = (uint8_t*)osdBackBuffer;
+-    for (int i = 0; i < (VIDEO_LINES * CHARS_PER_LINE); i++) {
+-      if(sourceBuffer[i] != 0){
+-        targetBuffer[i] =  sourceBuffer[i];
+-      }
+-    }
+-    memcpy(osdScreen, osdBackBuffer, 16 * 30);
++    // Show the foreground only. The background layer is a cache Betaflight
++    // copies onto the foreground at the start of each normal OSD frame;
++    // compositing it here too would keep the static element text on top of
++    // the stats screen, the ARMED message and the CMS menus.
++    memcpy(osdScreen, osdForeground, 16 * 30);
+     return false;
+ }
+ 
