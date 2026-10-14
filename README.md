@@ -171,6 +171,8 @@ fpv_global_terminate();                       // on unload / exit
   renderer for the OSD and the overlay.
 - `examples/standalone/main.cpp`: a complete integration, with a comment at
   the top listing every hook in order.
+- `docs/PUBLISHING.md`: releasing a finished mod so players only download
+  one ZIP (automatic builds, the install page, licensing).
 - `docs/DECISIONS.md`: why things are the way they are.
 
 ## Repository layout
