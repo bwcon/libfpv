@@ -187,4 +187,5 @@ cmake/        core build, file embedding, toolchains, symbol export lists
 ## License
 
 GPL-3.0-or-later. libfpv embeds Betaflight, so any mod or program that links
-it must be distributed under GPL-3.0-compatible terms.
+it must be distributed under GPL-3.0-compatible terms. See [LICENSE](LICENSE)
+for the full text.
