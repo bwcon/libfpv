@@ -49,6 +49,65 @@ aspect. When the slider is at 0, the preset's own `camera.k1` / `k2` / `zoom`
 are used (normally none). A game that skips the post-process still works, but
 shows a slightly wider, undistorted view.
 
+## GPS and the home point
+
+Every simulated quad has a GPS and a barometer, so Betaflight's GPS OSD
+elements work with no work from the game: speed, home arrow, home
+distance, distance flown, altitude, vario, efficiency (mAh/km), their
+post-flight statistics and the GPS lap timer. GPS Rescue works too, if the
+player sets it up in the Configurator. Players turn the elements on in
+the Configurator's OSD tab, like on a real quad.
+
+Not supported, because a game world has no real place on earth: latitude,
+longitude and plus code (the world sits at 0° N 0° E). The satellite
+count always shows 12.
+
+### Which way is north
+
+North is the host's `forward` axis and east is its `right` axis, as given
+in `fpv_global_config.coords`. The heading number and compass bar use the
+same directions as the GPS, so the home arrow is right whatever you pick.
+Only the absolute heading depends on it. If the game's map has north along
+another axis, choose `coords` so that `forward` points north (GTA IV:
+`forward` = +Y, north). libfpv has no separate "north" setting.
+
+### Telling libfpv where home is
+
+By default home is Betaflight's: the point where the drone last armed, as
+on a real quad. That is already right for a pilot who arms the quad at
+their feet. To set home yourself, pass a position in host coordinates:
+
+```c
+float home[3] = { x, y, z };       /* host coords and units, like everything else */
+fpv_gps_set_home(home);            /* home arrow, home distance, GPS Rescue */
+fpv_gps_set_home(NULL);            /* back to Betaflight: the next arming point */
+```
+
+- The home stays until you change it: across disarm and re-arm,
+  `fpv_drone_delete` / `fpv_drone_create` and preset changes. Arming no
+  longer moves it.
+- It is cheap and doesn't wait for the simulation thread, so a moving home
+  (a pilot walking, a car, a boat) can be set every frame from the game
+  thread. Any thread is fine, after `fpv_global_init`.
+- Pick what "home" means in your game:
+  - **The pilot.** If the game has a character who flies the drone, pass
+    the character's position (the same point you would give as
+    `fpv_drone_desc.pilot_position`). The arrow then always leads back to
+    them, even if they walk away from the take-off spot.
+  - **A landing pad or base.** Pass it once, after `fpv_drone_create`
+    (examples/standalone sets its launch pad).
+  - **Nothing.** Leave it alone. Respawning (`fpv_drone_reset`) does not
+    move home, but re-arming does.
+- Altitude and the vario are relative to where the drone armed, not to
+  home, as in Betaflight. GPS Rescue's climb and descent use that same
+  zero.
+- Moving the drone with `fpv_drone_reset` while it flies can add the jump
+  to "distance flown", as carrying an armed quad would.
+
+On the OSD, values update a few times a second and altitude trails the
+drone by up to about a second (DECISIONS D22). Don't build gameplay on
+reading them back; use `fpv_frame` (position, speed, altitude) instead.
+
 ## Lessons from real integrations
 
 These notes come from integrating libfpv into GTA IV

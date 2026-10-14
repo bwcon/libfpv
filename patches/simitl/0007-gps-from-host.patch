@@ -1,0 +1,13 @@
+diff --git a/src/sim/bf.cpp b/src/sim/bf.cpp
+--- a/src/sim/bf.cpp
++++ b/src/sim/bf.cpp
+@@ -138,7 +138,8 @@
+       
+       updateBattery(simState);
+       updateGyroAcc(simState);
+-      updateGps(simState);
++      // GPS comes from libfpv through Betaflight's virtual GPS provider
++      // (bfb_gps_update); writing gpsSol here would fight it.
+ 
+       if (BF::sleep_timer > 0) {
+         BF::sleep_timer -= dt;

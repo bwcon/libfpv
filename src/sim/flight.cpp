@@ -338,6 +338,12 @@ void Flight::updateVideo() {
     m_snap.videoSignal = std::clamp(1.0f - noise, 0.0f, 1.0f);
 }
 
+void Flight::setHome(const Vec3 *home) {
+    std::lock_guard<std::mutex> lock(m_homeMutex);
+    m_hasHome = home != nullptr;
+    if (home) m_home = *home;
+}
+
 void Flight::step(float dt, const float channels[8], bool radioLost) {
     std::unique_lock<std::mutex> worldLock(m_world->mutex());
 
@@ -372,7 +378,16 @@ void Flight::step(float dt, const float channels[8], bool radioLost) {
         m_input.propDamage[i] = m_propDamage[i];
     }
 
+    // internal X right, Y up, Z forward = east, up, north
+    bfb_gps_update(m_pos.x, m_pos.z, m_pos.y, m_vel.x, m_vel.z, m_vel.y);
+    bfb_baro_update(m_pos.y);
+
     simitl_update(m_input);
+    // after the update: arming inside it may have just moved home
+    {
+        std::lock_guard<std::mutex> lock(m_homeMutex);
+        if (m_hasHome) bfb_gps_set_home(m_home.x, m_home.z, m_home.y);
+    }
     const StateOutput &out = SimITL::Sim::getInstance().getStateUpdate();
 
     // --- integrate pose with collisions -----------------------------------
