@@ -4,6 +4,10 @@
 
 *(example with [sm64ex-fpv](https://github.com/hammerill/sm64ex-fpv))*
 
+![GTA IV FPV](gtaiv-fpv.gif)
+
+*(another one with [gtaiv-fpv](https://github.com/hammerill/gtaiv-fpv))*
+
 A drop-in FPV quadcopter for any game. libfpv runs real Betaflight firmware
 (through [SimITL](https://github.com/AJ92/SimITL)) on its own 1 kHz
 simulation thread, reads the player's radio or gamepad, and gives the game
