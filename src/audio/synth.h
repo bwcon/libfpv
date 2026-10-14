@@ -30,7 +30,7 @@ private:
     std::mutex m_mutex;  // short critical sections only (parameter copy)
     AudioParams m_target, m_cur;
     uint32_t m_rate = 48000, m_channels = 2;
-    float m_volume = 0.6f;
+    float m_volume = 0.15f;
     double m_phase[4] = {0, 0, 0, 0};
     double m_whine[4] = {0, 0, 0, 0};
     double m_wobble[4] = {0, 0, 0, 0};
