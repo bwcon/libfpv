@@ -1,10 +1,12 @@
-# libfpv
+<p><img src="docs/img/libfpv-logo.svg" alt="libfpv" width=250></p>
 
-![SM64 FPV](sm64-fpv.gif)
+# Turn any game into an FPV sim
+
+![SM64 FPV](./docs/img/sm64-fpv.gif)
 
 *(example with [sm64ex-fpv](https://github.com/hammerill/sm64ex-fpv))*
 
-![GTA IV FPV](gtaiv-fpv.gif)
+![GTA IV FPV](./docs/img/gtaiv-fpv.gif)
 
 *(another one with [gtaiv-fpv](https://github.com/hammerill/gtaiv-fpv))*
 
