@@ -1,0 +1,39 @@
+diff --git a/src/main/flight/position.c b/src/main/flight/position.c
+--- a/src/main/flight/position.c
++++ b/src/main/flight/position.c
+@@ -31,6 +31,8 @@
+ #include "common/maths.h"
+ #include "common/filter.h"
+ 
++#include "drivers/time.h"
++
+ #include "fc/runtime_config.h"
+ 
+ #include "flight/position.h"
+@@ -98,6 +100,17 @@
+     static float baroAltOffsetCm = 0.0f;
+     static float newBaroAltOffsetCm = 0.0f;
+ 
++    // Filter and differentiate over the time actually elapsed: the task can
++    // run below its nominal rate (simulators), which made the altitude lag
++    // and the vario read too high by the same factor.
++    static timeUs_t previousTimeUs = 0;
++    const timeUs_t nowUs = micros();
++    const timeDelta_t elapsedUs = previousTimeUs ? cmpTimeUs(nowUs, previousTimeUs) : 0;
++    previousTimeUs = nowUs;
++    const float sampleTimeS = (elapsedUs > 0 && elapsedUs < 1000000) ? elapsedUs * 1e-6f : HZ_TO_INTERVAL(TASK_ALTITUDE_RATE_HZ);
++    pt2FilterUpdateCutoff(&altitudeLpf, pt2FilterGain(positionConfig()->altitude_lpf / 100.0f, sampleTimeS));
++    pt2FilterUpdateCutoff(&altitudeDerivativeLpf, pt2FilterGain(positionConfig()->altitude_d_lpf / 100.0f, sampleTimeS));
++
+     float baroAltCm = 0.0f;
+     float gpsTrust = 0.3f; // if no pDOP value, use 0.3, intended range 0-1;
+     bool haveBaroAlt = false; // true if baro exists and has been calibrated on power up
+@@ -193,7 +206,7 @@
+ 
+     // *** calculate Vario signal
+     static float previousZeroedAltitudeCm = 0.0f;
+-    zeroedAltitudeDerivative = (zeroedAltitudeCm - previousZeroedAltitudeCm) * TASK_ALTITUDE_RATE_HZ; // cm/s
++    zeroedAltitudeDerivative = (zeroedAltitudeCm - previousZeroedAltitudeCm) / sampleTimeS; // cm/s
+     previousZeroedAltitudeCm = zeroedAltitudeCm;
+ 
+     zeroedAltitudeDerivative = pt2FilterApply(&altitudeDerivativeLpf, zeroedAltitudeDerivative);

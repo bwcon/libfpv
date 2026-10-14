@@ -446,6 +446,25 @@ typedef struct fpv_frame {
 FPV_API fpv_result fpv_drone_tick(fpv_drone *drone, float frame_dt, fpv_frame *frame);
 
 /* ===========================================================================
+ * GPS
+ *
+ * The drone carries a simulated GPS, so Betaflight's GPS features work:
+ * speed, home arrow and distance, distance flown, altitude, vario,
+ * efficiency, their post-flight statistics, the GPS lap timer and GPS
+ * Rescue. North is
+ * the host's forward axis and east its right axis (fpv_coord_system), for
+ * the GPS and for the heading and compass elements alike.
+ * See docs/INTEGRATION.md#gps-and-the-home-point.
+ * ======================================================================== */
+
+/* Sets the home point (host coords) that the home arrow, home distance and
+ * GPS Rescue use, for every flight until changed. It replaces the point
+ * Betaflight would set when the drone arms. NULL hands home back to
+ * Betaflight: like a real quad, home is then where the drone last armed
+ * (the default). Cheap; call it every frame if home moves. */
+FPV_API fpv_result fpv_gps_set_home(const float position[3]);
+
+/* ===========================================================================
  * Time
  * ======================================================================== */
 

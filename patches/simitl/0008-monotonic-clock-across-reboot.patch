@@ -1,0 +1,15 @@
+diff --git a/extern/betaflightext/src/main/target/simITL/target.c b/extern/betaflightext/src/main/target/simITL/target.c
+--- a/extern/betaflightext/src/main/target/simITL/target.c
++++ b/extern/betaflightext/src/main/target/simITL/target.c
+@@ -443,7 +443,10 @@
+ void systemInit(void) {
+   printf("[system] Init...\n");
+   SystemCoreClock = 500 * 1000000;  // fake 500MHz
+-  micros_passed = 0U;
++  // The clock starts at 0 once and is not reset by an in-process reboot
++  // (systemReset): Betaflight's statics survive it, and timestamps they
++  // hold would lie in the future (the virtual GPS stayed silent for as
++  // long as the uptime before the reboot).
+   sleep_timer = 0;
+   cliMode = false;
+ }

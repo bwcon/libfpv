@@ -73,6 +73,14 @@ for v1.
 * `0004-reversed-motors.patch`: `StateInput::motorsReversed` spins the
   props backwards for turtle mode (D21): thrust is negated and scaled by
   0.5 (an inverted airfoil), and the reaction torque flips sign.
+* `0007-gps-from-host.patch`: SimITL's `updateGps` wrote `gpsSol`
+  directly every step, which Betaflight's virtual GPS provider overwrote
+  with its own (empty) solution at 10 Hz. It is no longer called; libfpv
+  feeds the virtual GPS instead (D22).
+* `0008-monotonic-clock-across-reboot.patch`: `systemInit` reset the clock
+  to 0 on every in-process reboot (`systemReset`), while Betaflight's
+  statics survive it. Timestamps they hold then lay in the future: the
+  virtual GPS stayed silent for as long as the uptime before the reboot.
 
 ## Simulation
 
@@ -115,6 +123,14 @@ power-on grace (`BOOTGRACE`), and gyro calibration (`CALIB`) takes about
   mode box, arming in crash flip and its beeper/disarm handling for SITL.
   The motor reversal a DShot command would do is applied by the simulator
   (D21).
+* `0004-virtual-gps-keeps-feature.patch`: config validation turned
+  `FEATURE_GPS` off on every save and boot when no serial port has the GPS
+  function, exempting only the MSP provider. The virtual provider needs no
+  port either.
+* `0005-altitude-elapsed-time.patch`: the altitude estimate's filters and
+  the vario's derivative assumed the ALTITUDE task runs at its nominal
+  100 Hz. In the simulator it runs at about 33 Hz (D22), so altitude lagged
+  and the vario read 3× too high. Both now use the measured interval.
 
 ### D7. One EEPROM per quad preset
 
@@ -357,3 +373,51 @@ EEPROMs made before this get, once, the turtle switch on AUX4 (if there is
 no crash flip mode yet and AUX4 is free) and `crashflip_rate = 30` (if it
 is 0). A `<eeprom>.upgrade` file records that this ran, so later edits by
 the player stay.
+
+## Sensors
+
+### D22. GPS and barometer
+
+Every simulated quad has a GPS and a barometer, so Betaflight's GPS and
+altitude features work: speed, home arrow and distance, distance flown,
+altitude, vario, efficiency, their post-flight statistics, the GPS lap
+timer and GPS Rescue.
+
+* `Flight::step` feeds Betaflight's virtual GPS provider (`setVirtualGPS`,
+  the target's default) and its virtual barometer every step. Betaflight
+  samples the GPS at 10 Hz like a real module. Satellites are always 12.
+* The local frame is laid on a flat patch of earth at 0° N 0° E, with
+  internal +Z (host forward) as north and +X (host right) as east. At the
+  equator a degree of latitude and of longitude have the same length
+  (`EARTH_ANGLE_TO_CM`), so Betaflight's distance and bearing maths gives
+  exact metres. Latitude, longitude and plus code are therefore
+  meaningless and not supported.
+* Home is Betaflight's own (where the drone arms) until the host calls
+  `fpv_gps_set_home`. The host's home is re-applied after every step,
+  because arming moves it. When the arming point replaced it, the
+  distance and direction to home are recomputed at once, so the OSD never
+  shows the arming point for a GPS cycle. The value is kept behind a mutex
+  rather than a simulation-thread job, so hosts can set a moving home
+  every frame without waiting.
+* GPS is a libfpv essential, like PWM: `ensureEssentials` turns
+  `feature GPS` back on and reboots Betaflight in-process when it is not
+  running (features only apply at boot). The first-run script and every
+  import include `feature GPS`.
+* The barometer is fed too. Without it the virtual baro reads sea level,
+  and Betaflight's altitude mix, which prefers the baro when the two
+  disagree by more than 1 m, kept the altitude near 0.
+* `bfb_cli_run` calls `osdAnalyzeActiveElements` after each CLI session.
+  A real CLI `save` reboots, which rebuilds the list of elements to draw;
+  libfpv's `save noreboot` did not, so elements moved or enabled through
+  `fpv_cli_exec` stayed hidden until the next reboot.
+
+Measured limits of the simulator's scheduler: SimITL calls Betaflight's
+scheduler once per 125 µs gyro step, and each call runs at most one
+non-realtime task. RX takes about half of those slots, so low-priority
+tasks run below their rate (ALTITUDE 33 Hz instead of 100, GPS 50 instead
+of 100), and each OSD element is redrawn only about every 0.4 s. Altitude
+on the OSD trails the drone by up to about 0.9 s. Calling the scheduler
+four times per step brought every task to its rate, but it changes
+Betaflight's timing everywhere (RX then ran at 8 kHz) and was not
+evaluated beyond that, so it was not kept. Patch 0005 fixes the part that
+was wrong rather than late.

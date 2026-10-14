@@ -7,6 +7,7 @@
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -24,7 +25,13 @@
 #include "flight/failsafe.h"
 #include "flight/mixer.h"
 #include "io/beeper.h"
+#include "io/gps.h"
+#include "io/gps_virtual.h"
+#include "osd/osd.h"
+#include "drivers/barometer/barometer_virtual.h"
 #include "pg/pg.h"
+#include "scheduler/scheduler.h"
+#include "config/feature.h"
 #include "config/config_eeprom.h"
 #include "drivers/system.h"
 
@@ -142,6 +149,12 @@ int bfb_cli_run(const char *script, char **output)
         cliProcess();
     }
     free(in);
+#ifdef USE_OSD
+    /* a real CLI "save" reboots, which rebuilds the list of OSD elements to
+     * draw; "save noreboot" does not, so moved or enabled elements would
+     * stay hidden until the next reboot */
+    osdAnalyzeActiveElements();
+#endif
 
     if (!port.out) {
         port.out = (char *)calloc(1, 1);
@@ -305,4 +318,80 @@ int bfb_ws_base_port(void)
 int bfb_ws_client_count(void)
 {
     return wsGetClientCount();
+}
+
+/* ---------------------------------------------------------------------------
+ * GPS. Betaflight's virtual GPS provider (the default on this target) reads
+ * whatever setVirtualGPS() last stored, at 10 Hz like a real module. The
+ * simulator's local frame maps onto a flat patch of earth at 0 N 0 E, where
+ * a degree of latitude and of longitude are both EARTH_ANGLE_TO_CM long,
+ * so Betaflight's distance and bearing maths gives back exact metres.
+ * ------------------------------------------------------------------------- */
+
+static const double kMetresPerDegree = EARTH_ANGLE_TO_CM * GPS_DEGREES_DIVIDER / 100.0;
+
+static gpsLocation_t toLocation(float east, float north, float up)
+{
+    gpsLocation_t l;
+    l.lat = (int32_t)lrint(north / kMetresPerDegree * GPS_DEGREES_DIVIDER);
+    l.lon = (int32_t)lrint(east / kMetresPerDegree * GPS_DEGREES_DIVIDER);
+    l.altCm = (int32_t)lrintf(up * 100.0f);
+    return l;
+}
+
+int bfb_gps_configured(void)
+{
+    return featureIsConfigured(FEATURE_GPS) ? 1 : 0;
+}
+
+int bfb_gps_running(void)
+{
+    /* the feature only takes effect at (re)boot, which enables the task */
+    taskInfo_t info;
+    getTaskInfo(TASK_GPS, &info);
+    return featureIsEnabled(FEATURE_GPS) && info.isEnabled;
+}
+
+void bfb_gps_update(float east, float north, float up, float vEast, float vNorth, float vUp)
+{
+    const float ground = sqrtf(vEast * vEast + vNorth * vNorth);
+    const float speed3d = sqrtf(ground * ground + vUp * vUp);
+    float course = atan2f(vEast, vNorth) * (180.0f / 3.14159265f);
+    if (course < 0) {
+        course += 360.0f;
+    }
+    setVirtualGPS(north / kMetresPerDegree, east / kMetresPerDegree, up, ground, speed3d, course);
+}
+
+void bfb_gps_set_home(float east, float north, float up)
+{
+    const gpsLocation_t home = toLocation(east, north, up);
+    if (STATE(GPS_FIX_HOME) && GPS_home_llh.lat == home.lat && GPS_home_llh.lon == home.lon &&
+        GPS_home_llh.altCm == home.altCm) {
+        return;
+    }
+    /* first call, a new home, or Betaflight just took the arming point */
+    GPS_home_llh = home;
+    GPS_calc_longitude_scaling(home.lat);
+    ENABLE_STATE(GPS_FIX_HOME);
+    if (STATE(GPS_FIX)) {
+        /* what onGpsNewData() would show at the next fix, now, so the OSD
+         * never shows the arming point for a GPS cycle */
+        uint32_t dist;
+        int32_t dir;
+        GPS_distance_cm_bearing(&gpsSol.llh, &GPS_home_llh, false, &dist, &dir);
+        GPS_distanceToHome = dist / 100;
+        GPS_distanceToHomeCm = dist;
+        GPS_directionToHome = dir / 10;
+    }
+}
+
+/* The virtual barometer otherwise reads sea level forever, and Betaflight's
+ * altitude estimate (which mixes baro and GPS, preferring the baro when
+ * they disagree) would stay near zero. Inverse of pressureToAltitude() in
+ * sensors/barometer.c. */
+void bfb_baro_update(float up)
+{
+    const float pressure = 101325.0f * powf(1.0f - up * 100.0f / 4433000.0f, 1.0f / 0.190295f);
+    virtualBaroSet((int32_t)lrintf(pressure), 2500);
 }

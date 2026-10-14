@@ -68,6 +68,7 @@ std::string betaflightBaseDefaults() {
     return "set motor_pwm_protocol = PWM\n"
            "set pwr_on_arm_grace = 0\n"
            "feature OSD\n"
+           "feature GPS\n"
            "aux 0 0 0 1700 2100 0 0\n";
 }
 

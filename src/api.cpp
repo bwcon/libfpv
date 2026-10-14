@@ -158,6 +158,14 @@ static void ensureEssentials() {
         bfb_free(o);
     }
 
+    // the simulated GPS (D22). Features only take effect at boot.
+    if (!bfb_gps_configured()) {
+        FPV_LOGI("enabling Betaflight's GPS feature");
+        bfb_cli_run("feature GPS\nsave noreboot", &o);
+        bfb_free(o);
+    }
+    if (!bfb_gps_running()) bfb_reboot();
+
     // turtle mode (D21): the AUX4 switch and the crash flip cut-off
     std::string done;
     readTextFile(upgradeMarker(g_activeEeprom), done);
@@ -184,11 +192,8 @@ static void activateEepromFor(const DronePreset &p) {
     if (path == g_activeEeprom) return;
     g_activeEeprom = path;
     int existed = bfb_switch_eeprom(path.c_str());
-    if (existed == 0) {
-        applyFirstRunConfig(p);
-    } else {
-        ensureEssentials();
-    }
+    if (existed == 0) applyFirstRunConfig(p);
+    ensureEssentials();
     warmUpBetaflight();  // reading an EEPROM suspends RX briefly
 }
 
@@ -410,7 +415,7 @@ FPV_API fpv_result fpv_global_init(const fpv_global_config *cfgIn) {
         L.flight.initBetaflight(eeprom, preset);
         g_activeEeprom = eeprom;
         if (fresh) applyFirstRunConfig(preset);
-        else ensureEssentials();
+        ensureEssentials();
         L.flight.applyPreset(preset);
         warmUpBetaflight();
     } else {
@@ -673,6 +678,20 @@ FPV_API fpv_result fpv_drone_set_preset(fpv_drone *d, const char *preset) {
     REQUIRE_DRONE(d);
     if (!preset) return setError(FPV_ERROR_INVALID_ARGUMENT, "preset is NULL");
     return selectPreset(preset, true);
+}
+
+// --- GPS -------------------------------------------------------------------------
+
+FPV_API fpv_result fpv_gps_set_home(const float position[3]) {
+    REQUIRE_INIT();
+    if (!position) {
+        L.flight.setHome(nullptr);
+        return FPV_OK;
+    }
+    Vec3 home = L.conv.posToInternal({position[0], position[1], position[2]});
+    if (!finite(home)) return setError(FPV_ERROR_INVALID_ARGUMENT, "home position is not finite");
+    L.flight.setHome(&home);
+    return FPV_OK;
 }
 
 // --- time ------------------------------------------------------------------------

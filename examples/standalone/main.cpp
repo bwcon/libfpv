@@ -6,6 +6,7 @@
 //   2. fpv_static_surfaces_load              level collision
 //      fpv_surface_object_create/move        the moving platform
 //   3. fpv_drone_create                      spawn
+//      fpv_gps_set_home                      the launch pad is GPS home
 //   4. every frame: fpv_drone_tick           pose + camera + OSD + impacts
 //      place the game camera at frame.camera (or chase/LOS)
 //      draw the drone at frame.position/rotation, props by frame.motors[].rpm
@@ -430,6 +431,9 @@ int main(int argc, char **argv) {
         std::fprintf(stderr, "drone: %s\n", fpv_last_error());
         return 1;
     }
+    // the home arrow and distance point at the launch pad, wherever the drone
+    // is armed (without this, home is where it last armed)
+    fpv_gps_set_home(dd.position);
     fpv_frame frame;
     std::memset(&frame, 0, sizeof frame);
     frame.struct_size = sizeof frame;

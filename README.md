@@ -29,6 +29,9 @@ engine or mod loader.
   CLI is available in-process, and `diff all` from a real quad can be imported.
 - **Physics presets.** Frame, motor, propeller, battery, VTX and camera are
   set in JSON presets (`assets/presets/`), with a separate EEPROM for each quad.
+- **GPS.** A simulated GPS and barometer drive Betaflight's speed, home
+  arrow and distance, altitude, vario and distance-flown elements. The game
+  can set where home is with `fpv_gps_set_home`.
 - **Collisions.** The game provides static meshes, moving objects or a
   raycast callback, and libfpv reports impacts and prop damage.
 - **Input.** Radios and gamepads are read through an embedded, hidden SDL3,

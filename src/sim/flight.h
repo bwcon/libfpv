@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -74,6 +75,10 @@ public:
     // Impacts accumulated since the last call.
     void takeImpacts(std::vector<ImpactEvent> &out);
 
+    // GPS home point (internal frame). Without one, Betaflight sets home
+    // where the drone arms. Any thread.
+    void setHome(const Vec3 *home);
+
     double simTime() const { return m_simTime; }
     Vec3 pilotPosition() const { return m_pilotPos; }
     // Lowest point of the collision shape below the centre of mass (metres).
@@ -110,6 +115,9 @@ private:
     double m_lastGroundContact = -1;
     double m_lastMotorStrike[5] = {-1, -1, -1, -1, -1};
     Vec3 m_pilotPos;
+    std::mutex m_homeMutex;
+    bool m_hasHome = false;
+    Vec3 m_home;
 
     StateInput m_input{};
     std::vector<Contact> m_contacts;

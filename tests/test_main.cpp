@@ -5,6 +5,7 @@
 // Timing is FPV_TIMING_MANUAL, so every test is deterministic.
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -309,6 +310,13 @@ void testEepromUpgrade() {
     activate(other.c_str());
     activate(first.c_str());
     CHECK(cli("aux").find("aux 3 35 3") == std::string::npos, "removed turtle switch stays removed");
+    // the simulated GPS is always on (D22)
+    cli("feature -GPS\nsave");
+    activate(other.c_str());
+    activate(first.c_str());
+    std::string features = cli("feature");
+    features = features.substr(0, features.find('\n'));
+    CHECK(features.find("GPS") != std::string::npos, "GPS feature restored: %s", features.c_str());
 }
 
 void testSecondDroneRejected() {
@@ -462,7 +470,9 @@ void testWallCrash() {
             impactSpeed = std::max(impactSpeed, s.f.impacts[i].speed);
         }
         maxSpeed = std::max(maxSpeed, s.f.speed_kmh / 3.6f);
-        maxFwd = std::max(maxFwd, h.fwd(s.f.position));
+        // a drone that survives the hit may fly around the wall (100 x 60 m)
+        if (std::fabs(h.right(s.f.position)) < 49 && h.up(s.f.position) < 59)
+            maxFwd = std::max(maxFwd, h.fwd(s.f.position));
     });
     std::printf("    wall: max speed %.1f m/s, impact speed %.1f m/s, closest %.3f m before the wall\n", maxSpeed,
                 impactSpeed, 40.0f - maxFwd);
@@ -778,6 +788,135 @@ void testThreadedMode() {
     fpv_global_terminate();
 }
 
+// GPS OSD elements, read off the OSD grid: home distance and arrow, heading,
+// speed, distance flown, altitude and vario, with Betaflight's home (where it armed)
+// and with the host's (fpv_gps_set_home). North is the host's forward axis.
+void testGps() {
+    Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    fpv_global_terminate();  // earlier tests may have left another convention
+    init(h.cs);
+    loadWorld(makeLevel(h, 300, 0));
+    Session s;
+    // the element at row `row` (column 1): its first character and its
+    // number ("12.5" for altitude and vario), -1 when there is none
+    auto cell = [&](int row) { return s.f.osd[row * FPV_OSD_COLS + 1]; };
+    auto number = [&](int row) {
+        std::string digits;
+        for (int x = 1; x < 12; x++) {
+            uint8_t c = s.f.osd[row * FPV_OSD_COLS + x];
+            if ((c >= '0' && c <= '9') || (c == '.' && !digits.empty())) digits += (char)c;
+            else if (!digits.empty()) break;
+        }
+        return digits.empty() ? -1.0f : (float)std::atof(digits.c_str());
+    };
+    // Betaflight's 16 arrows (SYM_ARROW_SOUTH = 0x60 onwards) as a bearing
+    // relative to the nose: 0 = ahead, 4 = right, 8 = behind
+    auto arrow = [&](int row) { return (24 - (cell(row) - 0x60)) % 16; };
+    auto arrowFor = [](float relDeg) { return (int)std::lround(std::fmod(relDeg + 720.0f, 360.0f) / 22.5f) % 16; };
+    auto arrowNear = [](int a, int b) { int d = std::abs(a - b) % 16; return std::min(d, 16 - d) <= 1; };
+    // arms and waits out Betaflight's ARMED splash, which hides the elements
+    auto armAndShow = [&] {
+        s.rc.ch[4] = -1;
+        s.run(0.3f);
+        s.arm();
+        s.run(1.8f);
+    };
+
+    float p[3];
+    h.pos(0, 0, 0, p);
+    s.spawn(p);  // first: each preset has its own Betaflight configuration
+    auto osdPos = [](int x, int y) { return (x & 31) | ((y & 31) << 5) | (1 << 11); };
+    std::string cmd;
+    const char *elements[] = {"home_dist", "home_dir", "nheading", "altitude", "gps_speed", "flight_dist", "nvario"};
+    for (int i = 0; i < 7; i++) cmd += "set osd_" + std::string(elements[i]) + "_pos = " + std::to_string(osdPos(1, 3 + i)) + "\n";
+    char *out = nullptr;
+    CHECK(fpv_cli_exec((cmd + "save").c_str(), &out) == FPV_OK, "osd setup: %s", fpv_last_error());
+    fpv_free(out);
+
+    armAndShow();
+    CHECK(s.armed(), "armed");
+    CHECK(number(3) == 0, "home distance %g m at the arming point", number(3));
+
+    // 30 m east, 40 m north, 10 m up of the arming point, facing north
+    h.pos(30, 10, 40, p);
+    fpv_drone_reset(s.drone, p, nullptr);
+    s.run(0.5f);
+    std::printf("    Betaflight home: %g m, arrow %d, heading %g\n", number(3), arrow(4), number(5));
+    CHECK(std::fabs(number(3) - 50) <= 1, "home distance %g m, expected 50", number(3));
+    CHECK(arrowNear(arrow(4), arrowFor(216.9f)), "home arrow %d, expected south-west (%d)", arrow(4), arrowFor(216.9f));
+    CHECK(number(5) == 0 || number(5) == 359, "heading %g facing north (host forward)", number(5));
+
+    // host home 100 m north of the origin; turn to face east
+    h.pos(0, 0, 100, p);
+    CHECK(fpv_gps_set_home(p) == FPV_OK, "set home: %s", fpv_last_error());
+    float east[4] = {0, -0.70710678f, 0, 0.70710678f};  // -90 deg about +Y: -Z (forward) turns to +X (right)
+    h.pos(30, 10, 40, p);
+    fpv_drone_reset(s.drone, p, east);
+    s.run(0.5f);
+    std::printf("    host home: %g m, arrow %d, heading %g\n", number(3), arrow(4), number(5));
+    CHECK(std::fabs(number(3) - 67) <= 1, "home distance %g m, expected 67", number(3));
+    CHECK(std::fabs(number(5) - 90) <= 1, "heading %g facing east (host right)", number(5));
+    // home is at 333 deg, 243 deg from the nose
+    CHECK(arrowNear(arrow(4), arrowFor(333.4f - 90.0f)), "home arrow %d, expected %d", arrow(4), arrowFor(243.4f));
+
+    // re-arming keeps the host's home
+    armAndShow();
+    CHECK(s.armed() && std::fabs(number(3) - 67) <= 1, "home distance %g m after re-arming", number(3));
+
+    // speed and distance flown, in ANGLE mode with the nose down
+    h.pos(0, 30, 0, p);
+    fpv_drone_reset(s.drone, p, nullptr);
+    s.rc.ch[5] = 1;
+    s.rc.ch[2] = -0.2f;
+    s.rc.ch[1] = 0.5f;
+    float worst = 0, kmh = 0;
+    s.run(3.0f, [&](float t) {
+        float v = std::sqrt(s.f.velocity[0] * s.f.velocity[0] + s.f.velocity[2] * s.f.velocity[2]) * 3.6f;
+        if (t > 2.0f) worst = std::max(worst, std::fabs(number(7) - v));  // after the speed-up
+        kmh = v;
+    });
+    std::printf("    speed: OSD %g km/h, drone %.0f km/h (worst gap %.1f); flown %g m\n", number(7), kmh, worst, number(8));
+    CHECK(kmh > 20 && worst < 0.1f * kmh + 2, "OSD speed within %.1f km/h of %.0f", worst, kmh);
+    CHECK(number(8) > 15, "distance flown %g m", number(8));
+
+    // altitude and vario in a climb. The OSD redraws each element only a few
+    // times a second, so a reading must match the truth of the last second.
+    h.pos(0, 5, 0, p);
+    fpv_drone_reset(s.drone, p, nullptr);
+    s.rc.ch[2] = 0.2f;
+    std::vector<std::pair<float, float>> truth;  // altitude, climb rate
+    int altBad = 0, varioBad = 0, checked = 0;
+    s.run(3.0f, [&](float t) {
+        truth.push_back({h.up(s.f.position), h.dir(s.f.velocity, h.U) / h.upm});
+        if (t < 1.0f) return;  // the jump from the previous position settles
+        float alt = number(6), vario = number(9);
+        bool altOk = false, varioOk = false;
+        for (size_t i = truth.size() > 100 ? truth.size() - 100 : 0; i < truth.size(); i++) {
+            altOk |= std::fabs(alt - truth[i].first) < 1.5f;
+            varioOk |= std::fabs(vario - truth[i].second) < 0.1f * truth[i].second + 1.5f;
+        }
+        altBad += !altOk;
+        varioBad += !varioOk && t >= 2.0f;  // the vario's own 1 Hz filter lags the speed-up
+        checked++;
+    });
+    float vz = truth.back().second;
+    std::printf("    climb: %.1f m/s, OSD altitude %g m (true %.1f), vario %g m/s; %d/%d altitude and %d/%d vario "
+                "readings off\n", vz, number(6), truth.back().first, number(9), altBad, checked, varioBad, checked);
+    CHECK(vz > 5 && cell(9) == 0x75, "climbing %.1f m/s, vario arrow up (%02x)", vz, cell(9));
+    CHECK(altBad == 0, "%d altitude readings off", altBad);
+    CHECK(varioBad == 0, "%d vario readings off", varioBad);
+
+    // back to Betaflight's home: the next arming point
+    CHECK(fpv_gps_set_home(nullptr) == FPV_OK, "clear home");
+    s.rc.ch[2] = -1;
+    s.rc.ch[5] = -1;
+    h.pos(-20, 0, 0, p);
+    fpv_drone_reset(s.drone, p, nullptr);
+    armAndShow();
+    CHECK(number(3) >= 0 && number(3) <= 1, "home distance %g m at the new arming point", number(3));
+    s.destroy();
+}
+
 void testOsdAudioOverlay() {
     Session s;
     float p[3] = {0, 0, 0};
@@ -897,6 +1036,7 @@ int main(int argc, char **argv) {
         {"axes_y_up_left", [] { testAxes(FPV_COORDS_Y_UP_LEFT_HANDED, 1, "Y-up left-handed"); }},
         {"axes_z_up_left_cm", [] { testAxes(FPV_COORDS_Z_UP_LEFT_HANDED, 100, "Z-up left-handed (cm)"); }},
         {"axes_z_up_right_in", [] { testAxes(FPV_COORDS_Z_UP_RIGHT_HANDED, 39.37f, "Z-up right-handed (in)"); }},
+        {"gps", testGps},
         {"osd_audio_overlay", testOsdAudioOverlay},
         {"pinned", testPinned},
         {"terminate_reinit", testTerminateReinit},
