@@ -166,7 +166,7 @@ fpv_global_terminate();                       // on unload / exit
 - `include/libfpv.h`: the whole API, documented inline (threading, memory
   ownership, ABI rules).
 - `docs/INTEGRATION.md`: integration details, such as the fisheye
-  post-process shader.
+  post-process shader, and lessons from real integrations (GTA IV).
 - `docs/renderers/fpv_render_gl3.h`: a single-header OpenGL 3.3 / ES 3.0
   renderer for the OSD and the overlay.
 - `examples/standalone/main.cpp`: a complete integration, with a comment at
