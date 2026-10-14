@@ -139,7 +139,7 @@ Without a radio, use the keyboard: Enter arms, W/S is throttle, A/D is yaw
 and the arrow keys pitch and roll (self-level). T toggles turtle mode: to
 flip a crashed drone back over, turn it on, arm, hold an arrow key until
 it lands upright, then turn turtle off to fly away. Settings, EEPROMs and the
-selected preset are stored in `./libfpv-data` (change it with
+selected preset are stored in `./data` (change it with
 `--data <dir>`).
 
 ## Integrating into a game
