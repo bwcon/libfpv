@@ -117,7 +117,7 @@ FPV_API uint32_t fpv_audio_read(float *out, uint32_t frames) {
 FPV_API void fpv_audio_set_volume(float v) {
     Lib &L = lib();
     std::lock_guard<std::recursive_mutex> lock(L.mutex);
-    L.settings.audioVolume = std::clamp(std::isfinite(v) ? v : 0.15f, 0.0f, 2.0f);
+    L.settings.audioVolume = std::clamp(std::isfinite(v) ? v : 0.1f, 0.0f, 2.0f);
     audioSynth().setVolume(L.settings.audioVolume);
 }
 

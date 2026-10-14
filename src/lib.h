@@ -29,7 +29,7 @@ class AudioSynth;
 struct Settings {
     std::string preset;          // file name of the selected preset
     int overlayToggleKey = FPV_KEY_F8;
-    float audioVolume = 0.15f;
+    float audioVolume = 0.1f;
     int osdStyle = FPV_OSD_STYLE_ANALOG;
     // camera overrides (< 0 = use the preset's value)
     float cameraUptilt = -1, cameraFov = -1;
