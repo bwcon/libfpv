@@ -54,6 +54,9 @@ int bfb_switch_eeprom(const char *path);
  * Configurator's "Save and Reboot"). */
 void bfb_reboot(void);
 int bfb_reboot_required(void);
+/* Forgets the battery so Betaflight detects it again on the next update:
+ * the warning and critical voltages follow the new pack's cell count. */
+void bfb_battery_reset(void);
 
 /* Gyro/accelerometer/baro calibration after boot still running. */
 int bfb_calibrating(void);
