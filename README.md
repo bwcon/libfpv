@@ -1,6 +1,6 @@
 <p><img src="docs/img/libfpv-logo.svg" alt="libfpv" width=250></p>
 
-# Turn any game into an FPV sim
+# Turn any game into an FPV simulator
 
 ![SM64 FPV](./docs/img/sm64-fpv.gif)
 
