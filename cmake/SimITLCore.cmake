@@ -24,7 +24,24 @@ function(libfpv_apply_patches source_dir patch_dir)
   endif()
   execute_process(COMMAND git diff --quiet WORKING_DIRECTORY "${source_dir}" RESULT_VARIABLE _dirty)
   if(NOT _dirty EQUAL 0)
-    message(STATUS "libfpv: ${source_dir} has local changes, assuming its patch series is applied")
+    # A tree patched before newer patches were added to the series would
+    # otherwise silently miss them: apply each patch that applies forward
+    # but not in reverse (i.e. is not in the tree yet).
+    foreach(_patch IN LISTS _patches)
+      execute_process(COMMAND git apply --check -R --whitespace=nowarn "${_patch}"
+        WORKING_DIRECTORY "${source_dir}" RESULT_VARIABLE _rev OUTPUT_QUIET ERROR_QUIET)
+      if(_rev EQUAL 0)
+        continue()
+      endif()
+      execute_process(COMMAND git apply --check --whitespace=nowarn "${_patch}"
+        WORKING_DIRECTORY "${source_dir}" RESULT_VARIABLE _fwd OUTPUT_QUIET ERROR_QUIET)
+      if(_fwd EQUAL 0)
+        execute_process(COMMAND git apply --whitespace=nowarn "${_patch}"
+          WORKING_DIRECTORY "${source_dir}")
+        message(STATUS "libfpv: applied missing ${_patch}")
+      endif()
+    endforeach()
+    message(STATUS "libfpv: ${source_dir} has local changes, assuming the rest of its patch series is applied")
     return()
   endif()
   foreach(_patch IN LISTS _patches)
