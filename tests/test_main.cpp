@@ -840,10 +840,12 @@ void testGps() {
     auto arrow = [&](int row) { return (24 - (cell(row) - 0x60)) % 16; };
     auto arrowFor = [](float relDeg) { return (int)std::lround(std::fmod(relDeg + 720.0f, 360.0f) / 22.5f) % 16; };
     auto arrowNear = [](int a, int b) { int d = std::abs(a - b) % 16; return std::min(d, 16 - d) <= 1; };
-    // arms and waits out Betaflight's ARMED splash, which hides the elements
+    // arms and waits out Betaflight's ARMED splash, which hides the elements.
+    // The second before arming lets Betaflight's attitude settle after a
+    // reset, so the angle check does not block the arming.
     auto armAndShow = [&] {
         s.rc.ch[4] = -1;
-        s.run(0.3f);
+        s.run(1.0f);
         s.arm();
         s.run(1.8f);
     };
@@ -863,10 +865,13 @@ void testGps() {
     CHECK(s.armed(), "armed");
     CHECK(number(3) == 0, "home distance %g m at the arming point", number(3));
 
-    // 30 m east, 40 m north, 10 m up of the arming point, facing north
+    // 30 m east, 40 m north, 10 m up of the arming point, facing north. A
+    // full OSD redraw takes about 0.45 s, so wait for two of them: after only
+    // 0.5 s the reading depended on where in its cycle the earlier tests left
+    // the OSD.
     h.pos(30, 10, 40, p);
     fpv_drone_reset(s.drone, p, nullptr);
-    s.run(0.5f);
+    s.run(1.0f);
     std::printf("    Betaflight home: %g m, arrow %d, heading %g\n", number(3), arrow(4), number(5));
     CHECK(std::fabs(number(3) - 50) <= 1, "home distance %g m, expected 50", number(3));
     CHECK(arrowNear(arrow(4), arrowFor(216.9f)), "home arrow %d, expected south-west (%d)", arrow(4), arrowFor(216.9f));
@@ -878,14 +883,17 @@ void testGps() {
     float east[4] = {0, -0.70710678f, 0, 0.70710678f};  // -90 deg about +Y: -Z (forward) turns to +X (right)
     h.pos(30, 10, 40, p);
     fpv_drone_reset(s.drone, p, east);
-    s.run(0.5f);
+    s.run(1.0f);
     std::printf("    host home: %g m, arrow %d, heading %g\n", number(3), arrow(4), number(5));
     CHECK(std::fabs(number(3) - 67) <= 1, "home distance %g m, expected 67", number(3));
     CHECK(std::fabs(number(5) - 90) <= 1, "heading %g facing east (host right)", number(5));
     // home is at 333 deg, 243 deg from the nose
     CHECK(arrowNear(arrow(4), arrowFor(333.4f - 90.0f)), "home arrow %d, expected %d", arrow(4), arrowFor(243.4f));
 
-    // re-arming keeps the host's home
+    // re-arming keeps the host's home. Land level first: Betaflight will not
+    // arm a quad still tumbling down from 10 m (ANGLE, RUNAWAY).
+    h.pos(30, 0, 40, p);
+    fpv_drone_reset(s.drone, p, east);
     armAndShow();
     CHECK(s.armed() && std::fabs(number(3) - 67) <= 1, "home distance %g m after re-arming", number(3));
 
@@ -895,11 +903,17 @@ void testGps() {
     s.rc.ch[5] = 1;
     s.rc.ch[2] = -0.2f;
     s.rc.ch[1] = 0.5f;
+    // like altitude below, a reading must match the speed of the last second
     float worst = 0, kmh = 0;
+    std::vector<float> speeds;
     s.run(3.0f, [&](float t) {
-        float v = std::sqrt(s.f.velocity[0] * s.f.velocity[0] + s.f.velocity[2] * s.f.velocity[2]) * 3.6f;
-        if (t > 2.0f) worst = std::max(worst, std::fabs(number(7) - v));  // after the speed-up
-        kmh = v;
+        kmh = std::sqrt(s.f.velocity[0] * s.f.velocity[0] + s.f.velocity[2] * s.f.velocity[2]) * 3.6f;
+        speeds.push_back(kmh);
+        if (t <= 2.0f) return;  // after the speed-up
+        float gap = 1e9f;
+        for (size_t i = speeds.size() > 100 ? speeds.size() - 100 : 0; i < speeds.size(); i++)
+            gap = std::min(gap, std::fabs(number(7) - speeds[i]));
+        worst = std::max(worst, gap);
     });
     std::printf("    speed: OSD %g km/h, drone %.0f km/h (worst gap %.1f); flown %g m\n", number(7), kmh, worst, number(8));
     CHECK(kmh > 20 && worst < 0.1f * kmh + 2, "OSD speed within %.1f km/h of %.0f", worst, kmh);
@@ -934,6 +948,7 @@ void testGps() {
 
     // back to Betaflight's home: the next arming point
     CHECK(fpv_gps_set_home(nullptr) == FPV_OK, "clear home");
+    s.rc.ch[1] = 0;  // pitch from the speed run: with air mode it lifts the quad off at idle
     s.rc.ch[2] = -1;
     s.rc.ch[5] = -1;
     h.pos(-20, 0, 0, p);
@@ -981,6 +996,7 @@ void testOsdAudioOverlay() {
 
     // audio: silent when disarmed, motor sound when spinning
     CHECK(fpv_audio_configure(48000, 2) == FPV_OK, "audio configure");
+    fpv_audio_set_volume(1.0f);  // full scale, so the check below does not follow the default volume
     std::vector<float> buf(4800 * 2);
     auto energy = [&] {
         fpv_audio_read(buf.data(), 4800);
