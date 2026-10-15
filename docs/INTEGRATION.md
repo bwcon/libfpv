@@ -196,7 +196,10 @@ Don't draw the drone model. Pick an ending:
   while `FPV_DRONE_DETONATED` is set (with `SIGNAL LOST` over it from the OSD), and
   respawn only when the pilot asks for the next drone, or when the game
   hands it out (a limited number of drones, a launch position nearer the
-  front).
+  front). Consider also hiding all of the game's own UI over the static,
+  the same as while `FPV_DRONE_OSD_DISABLED` is set
+  ([OSD disable switch](#osd-disable-switch)), so the screen shows only
+  the static and `SIGNAL LOST`, like a real lost feed.
 
 `fpv_drone_repair` always gives a new drone with a new, safe warhead. If the
 pilot's bomb switch is still on, it must be turned off before the new
