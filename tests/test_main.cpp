@@ -655,6 +655,31 @@ void testPresets() {
     (void)p;
 }
 
+// Betaflight sets its low-voltage thresholds when it first sees a battery;
+// a full 4S pack after a 6S quad must not read as critical.
+void testPresetSwitchBattery() {
+    auto batteryStatus = []() {
+        char *out = nullptr;
+        fpv_cli_exec("status", &out);
+        std::string s = out ? out : "";
+        fpv_free(out);
+        size_t at = s.find("Voltage:");
+        return at == std::string::npos ? s : s.substr(at, s.find('\n', at) - at);
+    };
+    float p[3] = {0, 0, 0};
+    const char *order[] = {"propeater-5", "vtx-slayer-one-4", "propeater-5"};
+    for (const char *name : order) {
+        Session s;
+        s.spawn(p, name);
+        s.run(1.0f);
+        std::string st = batteryStatus();
+        char cells[16];
+        std::snprintf(cells, sizeof cells, "(%uS battery - OK)", s.f.battery.cell_count);
+        CHECK(st.find(cells) != std::string::npos, "%s: full battery is OK: %s", name, st.c_str());
+        s.destroy();
+    }
+}
+
 void testCli() {
     char *out = nullptr;
     CHECK(fpv_cli_exec("get motor_pwm_protocol", &out) == FPV_OK, "cli: %s", fpv_last_error());
@@ -1459,6 +1484,7 @@ int main(int argc, char **argv) {
         {"thirty_mps_thin_wall", testThirtyMetersPerSecond},
         {"motor_burnout", testMotorBurnout},
         {"presets", testPresets},
+        {"preset_switch_battery", testPresetSwitchBattery},
         {"cli", testCli},
         {"diff_import", [&] { testDiffImport(corpus); }},
         {"axes_y_up_right", [] { testAxes(FPV_COORDS_Y_UP_RIGHT_HANDED, 1, "Y-up right-handed"); }},

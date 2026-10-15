@@ -32,6 +32,7 @@
 #include "osd/osd_elements.h"
 #include "drivers/barometer/barometer_virtual.h"
 #include "pg/pg.h"
+#include "sensors/battery.h"
 #include "scheduler/scheduler.h"
 #include "config/feature.h"
 #include "config/config_eeprom.h"
@@ -308,6 +309,11 @@ void bfb_osd_set_host_message(int index, const char *text)
 int bfb_osd_disabled(void)
 {
     return IS_RC_MODE_ACTIVE(BOXOSD) ? 1 : 0;
+}
+
+void bfb_battery_reset(void)
+{
+    batteryInit();
 }
 
 int bfb_calibrating(void)

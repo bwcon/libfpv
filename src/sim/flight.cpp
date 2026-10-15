@@ -118,6 +118,10 @@ void Flight::applyPreset(const DronePreset &presetIn) {
     StateInit init = preset.init;
     std::memset(init.eepromName, 0, sizeof(init.eepromName));
     simitl_reinit_physics(init);
+    // Betaflight sets its low-voltage thresholds once, when it first sees a
+    // battery: without this a 6S quad's thresholds stay in effect on a 4S
+    // quad and it warns LAND NOW at full charge
+    if (m_bfReady) bfb_battery_reset();
     buildShape();
     m_yawReversed = -1;
     syncPropDirection();
