@@ -493,15 +493,23 @@ FPV_API fpv_result fpv_gps_set_home(const float position[3]);
 /* ===========================================================================
  * Kamikaze (only in builds with LIBFPV_KAMIKAZE)
  *
- * The drone carries a warhead with two switches: bomb arm (AUX7) and
- * explode (AUX8). The rules, as on the real thing:
+ * The drone can carry a warhead with two switches: bomb arm (AUX7) and
+ * explode (AUX8). The bomb is not installed by default: the drone then
+ * flies like in any other build (no extra weight, no warhead OSD, the
+ * bomb switches do nothing). The player installs it in the overlay
+ * (F8 > Fly), or the game with fpv_kamikaze_set_installed(); it stays for
+ * the session, on every new, respawned or repaired drone. With it, the
+ * rules, as on the real thing:
  *
  *   - The motors do not arm while the bomb arm switch is on. Arm the
  *     motors with it off, then turn it on in flight. After a refused arm,
  *     the arm switch must be cycled, like Betaflight's ARMSWITCH safety.
- *   - Bomb arm switch on with the motors armed starts the arming delay
- *     (FPV_WARHEAD_ARMING, OSD "ARMING 3"), then the warhead is live
- *     (FPV_WARHEAD_ARMED, OSD "STEADY"). Off at any time safes it ("SAFE").
+ *   - Bomb arm switch on with the motors armed makes the warhead live
+ *     (FPV_WARHEAD_ARMED, OSD "STEADY"), after the arming delay if one is
+ *     set (none by default; FPV_WARHEAD_ARMING, OSD "ARMING 3"). Off at any
+ *     time safes it ("SAFE"). The OSD line is Betaflight's "Custom message
+ *     1" element: players move or hide it in the overlay (F8 > OSD) or the
+ *     Betaflight Configurator, and other elements can draw over it.
  *   - Only a live warhead explodes: on any touch (a contact fuse: every
  *     collision approaching faster than min_impact_speed, 0.25 m/s by
  *     default, so also a light tap on the ground that fpv_frame.impacts
@@ -536,7 +544,8 @@ enum fpv_kamikaze_state_flags {
      * destroyed). arming_disable_text also says "BOMB". */
     FPV_KAMIKAZE_BLOCKS_ARMING = 1u << 2,
     /* The bomb arm switch is on but must be turned off before it can arm. */
-    FPV_KAMIKAZE_NEEDS_SWITCH_CYCLE = 1u << 3
+    FPV_KAMIKAZE_NEEDS_SWITCH_CYCLE = 1u << 3,
+    FPV_KAMIKAZE_INSTALLED = 1u << 4  /* the drone carries the bomb */
 };
 
 typedef struct fpv_kamikaze_state {
@@ -575,19 +584,29 @@ typedef struct fpv_detonation {
  * frame; a detonation is also visible as FPV_DRONE_DETONATED. */
 FPV_API int fpv_kamikaze_poll_detonation(fpv_detonation *out);
 
+/* Installs (non-zero) or removes (0) the bomb, at once, also in flight.
+ * Kept until changed or the program exits (not saved), for every drone:
+ * a new or respawned one carries it too. Removing it from a destroyed
+ * drone leaves the wreck until fpv_drone_repair(). The player can do the
+ * same in the overlay (F8 > Fly). */
+FPV_API fpv_result fpv_kamikaze_set_installed(int installed);
+FPV_API int fpv_kamikaze_is_installed(void);
+
 /* The game blows the warhead up (shot down, scripted, a timer). Only a live
  * (ARMED) warhead explodes unless `even_if_safe` is non-zero (a bullet hit
- * the explosive). FPV_ERROR_NOT_FOUND when nothing exploded. */
+ * the explosive), and never without the bomb installed.
+ * FPV_ERROR_NOT_FOUND when nothing exploded. */
 FPV_API fpv_result fpv_kamikaze_detonate(fpv_drone *drone, int even_if_safe);
 
 enum fpv_kamikaze_config_flags {
-    /* Do not draw the warhead state into frame.osd; the game shows it. */
+    /* Do not draw the warhead state (nor SIGNAL LOST) into frame.osd; the
+     * game shows it. */
     FPV_KAMIKAZE_NO_OSD = 1u << 0
 };
 
 typedef struct fpv_kamikaze_config {
     uint32_t struct_size;
-    float arming_delay;      /* seconds from bomb arm switch on to live, default 3 */
+    float arming_delay;      /* seconds from bomb arm switch on to live, default 0 (none) */
     /* Contact fuse threshold: the slowest touch that sets it off, host
      * units / s, 0.1..30 m/s. Default 0.25 m/s (a light tap). Players can
      * tune it in the overlay (F8 > Fly). */

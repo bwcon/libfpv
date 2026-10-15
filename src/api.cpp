@@ -138,7 +138,11 @@ int runCli(const std::string &script, std::string &output) {
 // One-time upgrades of EEPROMs made by older libfpv versions, in order. The
 // last one applied is recorded in a file next to the EEPROM, so a player's
 // later edits are never undone.
-static const char *const kEepromUpgrades[] = {"turtle-2", "air-osd-3"};
+static const char *const kEepromUpgrades[] = {"turtle-2", "air-osd-3"
+#if defined(LIBFPV_KAMIKAZE)
+                                              , "bomb-osd-4"
+#endif
+};
 static const char *const kEepromUpgrade = kEepromUpgrades[std::size(kEepromUpgrades) - 1];
 static fs::path upgradeMarker(const std::string &eeprom) { return pathFromUtf8(eeprom + ".upgrade"); }
 
@@ -207,8 +211,18 @@ static void ensureEssentials() {
         aux += script;
         script += betaflightSwitchMigration(aux, {kAirModeSwitch, kOsdSwitch});
     }
+#if defined(LIBFPV_KAMIKAZE)
+    if (next <= 2) {
+        // the warhead state became the custom message 1 element; keep it
+        // where the player put it if it is shown already
+        bfb_cli_run("get osd_custom_msg0_pos", &o);
+        const char *pos = o ? std::strstr(o, "osd_custom_msg0_pos = ") : nullptr;
+        if (!pos || !(std::atoi(pos + 22) & 0x800)) script += betaflightBombOsdLine();
+        bfb_free(o);
+    }
+#endif
     if (!script.empty()) {
-        FPV_LOGI("upgrading Betaflight configuration for new mode switches");
+        FPV_LOGI("upgrading Betaflight configuration for new switches and OSD elements");
         bfb_cli_run((script + "save noreboot").c_str(), &o);
         bfb_free(o);
     }

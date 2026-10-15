@@ -27,9 +27,14 @@ void applyKamikazeSettings() {
     WarheadConfig w;
     w.armingDelay = s.kamikazeArmingDelay;
     w.minImpactSpeed = s.kamikazeMinImpactSpeed;
+    w.osd = s.kamikazeOsd;
     L.flight.warhead().setConfig(w);
     float kg = s.kamikazePayloadKg, drop = s.kamikazePayloadDrop;
-    L.runner.call([&] { L.flight.setPayload(kg, drop); });
+    bool installed = L.kamikazeInstalled;
+    L.runner.call([&] {
+        L.flight.setBombInstalled(installed);
+        L.flight.setPayload(kg, drop);
+    });
 }
 
 }  // namespace fpv
@@ -51,6 +56,7 @@ FPV_API fpv_result fpv_kamikaze_get_state(fpv_drone *d, fpv_kamikaze_state *stat
     out.struct_size = sizeof(out);
     out.warhead = (fpv_warhead_state)w.state;
     out.arming_remaining = w.armingRemaining;
+    if (w.installed) out.flags |= FPV_KAMIKAZE_INSTALLED;
     if (w.bombSwitch) out.flags |= FPV_KAMIKAZE_BOMB_SWITCH;
     if (w.explodeSwitch) out.flags |= FPV_KAMIKAZE_EXPLODE_SWITCH;
     if (w.blocksArming) out.flags |= FPV_KAMIKAZE_BLOCKS_ARMING;
@@ -87,13 +93,24 @@ FPV_API int fpv_kamikaze_poll_detonation(fpv_detonation *out) {
     return 1;
 }
 
+FPV_API fpv_result fpv_kamikaze_set_installed(int installed) {
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    if (!L.initialized) return setError(FPV_ERROR_NOT_INITIALIZED, "call fpv_global_init first");
+    L.kamikazeInstalled = installed != 0;
+    applyKamikazeSettings();
+    return FPV_OK;
+}
+
+FPV_API int fpv_kamikaze_is_installed(void) { return lib().kamikazeInstalled ? 1 : 0; }
+
 FPV_API fpv_result fpv_kamikaze_detonate(fpv_drone *d, int evenIfSafe) {
     Lib &L = lib();
     std::lock_guard<std::recursive_mutex> lock(L.mutex);
     if (!L.initialized) return setError(FPV_ERROR_NOT_INITIALIZED, "call fpv_global_init first");
     if (!d || d != &L.drone || !L.droneExists) return setError(FPV_ERROR_INVALID_ARGUMENT, "invalid or deleted drone handle");
     bool done = L.runner.call([&] { return L.flight.detonate(evenIfSafe != 0); });
-    return done ? FPV_OK : setError(FPV_ERROR_NOT_FOUND, "the warhead is not live (or already exploded)");
+    return done ? FPV_OK : setError(FPV_ERROR_NOT_FOUND, "the warhead is not live (or already exploded, or not installed)");
 }
 
 FPV_API void fpv_kamikaze_config_defaults(fpv_kamikaze_config *c) {

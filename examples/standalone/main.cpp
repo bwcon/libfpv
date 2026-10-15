@@ -26,6 +26,8 @@
 //      fpv_kamikaze_poll_detonation          every frame: explosion, blast damage
 //      fpv_drone_repair + fpv_drone_reset    the next drone, when the game decides
 // and targets to hit (surface objects, so a direct hit names its object_id).
+// The bomb is not installed by default: F8 > Fly > "Bomb installed" (or
+// the game's own fpv_kamikaze_set_installed) adds it, for every drone.
 // Keys: K bomb arm switch, X explode, C what happens after the explosion
 // (cutscene and respawn / signal lost until R / instant respawn).
 // --after cutscene|signal|instant picks it, --kamikaze-demo flies a scripted
@@ -413,6 +415,7 @@ struct KamikazeDemo {
     double stageTime = 0, respawnSeen = -1;
     bool detonated = false, respawned = false, targetHit = false, directHit = false;
     bool wantRespawn = false;  // signal mode: the "player" takes the next drone
+    float armingDelay = 0;     // the player's setting (F8 > Fly), none by default
     void check(bool ok, const char *what) {
         SDL_Log("[demo] %s %s", ok ? "PASS" : "FAIL", what);
         if (!ok) failures++;
@@ -463,12 +466,13 @@ struct KamikazeDemo {
             ch[4] = 1;
             ch[2] = holdHeight(5);  // hold height while it arms
             ch[10] = 1;
-            if (st > 0.5 && st < 0.52) check(k.warhead == FPV_WARHEAD_ARMING, "ARMING countdown after the switch");
+            if (armingDelay > 1 && st > 0.5 && st < 0.52)
+                check(k.warhead == FPV_WARHEAD_ARMING, "ARMING countdown after the switch");
             if (k.warhead == FPV_WARHEAD_ARMED) {
-                check(st > 2.5, "live (STEADY) only after the arming delay");
+                check(st > armingDelay - 0.5, "live (STEADY) after the arming delay, if any");
                 next();
             }
-            if (st > 6) check(false, "warhead went live"), next();
+            if (st > armingDelay + 3) check(false, "warhead went live"), next();
             break;
         case 4: {  // fly at the target (straight ahead) on a glide slope
             ch[4] = 1;
@@ -607,6 +611,13 @@ int main(int argc, char **argv) {
     } blast;
     double respawnAt = -1;
     KamikazeDemo demo;
+    if (kamikazeDemo) {
+        fpv_kamikaze_set_installed(1);  // the player would tick it in F8 > Fly
+        fpv_kamikaze_config kc{};
+        kc.struct_size = sizeof kc;
+        fpv_kamikaze_get_config(&kc);
+        demo.armingDelay = kc.arming_delay;
+    }
 #endif
 
     // 3. drone

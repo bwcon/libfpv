@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <mutex>
@@ -17,8 +18,9 @@ enum class WarheadState { Safe = 0, Arming = 1, Armed = 2, Detonated = 3 };
 enum class DetonationCause { Impact = 0, Switch = 1, Host = 2 };
 
 struct WarheadConfig {
-    float armingDelay = 3.0f;    // seconds from switch on (motors armed) to live
+    float armingDelay = 0.0f;    // seconds from switch on (motors armed) to live
     float minImpactSpeed = 0.25f;  // m/s, the contact fuse threshold (0.1..30)
+    bool osd = true;             // the state in Betaflight's custom message 1 element
 };
 
 // Internal frame (metres, X right, Y up, Z forward).
@@ -32,6 +34,7 @@ struct DetonationEvent {
 };
 
 struct WarheadSnapshot {
+    bool installed = false;      // the drone carries the bomb (an overlay/host choice, per session)
     WarheadState state = WarheadState::Safe;
     float armingRemaining = 0;
     bool bombSwitch = false, explodeSwitch = false;
@@ -60,7 +63,14 @@ public:
     // A new drone or a repaired one: fresh warhead, safe; the bomb switch
     // must be seen off before it can arm again.
     void reset(double simTime);
+    // Installs or removes the bomb. Without it the bomb switches do nothing;
+    // a destroyed drone stays destroyed until repaired.
+    void setInstalled(bool on, double simTime);
+    // The state line of the OSD ("SAFE", "ARMING 3", "STEADY"...), "" when
+    // there is nothing to show (no bomb, blink off, destroyed).
+    void statusText(char *out, size_t size, double simTime, bool fcArmed);
 
+    bool installed() const { return m_snap.installed; }
     bool detonated() const { return m_snap.state == WarheadState::Detonated; }
     const WarheadSnapshot &snapshot() const { return m_snap; }
 

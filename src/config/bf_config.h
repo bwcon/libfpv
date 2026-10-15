@@ -16,6 +16,11 @@ std::string betaflightBaseDefaults();
 // The out-of-the-box tune for a fresh EEPROM: base defaults + modes on
 // AUX2-6 + a readable OSD layout.
 std::string betaflightFirstRunScript();
+#if defined(LIBFPV_KAMIKAZE)
+// Where the warhead state goes: Betaflight's custom message 1 element,
+// centred on row 3 (a `set` line).
+std::string betaflightBombOsdLine();
+#endif
 
 // A mode switch libfpv sets up: Betaflight box id (permanent id, as the
 // `aux` command takes it) on the high position of an aux channel (0 = AUX1).

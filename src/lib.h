@@ -37,7 +37,7 @@ struct Settings {
     bool chaseSmoothing = true;
 #if defined(LIBFPV_KAMIKAZE)
     // fpv_kamikaze_config, internal units (seconds, m/s, kg, metres)
-    float kamikazeArmingDelay = 3.0f, kamikazeMinImpactSpeed = 0.25f;
+    float kamikazeArmingDelay = 0.0f, kamikazeMinImpactSpeed = 0.25f;
     float kamikazePayloadKg = -1.0f, kamikazePayloadDrop = -1.0f;  // < 0 = automatic
     bool kamikazeOsd = true;
 #endif
@@ -87,6 +87,9 @@ struct Lib {
     AudioSynth *audio = nullptr;
 
 #if defined(LIBFPV_KAMIKAZE)
+    // the bomb is installed (fpv_kamikaze_set_installed, overlay): kept for
+    // the session, so every new or respawned drone carries it too; not saved
+    bool kamikazeInstalled = false;
     // warhead OSD (host thread): last composed OSD and its revision
     uint8_t kamikazeOsd[FPV_OSD_ROWS * FPV_OSD_COLS] = {};
     uint32_t kamikazeOsdRevision = 0;

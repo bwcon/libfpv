@@ -95,6 +95,8 @@ public:
     // the frame centre, < 0 = the preset's or automatic. Applies at once,
     // also in flight. Simulation thread.
     void setPayload(float massKg, float dropM);
+    // Installs or removes the bomb (and its weight) at once. Simulation thread.
+    void setBombInstalled(bool on);
 #endif
 
     double simTime() const { return m_simTime; }
@@ -151,6 +153,7 @@ private:
     Vec3 m_impactVel;  // velocity before the current contacts resolved
     void onDetonated();
     DronePreset withPayload(const DronePreset &bare);
+    void refreshPayload();  // re-applies the payload to the live physics
     DronePreset m_basePreset;                     // without the payload
     float m_payloadKg = -1, m_payloadDropM = -1;  // requested
     float m_payloadMass = 0;                      // effective

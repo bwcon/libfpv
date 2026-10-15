@@ -297,9 +297,14 @@ void Overlay::tabFly() {
         if (f.flags & FPV_DRONE_FAILSAFE) ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "FAILSAFE");
 #if defined(LIBFPV_KAMIKAZE)
         {
+            bool installed = fpv_kamikaze_is_installed() != 0;
+            if (ImGui::Checkbox("Bomb installed", &installed)) fpv_kamikaze_set_installed(installed);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Carry the warhead: its weight, its OSD line and the bomb arm (AUX7) and explode "
+                                  "(AUX8) switches. Kept for this session, also on respawned drones.");
             fpv_kamikaze_state ks{};
             ks.struct_size = sizeof ks;
-            if (fpv_kamikaze_get_state(&L.drone, &ks) == FPV_OK) {
+            if (fpv_kamikaze_get_state(&L.drone, &ks) == FPV_OK && (installed || ks.warhead == FPV_WARHEAD_DETONATED)) {
                 static const char *names[] = {"SAFE", "ARMING", "ARMED (live)", "DETONATED"};
                 ImVec4 col = ks.warhead == FPV_WARHEAD_SAFE ? ImVec4(0.5f, 1, 0.5f, 1) : ImVec4(1, 0.4f, 0.3f, 1);
                 ImGui::TextColored(col, "Warhead: %s", names[ks.warhead]);
@@ -311,6 +316,8 @@ void Overlay::tabFly() {
                     ImGui::SameLine();
                     ImGui::TextUnformatted("- press Repair for a new drone");
                 }
+            }
+            if (installed) {
                 // the payload is real weight; the player can tune it
                 Settings &st = L.settings;
                 ImGui::Text("Payload %.0f g, all-up weight %.0f g", ks.payload_mass * 1000, ks.total_mass * 1000);
@@ -338,6 +345,9 @@ void Overlay::tabFly() {
                     ImGui::SetTooltip("The slowest touch that sets the live warhead off. 0.25 = a light tap on the "
                                       "ground; higher needs a real hit.");
                 if (ImGui::Checkbox("Warhead state on the OSD", &st.kamikazeOsd)) changed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Its place: \"Bomb status\" in the OSD tab (\"Custom message 1\" in the "
+                                      "Betaflight Configurator).");
                 if (changed) {
                     applyKamikazeSettings();
                     saveSettings();
@@ -675,6 +685,9 @@ void Overlay::tabOsd() {
         {"Altitude", "osd_altitude_pos"},        {"Disarmed", "osd_disarmed_pos"},
         {"G-force", "osd_g_force_pos"},          {"Power", "osd_power_pos"},
         {"Stick overlay L", "osd_stick_overlay_left_pos"}, {"Stick overlay R", "osd_stick_overlay_right_pos"},
+#if defined(LIBFPV_KAMIKAZE)
+        {"Bomb status", "osd_custom_msg0_pos"},  // the warhead state (Flight::step)
+#endif
     };
     const int n = (int)(sizeof(elems) / sizeof(elems[0]));
     ImGui::BeginChild("elems", ImVec2(ImGui::GetFontSize() * 13, 0), ImGuiChildFlags_Borders);
