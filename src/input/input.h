@@ -1,5 +1,5 @@
 // libfpv - input manager: radios, gamepads, keyboard fallback and host
-// channels, mapped to Betaflight's AETR + AUX1..6.
+// channels, mapped to Betaflight's AETR + AUX1..6 (AUX1..8 in kamikaze builds).
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
@@ -19,7 +19,19 @@ enum class InputSource { None = 0, Radio = 1, Gamepad = 2, Keyboard = 3, Host = 
 
 // Channel indices as Betaflight sees them (default map AETR1234).
 enum Channel { kRoll = 0, kPitch = 1, kThrottle = 2, kYaw = 3, kAux1 = 4, kAux2 = 5, kAux3 = 6, kAux4 = 7, kAux5 = 8, kAux6 = 9 };
+#if defined(LIBFPV_KAMIKAZE)
+// kamikaze builds: bomb arm switch on AUX7, explode switch on AUX8
+constexpr int kAux7 = 10, kAux8 = 11;
+constexpr int kChannelCount = 12;
+#else
 constexpr int kChannelCount = 10;
+#endif
+
+// Channel value at rest: sticks centred, throttle idle, every switch off.
+constexpr float idleChannel(int c) { return (c == kThrottle || c >= kAux1) ? -1.0f : 0.0f; }
+inline void setIdleChannels(float *ch) {
+    for (int c = 0; c < kChannelCount; c++) ch[c] = idleChannel(c);
+}
 
 // Mapping of one raw device axis/button to a channel.
 struct ChannelBinding {
@@ -135,7 +147,7 @@ private:
     std::vector<RawDevice> m_devices;
     std::vector<DeviceMapping> m_mappings;
 
-    float m_host[kChannelCount] = {0, 0, -1, 0, -1, -1, -1, -1, -1, -1};
+    float m_host[kChannelCount];
     double m_hostTime = -1e9;
     std::array<bool, 512> m_keys{};
     std::atomic<bool> m_keyboardEnabled{true};
@@ -147,7 +159,11 @@ private:
     bool m_kbTurtle = false, m_kbTurtleKeyPrev = false;
     bool m_padArmed = false, m_padArmPrev = false;
     bool m_padTurtle = false, m_padTurtlePrev = false;
-    float m_lastOut[kChannelCount] = {0, 0, -1, 0, -1, -1, -1, -1, -1, -1};
+#if defined(LIBFPV_KAMIKAZE)
+    bool m_kbBomb = false, m_kbBombKeyPrev = false;
+    bool m_padBomb = false, m_padBombPrev = false;
+#endif
+    float m_lastOut[kChannelCount];
 
     InputStatus m_status;
     std::string m_activeGuid;

@@ -20,6 +20,13 @@ constexpr float kPropDiscHalfThickness = 0.012f;
 constexpr float kPropNutHeight = 0.006f;     // motor top above the prop disc
 constexpr float kMaxSpeed = 120.0f;          // m/s, sanity clamp
 constexpr float kMaxAngularSpeed = 100.0f;   // rad/s, SimITL's own clamp
+#if defined(LIBFPV_KAMIKAZE)
+constexpr float kPayloadRadius = 0.035f;     // the warhead's size (its own inertia)
+constexpr float kAutoPayloadRatio = 0.6f;    // automatic payload: 60% of the quad's mass
+// Contacts slower than this never reach the fuse: resting contact jitter
+// stays well under it. The fuse's own threshold is a setting (>= this).
+constexpr float kWarheadTouchSpeed = 0.1f;  // m/s
+#endif
 
 Mat3 toSimBasis(Quat q) { return toMat3(q); }
 
@@ -80,6 +87,15 @@ void Flight::buildShape() {
         float top = std::max(c.bodyRadius, p.y + kPropDiscHalfThickness + kPropNutHeight);
         m_shape.push_back({{p.x, top - c.motorRadius, p.z}, c.motorRadius, i});
     }
+#if defined(LIBFPV_KAMIKAZE)
+    // the warhead under the frame: flush with the landing points by
+    // default, below them (touching first) when it hangs lower
+    if (m_payloadMass > 0) {
+        float drop = -m_payloadPos.y;
+        float r = drop < c.bodyRadius ? c.bodyRadius - drop : kPayloadRadius;
+        m_shape.push_back({m_payloadPos, std::max(0.005f, r), -1});
+    }
+#endif
     m_mass = std::max(0.01f, m_preset.init.quadMass);
     const Vec3F &ii = m_preset.init.quadInvInertia;
     m_invInertiaBody = {std::fabs(ii.x), std::fabs(ii.y), std::fabs(ii.z)};
@@ -91,7 +107,13 @@ float Flight::restHeight() const {
     return h;
 }
 
-void Flight::applyPreset(const DronePreset &preset) {
+void Flight::applyPreset(const DronePreset &presetIn) {
+#if defined(LIBFPV_KAMIKAZE)
+    m_basePreset = presetIn;
+    const DronePreset preset = withPayload(presetIn);
+#else
+    const DronePreset &preset = presetIn;
+#endif
     m_preset = preset;
     StateInit init = preset.init;
     std::memset(init.eepromName, 0, sizeof(init.eepromName));
@@ -156,7 +178,67 @@ void Flight::teleport(Vec3 pos, Quat rot) {
 void Flight::repair() {
     simitl_command(CommandType::Repair);
     for (float &d : m_propDamage) d = 0;
+#if defined(LIBFPV_KAMIKAZE)
+    m_warhead.reset(m_simTime);  // a repaired drone carries a new warhead
+#endif
 }
+
+#if defined(LIBFPV_KAMIKAZE)
+// The blast destroys the drone: the props are gone, the motors stop, and it
+// stays where it exploded (frozen) until it is repaired.
+void Flight::onDetonated() {
+    for (float &d : m_propDamage) d = 1.0f;
+    m_vel = {};
+    m_angVel = {};
+    stopMotors();
+}
+
+// The bare quad plus the payload: more mass, and more inertia from a point
+// mass hanging `drop` below the centre (parallel axis) plus its own solid
+// sphere. The centre of mass is not moved (SimITL has no offset for it).
+DronePreset Flight::withPayload(const DronePreset &bare) {
+    DronePreset p = bare;
+    float m = m_payloadKg >= 0 ? m_payloadKg : bare.payloadMass >= 0 ? bare.payloadMass : kAutoPayloadRatio * bare.init.quadMass;
+    float drop = m_payloadDropM >= 0 ? m_payloadDropM
+                 : bare.payloadDrop >= 0 ? bare.payloadDrop
+                                         : 0.5f * bare.collision.bodyRadius;  // strapped under the frame
+    m_payloadMass = std::max(0.0f, m);
+    m_payloadPos = {0, -drop, 0};
+    if (m_payloadMass <= 0) return p;
+    p.init.quadMass = bare.init.quadMass + m_payloadMass;
+    float own = 0.4f * m_payloadMass * kPayloadRadius * kPayloadRadius;
+    auto add = [](float inv, float extra) {
+        float i = 1.0f / std::max(1e-6f, std::fabs(inv));
+        return std::copysign(1.0f / (i + extra), inv);
+    };
+    Vec3F &ii = p.init.quadInvInertia;
+    ii.x = add(ii.x, m_payloadMass * drop * drop + own);  // pitch
+    ii.y = add(ii.y, own);                               // yaw: on the axis
+    ii.z = add(ii.z, m_payloadMass * drop * drop + own);  // roll
+    return p;
+}
+
+void Flight::setPayload(float massKg, float dropM) {
+    m_payloadKg = massKg;
+    m_payloadDropM = dropM;
+    if (!m_bfReady) return;
+    // patch the live physics (no reinit: keeps the flight, battery and motors)
+    float dir[4];  // synced from Betaflight (syncPropDirection), not the preset
+    std::memcpy(dir, m_preset.init.quadMotorDir, sizeof dir);
+    m_preset = withPayload(m_basePreset);
+    std::memcpy(m_preset.init.quadMotorDir, dir, sizeof dir);
+    StateInit &live = SimITL::Sim::getInstance().mSimState.stateInit;
+    live.quadMass = m_preset.init.quadMass;
+    live.quadInvInertia = m_preset.init.quadInvInertia;
+    buildShape();
+}
+
+bool Flight::detonate(bool evenIfSafe) {
+    if (!m_active || !m_warhead.detonate(m_simTime, m_pos, m_vel, evenIfSafe)) return false;
+    onDetonated();
+    return true;
+}
+#endif
 
 Mat3 Flight::worldInvInertia() const {
     Mat3 r = toMat3(m_rot);
@@ -203,6 +285,9 @@ void Flight::resolveContacts(float dt) {
         for (const Contact &c : m_contacts) items.push_back({c, s.motor});
     }
     if (items.empty()) return;
+#if defined(LIBFPV_KAMIKAZE)
+    m_impactVel = m_vel;
+#endif
 
     // positional correction: deepest penetration along each normal
     Vec3 push{};
@@ -259,6 +344,14 @@ void Flight::resolveContacts(float dt) {
         Material mat = m_world->material(it.c.material);
         if (it.motor >= 0 && (mat.flags & kMatKillsProps)) m_propDamage[it.motor] = 1.0f;
         if (it.approach > kImpactReportSpeed) recordImpact(it.c, it.approach, it.accN, it.motor);
+#if defined(LIBFPV_KAMIKAZE)
+        if (it.approach > kWarheadTouchSpeed &&
+            m_warhead.impact(m_simTime, m_pos, m_impactVel, it.c.point, it.c.normal, it.approach, it.c.material,
+                             it.c.objectId, it.motor)) {
+            onDetonated();
+            break;
+        }
+#endif
     }
 }
 
@@ -269,6 +362,9 @@ void Flight::propStrikes(float dt) {
     Vec3 up = rot.col(1);
     const StateOutput &out = SimITL::Sim::getInstance().getStateUpdate();
     float maxRpm = std::max(1000.0f, m_preset.init.propMaxRpm);
+#if defined(LIBFPV_KAMIKAZE)
+    m_impactVel = m_vel;
+#endif
     for (int i = 0; i < 4; i++) {
         if (m_propDamage[i] >= 1.0f) continue;
         const Vec3F &lp = m_preset.init.quadMotorPos[i];
@@ -291,6 +387,11 @@ void Flight::propStrikes(float dt) {
             if (severity < 0.5f) continue;
             m_propDamage[i] = std::min(1.0f, m_propDamage[i] + severity / std::max(1.0f, m_preset.collision.propDurability));
             recordImpact(c, closing, 0.0f, i);
+#if defined(LIBFPV_KAMIKAZE)
+            // a spinning prop hitting something is a touch too
+            if (m_warhead.impact(m_simTime, m_pos, m_impactVel, c.point, c.normal, closing, c.material, c.objectId, i))
+                onDetonated();
+#endif
             break;
         }
     }
@@ -350,7 +451,10 @@ void Flight::step(float dt, const float channels[kChannelCount], bool radioLost)
     m_simTime += dt;
     // --- inputs for SimITL ----------------------------------------------
     for (int i = 0; i < kChannelCount; i++) m_input.rcData[i] = std::clamp(channels[i], -1.0f, 1.0f);
-    for (int i = kChannelCount; i < 16; i++) m_input.rcData[i] = -1.0f;  // unused AUX7+
+    for (int i = kChannelCount; i < 16; i++) m_input.rcData[i] = -1.0f;  // unused channels
+#if defined(LIBFPV_KAMIKAZE)
+    if (m_active) m_warhead.filterChannels(m_input.rcData, bfb_is_armed());
+#endif
     if (!m_active) {
         // parked: never armed, Betaflight still runs for the Configurator
         m_input.rcData[4] = -1.0f;
@@ -392,6 +496,13 @@ void Flight::step(float dt, const float channels[kChannelCount], bool radioLost)
     const StateOutput &out = SimITL::Sim::getInstance().getStateUpdate();
 
     // --- integrate pose with collisions -----------------------------------
+#if defined(LIBFPV_KAMIKAZE)
+    if (m_active && m_warhead.detonated()) {
+        // the wreck stays where it exploded until repaired
+        m_vel = {};
+        m_angVel = {};
+    } else
+#endif
     if (m_active) {
         m_rot = normalize(Quat{out.orientation.x, out.orientation.y, out.orientation.z, out.orientation.w});
         m_vel = {out.linearVelocity.x, out.linearVelocity.y, out.linearVelocity.z};
@@ -421,6 +532,9 @@ void Flight::step(float dt, const float channels[kChannelCount], bool radioLost)
         }
         propStrikes(dt);
     }
+#if defined(LIBFPV_KAMIKAZE)
+    if (m_active && m_warhead.update(dt, m_simTime, m_input.rcData, bfb_is_armed(), m_pos, m_vel)) onDetonated();
+#endif
 
     // --- snapshot -----------------------------------------------------------
     const SimITL::SimState &ss = SimITL::Sim::getInstance().mSimState;
@@ -480,6 +594,17 @@ void Flight::step(float dt, const float channels[kChannelCount], bool radioLost)
         }
         updateVideo();
     }
+#if defined(LIBFPV_KAMIKAZE)
+    m_snap.warhead = m_warhead.snapshot();
+    m_snap.payloadMass = m_payloadMass;
+    m_snap.totalMass = m_preset.init.quadMass;
+    if (m_active && m_warhead.detonated()) {
+        // the video transmitter went with it: no signal
+        m_snap.videoNoise = m_snap.videoBreakup = 1.0f;
+        m_snap.videoSignal = 0.0f;
+        m_snap.crashed = true;
+    }
+#endif
 }
 
 }  // namespace fpv

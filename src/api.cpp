@@ -62,6 +62,13 @@ void loadSettings() {
         s.cameraFov = j.value("cameraFov", s.cameraFov);
         s.cameraFisheye = std::clamp(j.value("cameraFisheye", s.cameraFisheye), 0.0f, 1.0f);
         s.chaseSmoothing = j.value("chaseSmoothing", s.chaseSmoothing);
+#if defined(LIBFPV_KAMIKAZE)
+        s.kamikazeArmingDelay = std::clamp(j.value("kamikazeArmingDelay", s.kamikazeArmingDelay), 0.0f, 600.0f);
+        s.kamikazeMinImpactSpeed = std::clamp(j.value("kamikazeMinImpactSpeed", s.kamikazeMinImpactSpeed), 0.1f, 30.0f);
+        s.kamikazePayloadKg = j.value("kamikazePayloadKg", s.kamikazePayloadKg);
+        s.kamikazePayloadDrop = j.value("kamikazePayloadDrop", s.kamikazePayloadDrop);
+        s.kamikazeOsd = j.value("kamikazeOsd", s.kamikazeOsd);
+#endif
     } catch (const std::exception &e) {
         FPV_LOGW("settings.json ignored: %s", e.what());
     }
@@ -79,6 +86,13 @@ void saveSettings() {
               {"cameraFov", s.cameraFov},
               {"cameraFisheye", s.cameraFisheye},
               {"chaseSmoothing", s.chaseSmoothing}};
+#if defined(LIBFPV_KAMIKAZE)
+    j["kamikazeArmingDelay"] = s.kamikazeArmingDelay;
+    j["kamikazeMinImpactSpeed"] = s.kamikazeMinImpactSpeed;
+    j["kamikazePayloadKg"] = s.kamikazePayloadKg;
+    j["kamikazePayloadDrop"] = s.kamikazePayloadDrop;
+    j["kamikazeOsd"] = s.kamikazeOsd;
+#endif
     writeFileAtomic(pathFromUtf8(L.dataDir) / "settings.json", j.dump(2));
 }
 
@@ -262,7 +276,8 @@ static bool materializePresets(std::string &error) {
 static void warmUpBetaflight() {
     Lib &L = lib();
     const float dt = 1.0f / std::max(200.0f, L.config.sim_rate_hz);
-    const float idle[kChannelCount] = {0, 0, -1, 0, -1, -1, -1, -1, -1, -1};
+    float idle[kChannelCount];
+    setIdleChannels(idle);
     double t0 = wallSeconds();
     int steps = 0;
     // the flag only appears once the scheduler ran, so always run 0.5 s first
@@ -446,6 +461,10 @@ FPV_API fpv_result fpv_global_init(const fpv_global_config *cfgIn) {
         activateEepromFor(preset);
         L.flight.applyPreset(preset);
     }
+
+#if defined(LIBFPV_KAMIKAZE)
+    applyKamikazeSettings();
+#endif
 
     RunnerConfig rc;
     rc.threaded = cfg.timing == FPV_TIMING_THREAD;

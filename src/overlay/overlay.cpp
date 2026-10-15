@@ -105,6 +105,8 @@ const char *armingHelp(const char *flag) {
         {"MOTOR_PROTO", "Motor protocol was changed: only PWM works in the simulator (libfpv restores it on next start)."},
         {"PARALYZE", "PARALYZE mode is active."},
         {"LOAD", "CPU load too high."},
+        {"BOMB", "The bomb arm switch is on (or the drone was destroyed): the motors only arm with the bomb safe. "
+                 "Switch it off, then switch the arm switch off and on again."},
     };
     for (auto &x : help)
         if (std::strcmp(x.f, flag) == 0) return x.h;
@@ -258,7 +260,11 @@ void Overlay::notifyUnmappedRadio(const std::string &guid) {
 void Overlay::channelBars(const float *ch) {
     static const char *names[kChannelCount] = {"Roll",        "Pitch",       "Throttle",     "Yaw",
                                                "AUX1 arm",    "AUX2 angle",  "AUX3 beeper",  "AUX4 turtle",
-                                               "AUX5 air mode", "AUX6 OSD off"};
+                                               "AUX5 air mode", "AUX6 OSD off"
+#if defined(LIBFPV_KAMIKAZE)
+                                               , "AUX7 bomb arm", "AUX8 explode"
+#endif
+    };
     for (int i = 0; i < kChannelCount; i++) {
         char label[32];
         snprintf(label, sizeof label, "%d", (int)std::lround(1500 + ch[i] * 500));
@@ -289,6 +295,56 @@ void Overlay::tabFly() {
             ImGui::TextWrapped("Ready: throttle down, flip the arm switch.");
         }
         if (f.flags & FPV_DRONE_FAILSAFE) ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "FAILSAFE");
+#if defined(LIBFPV_KAMIKAZE)
+        {
+            fpv_kamikaze_state ks{};
+            ks.struct_size = sizeof ks;
+            if (fpv_kamikaze_get_state(&L.drone, &ks) == FPV_OK) {
+                static const char *names[] = {"SAFE", "ARMING", "ARMED (live)", "DETONATED"};
+                ImVec4 col = ks.warhead == FPV_WARHEAD_SAFE ? ImVec4(0.5f, 1, 0.5f, 1) : ImVec4(1, 0.4f, 0.3f, 1);
+                ImGui::TextColored(col, "Warhead: %s", names[ks.warhead]);
+                if (ks.warhead == FPV_WARHEAD_ARMING) {
+                    ImGui::SameLine();
+                    ImGui::Text("(%.1f s)", ks.arming_remaining);
+                }
+                if (ks.warhead == FPV_WARHEAD_DETONATED) {
+                    ImGui::SameLine();
+                    ImGui::TextUnformatted("- press Repair for a new drone");
+                }
+                // the payload is real weight; the player can tune it
+                Settings &st = L.settings;
+                ImGui::Text("Payload %.0f g, all-up weight %.0f g", ks.payload_mass * 1000, ks.total_mass * 1000);
+                bool changed = false;
+                bool autoMass = st.kamikazePayloadKg < 0;
+                if (ImGui::Checkbox("Automatic payload (the quad's preset)", &autoMass)) {
+                    st.kamikazePayloadKg = autoMass ? -1.0f : ks.payload_mass;
+                    changed = true;
+                }
+                if (!autoMass) {
+                    float g = st.kamikazePayloadKg * 1000;
+                    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+                    if (ImGui::SliderFloat("Payload (g)", &g, 0, 3000, "%.0f")) {
+                        st.kamikazePayloadKg = g / 1000;
+                        changed = true;
+                    }
+                }
+                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+                if (ImGui::SliderFloat("Arming delay (s)", &st.kamikazeArmingDelay, 0, 10, "%.1f")) changed = true;
+                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+                if (ImGui::SliderFloat("Impact fuse (m/s)", &st.kamikazeMinImpactSpeed, 0.1f, 30.0f, "%.2f",
+                                       ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
+                    changed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("The slowest touch that sets the live warhead off. 0.25 = a light tap on the "
+                                      "ground; higher needs a real hit.");
+                if (ImGui::Checkbox("Warhead state on the OSD", &st.kamikazeOsd)) changed = true;
+                if (changed) {
+                    applyKamikazeSettings();
+                    saveSettings();
+                }
+            }
+        }
+#endif
         if (f.flags & FPV_DRONE_CRASHED)
             ImGui::TextColored(ImVec4(1, 0.6f, 0.2f, 1), "Crashed (broken props or burned motor): press Repair.");
         sectionTitle("Drone");

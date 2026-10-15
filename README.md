@@ -45,6 +45,12 @@ engine or mod loader.
 - **Camera.** Uptilt and FOV are adjustable, and there is a fisheye lens
   (on by default). Analog video noise grows with range and with obstacles in
   the way.
+- **Kamikaze builds** (optional, `-DLIBFPV_KAMIKAZE=ON`). The drone carries
+  a warhead with real weight, on a bomb arm switch (AUX7) and an explode
+  switch (AUX8). The motors won't arm with the bomb switch on, and there is
+  an arming delay. Once live, a contact fuse sets it off on any touch. The
+  OSD shows `SAFE`, `ARMING`, `STEADY` and `BOOM`, and the game gets the
+  detonation to play its own explosion, cutscene or "signal lost".
 
 ## Building
 
@@ -81,6 +87,7 @@ The default build type is `Release`. Outputs in the build directory:
 | `LIBFPV_WITH_OVERLAY` | `ON` | Build the Dear ImGui overlay |
 | `LIBFPV_BUILD_TESTS` | `ON` | Build the test suite |
 | `LIBFPV_BUILD_EXAMPLES` | `ON` | Build the examples |
+| `LIBFPV_KAMIKAZE` | `OFF` | Kamikaze FPV: a warhead with bomb arm and explode switches ([details](docs/INTEGRATION.md#kamikaze-builds)) |
 
 ### Windows
 
@@ -142,7 +149,10 @@ cmake -S . -B build/asan -DCMAKE_BUILD_TYPE=Debug \
 Without a radio, use the keyboard: Enter arms, W/S is throttle, A/D is yaw
 and the arrow keys pitch and roll (self-level). T toggles turtle mode: to
 flip a crashed drone back over, turn it on, arm, hold an arrow key until
-it lands upright, then turn turtle off to fly away. Settings, EEPROMs and the
+it lands upright, then turn turtle off to fly away. In a kamikaze build, K
+is the bomb arm switch, X explodes and C picks what the game does after the
+explosion; `--kamikaze-demo` flies a scripted strike that checks every rule.
+Settings, EEPROMs and the
 selected preset are stored in `./data` (change it with
 `--data <dir>`).
 

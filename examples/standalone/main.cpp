@@ -22,6 +22,15 @@
 // Verification flags: --autopilot (scripted flight), --screenshot out.ppm
 // --frames N (save the N-th frame and exit), --overlay (open it), --camera.
 //
+// Kamikaze builds (-DLIBFPV_KAMIKAZE=ON) add the warhead hooks:
+//      fpv_kamikaze_poll_detonation          every frame: explosion, blast damage
+//      fpv_drone_repair + fpv_drone_reset    the next drone, when the game decides
+// and targets to hit (surface objects, so a direct hit names its object_id).
+// Keys: K bomb arm switch, X explode, C what happens after the explosion
+// (cutscene and respawn / signal lost until R / instant respawn).
+// --after cutscene|signal|instant picks it, --kamikaze-demo flies a scripted
+// strike that checks every warhead rule and exits 0 (pass) or 1 (fail).
+//
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <SDL3/SDL.h>
 
@@ -143,6 +152,15 @@ struct Mesh {
         quad(p[7], p[6], p[2], p[3], col);  // +y
         quad(p[0], p[1], p[5], p[4], col);  // -y
     }
+    // UV sphere (explosion fireball)
+    void sphere(float r, int seg, V3 col) {
+        auto P = [&](int i, int j) {
+            float th = 3.14159265f * i / seg, ph = 6.2831853f * j / seg;
+            return V3{r * std::sin(th) * std::cos(ph), r * std::cos(th), r * std::sin(th) * std::sin(ph)};
+        };
+        for (int i = 0; i < seg; i++)
+            for (int j = 0; j < seg; j++) quad(P(i, j), P(i, j + 1), P(i + 1, j + 1), P(i + 1, j), col);
+    }
     void upload() {
         glGenVertexArrays(1, &vao);
         glGenBuffers(1, &vbo);
@@ -177,8 +195,11 @@ struct Mesh {
 static void buildLevel(Mesh &m) {
     // ground (also drawn with a checker in the shader)
     m.quad({-300, 0, 300}, {300, 0, 300}, {300, 0, -300}, {-300, 0, -300}, {0.35f, 0.5f, 0.3f});
-    // a loop of race gates (1.8 m opening) around the spawn
+    // a loop of race gates (1.8 m opening) ahead of the spawn; the loop
+    // passes through the spawn, where no gate stands (the drone would take
+    // off under its bottom bar)
     for (int i = 0; i < 6; i++) {
+        if (i == 3) continue;
         float a = i * 6.2831853f / 6, r = 35;
         V3 c{std::sin(a) * r, 0, -std::cos(a) * r - 35};
         float yaw = -a;
@@ -256,11 +277,11 @@ void main() {
   gl_Position = viewProj * w;
 })";
 static const char *kSceneFs = R"(#version 330 core
-in vec3 v_nrm; in vec3 v_col; in vec3 v_world; uniform vec3 eye; out vec4 o;
+in vec3 v_nrm; in vec3 v_col; in vec3 v_world; uniform vec3 eye; uniform vec3 tint; uniform float emissive; out vec4 o;
 void main() {
   vec3 n = normalize(v_nrm);
   float l = 0.35 + 0.65 * abs(dot(n, normalize(vec3(0.4, 1.0, 0.3))));
-  vec3 c = v_col * l;
+  vec3 c = mix(v_col * l, v_col, emissive) * tint;
   if (n.y > 0.99 && v_world.y < 0.01) { // ground checker, 2 m tiles
     float k = mod(floor(v_world.x * 0.5) + floor(v_world.z * 0.5), 2.0);
     c *= 0.85 + 0.15 * k;
@@ -275,7 +296,8 @@ out vec2 uv;
 void main() { vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); uv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); })";
 static const char *kPostFs = R"(#version 330 core
 in vec2 uv; uniform sampler2D scene; uniform vec2 k; uniform float zoom; uniform float aspect;
-uniform float noise; uniform float breakup; uniform float time; uniform float analog; out vec4 o;
+uniform float noise; uniform float breakup; uniform float time; uniform float analog; uniform float flash;
+uniform float lost; out vec4 o;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 void main() {
   vec2 scale = vec2(aspect, 1.0) / (0.5 * sqrt(aspect * aspect + 1.0)); // r = 1 at the corners
@@ -291,6 +313,8 @@ void main() {
   float n = hash(uv * 513.0 + time) - 0.5;
   col += n * noise * 0.9 * analog;
   col = mix(col, vec3(dot(col, vec3(0.3, 0.59, 0.11))), noise * 0.6 * analog);
+  col = mix(col, vec3(1.0, 0.85, 0.6), flash);
+  col = mix(col, vec3(hash(floor(uv * vec2(320.0, 240.0)) + fract(time) * 91.0) * 0.85), lost); // no signal: static
   o = vec4(col, 1.0);
 })";
 
@@ -350,12 +374,143 @@ static void savePpm(const char *path, int w, int h) {
     std::fclose(f);
 }
 
+#if defined(LIBFPV_KAMIKAZE)
+// --- kamikaze -------------------------------------------------------------------------
+
+// What the game does after the explosion; libfpv supports each of them.
+enum class AfterBoom { Cutscene, Signal, Instant };
+static const char *afterName(AfterBoom a) {
+    return a == AfterBoom::Cutscene ? "cutscene" : a == AfterBoom::Signal ? "signal" : "instant";
+}
+
+struct Target {
+    V3 centre, half;
+    uint32_t objectId = 0;
+    bool destroyed = false;
+};
+
+// A camera looking from eye at target (a cutscene camera of the game).
+static fpv_camera lookCamera(V3 eye, V3 target, float fov) {
+    fpv_camera c{};
+    V3 f = norm(target - eye), r = norm(cross(f, {0, 1, 0})), u = cross(r, f);
+    float *dst[] = {c.position, c.forward, c.up, c.right};
+    V3 src[] = {eye, f, u, r};
+    for (int i = 0; i < 4; i++) dst[i][0] = src[i].x, dst[i][1] = src[i].y, dst[i][2] = src[i].z;
+    c.fov_y_degrees = fov;
+    c.near_plane = 0.1f;
+    c.distortion_zoom = 1;
+    return c;
+}
+
+// The demo's target, straight ahead of the spawn (the first of `targets`).
+static const V3 kDemoTarget{0, 1.0f, -11};
+
+// Scripted strike for --kamikaze-demo. Checks each warhead rule against
+// what libfpv reports and returns the channels to send.
+struct KamikazeDemo {
+    int failures = 0;
+    int stage = 0;
+    double stageTime = 0, respawnSeen = -1;
+    bool detonated = false, respawned = false, targetHit = false, directHit = false;
+    bool wantRespawn = false;  // signal mode: the "player" takes the next drone
+    void check(bool ok, const char *what) {
+        SDL_Log("[demo] %s %s", ok ? "PASS" : "FAIL", what);
+        if (!ok) failures++;
+    }
+    // returns false when finished
+    bool update(double t, const fpv_frame &f, const fpv_kamikaze_state &k, float ch[FPV_CHANNEL_COUNT]) {
+        for (int i = 0; i < FPV_CHANNEL_COUNT; i++) ch[i] = (i == 2 || i >= 4) ? -1.0f : 0.0f;
+        ch[5] = 1;  // angle mode
+        bool armed = f.flags & FPV_DRONE_ARMED;
+        double st = t - stageTime;
+        // the scripted pilot's throttle: hold a height (PD, any payload)
+        auto holdHeight = [&](float h) {
+            float thr = -0.35f + 0.2f * (h - f.position[1]) - 0.15f * f.velocity[1];
+            return std::fmax(-0.9f, std::fmin(0.4f, thr));
+        };
+        auto next = [&] {
+            SDL_Log("[demo] stage %d done at %.1f s, %.1f m, %.0f km/h", stage, t, f.position[1], f.speed_kmh);
+            stage++, stageTime = t;
+        };
+        switch (stage) {
+        case 0:  // bomb switch on, then try to arm the motors
+            ch[10] = 1;
+            ch[4] = st > 0.3 ? 1 : -1;
+            if (st > 1.0) {
+                check(!armed && (k.flags & FPV_KAMIKAZE_BLOCKS_ARMING), "motors refuse to arm with the bomb switch on");
+                next();
+            }
+            break;
+        case 1:  // bomb safe, arm switch cycled
+            ch[4] = st > 0.5 ? 1 : -1;
+            if (st > 1.0) {
+                check(armed, "motors arm with the bomb switch off");
+                check(k.warhead == FPV_WARHEAD_SAFE, "warhead SAFE");
+                next();
+            }
+            break;
+        case 2:  // take off, explode switch on a safe bomb
+            ch[4] = 1;
+            ch[2] = holdHeight(5);
+            ch[11] = st > 0.3 && st < 0.6 ? 1 : -1;
+            if (st > 1.0) {
+                check(k.warhead == FPV_WARHEAD_SAFE && !(f.flags & FPV_DRONE_DETONATED),
+                      "explode switch does nothing while SAFE");
+                next();
+            }
+            break;
+        case 3:  // bomb arm switch in flight: countdown
+            ch[4] = 1;
+            ch[2] = holdHeight(5);  // hold height while it arms
+            ch[10] = 1;
+            if (st > 0.5 && st < 0.52) check(k.warhead == FPV_WARHEAD_ARMING, "ARMING countdown after the switch");
+            if (k.warhead == FPV_WARHEAD_ARMED) {
+                check(st > 2.5, "live (STEADY) only after the arming delay");
+                next();
+            }
+            if (st > 6) check(false, "warhead went live"), next();
+            break;
+        case 4: {  // fly at the target (straight ahead) on a glide slope
+            ch[4] = 1;
+            ch[10] = 1;
+            float dist = std::fabs(f.position[2] - kDemoTarget.z);
+            ch[1] = 0.35f;
+            ch[2] = holdHeight(kDemoTarget.y * 0.5f + 0.1f * dist);  // aim low at the truck's side
+            ch[0] = std::fmax(-0.3f, std::fmin(0.3f, -0.1f * f.position[0]));  // stay on the line
+            if (f.flags & FPV_DRONE_DETONATED) {
+                check(detonated, "detonation event received (fpv_kamikaze_poll_detonation)");
+                check(targetHit && directHit, "direct hit: the target ahead is destroyed (its object_id)");
+                check(f.video.signal_strength == 0, "video signal lost after the explosion");
+                next();
+            }
+            if (st > 15) check(false, "hit something within 15 s"), next();
+            break;
+        }
+        case 5:  // the game respawns the drone (cutscene, instant), or the pilot asks (signal)
+            if (st > 2 && !respawned) wantRespawn = true;  // signal mode: nobody else respawns it
+            if (respawned && respawnSeen < 0) respawnSeen = t;
+            if ((respawnSeen >= 0 && t - respawnSeen > 0.3) || st > 6) {
+                check(respawned && k.warhead == FPV_WARHEAD_SAFE && !(f.flags & FPV_DRONE_DETONATED),
+                      "respawned with a new, safe warhead");
+                return false;
+            }
+            break;
+        }
+        return true;
+    }
+};
+#endif
+
 // --- main -------------------------------------------------------------------------------
 
 int main(int argc, char **argv) {
     std::string dataDir = "data", screenshot;
     int frames = 0, width = 1280, height = 720, camMode = 0;
     bool autopilot = false, openOverlay = false;
+#if defined(LIBFPV_KAMIKAZE)
+    AfterBoom after = AfterBoom::Cutscene;
+    bool kamikazeDemo = false;
+#endif
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         auto nextArg = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
@@ -366,6 +521,13 @@ int main(int argc, char **argv) {
         else if (a == "--overlay") openOverlay = true;
         else if (a == "--width") width = std::atoi(nextArg().c_str());
         else if (a == "--height") height = std::atoi(nextArg().c_str());
+#if defined(LIBFPV_KAMIKAZE)
+        else if (a == "--kamikaze-demo") kamikazeDemo = true;
+        else if (a == "--after") {
+            std::string m = nextArg();
+            after = m == "signal" ? AfterBoom::Signal : m == "instant" ? AfterBoom::Instant : AfterBoom::Cutscene;
+        }
+#endif
         else if (a == "--camera") {
             std::string c = nextArg();
             camMode = c == "chase" ? 1 : c == "los" ? 2 : 0;
@@ -421,6 +583,31 @@ int main(int argc, char **argv) {
     uint32_t platformId = 0;
     fpv_mesh pm = platform.collision();
     fpv_surface_object_create(&pm, &pt, &platformId);
+#if defined(LIBFPV_KAMIKAZE)
+    // targets: surface objects, so a direct hit reports their object_id
+    Target targets[] = {{kDemoTarget, {1.2f, 1.0f, 2.2f}}, {{-12, 1.0f, -45}, {1.3f, 1.0f, 2.5f}},
+                        {{14, 1.5f, -40}, {2.0f, 1.5f, 2.0f}}};
+    Mesh targetMesh, fireball;
+    targetMesh.box({0, 0, 0}, {1, 1, 1}, 0, {0.3f, 0.38f, 0.22f});  // unit box, scaled per target
+    targetMesh.box({0, 1.1f, 0.3f}, {0.5f, 0.12f, 0.4f}, 0, {0.25f, 0.3f, 0.18f});
+    targetMesh.upload();
+    fireball.sphere(1.0f, 16, {1.0f, 1.0f, 1.0f});  // coloured by the tint
+    fireball.upload();
+    for (Target &t : targets) {
+        fpv_transform tt{};
+        tt.position[0] = t.centre.x, tt.position[1] = t.centre.y, tt.position[2] = t.centre.z;
+        tt.rotation[3] = 1;
+        tt.scale[0] = t.half.x, tt.scale[1] = t.half.y, tt.scale[2] = t.half.z;
+        fpv_mesh tm = targetMesh.collision();
+        fpv_surface_object_create(&tm, &tt, &t.objectId);
+    }
+    struct Blast {
+        V3 pos;
+        double start = -1;
+    } blast;
+    double respawnAt = -1;
+    KamikazeDemo demo;
+#endif
 
     // 3. drone
     fpv_drone_desc dd;
@@ -488,9 +675,15 @@ int main(int argc, char **argv) {
                     if (e.key.key == SDLK_ESCAPE) running = false;
                     if (e.key.key == SDLK_V) camMode = (camMode + 1) % 3;
                     if (e.key.key == SDLK_R) {
-                        fpv_drone_repair(drone);
+                        fpv_drone_repair(drone);  // kamikaze builds: also a new warhead
                         fpv_drone_reset(drone, dd.position, dd.rotation);
                     }
+#if defined(LIBFPV_KAMIKAZE)
+                    if (e.key.key == SDLK_C) {
+                        after = (AfterBoom)(((int)after + 1) % 3);
+                        SDL_Log("after the explosion: %s", afterName(after));
+                    }
+#endif
                 }
                 break;
             }
@@ -526,6 +719,18 @@ int main(int argc, char **argv) {
             if (!screenshot.empty()) SDL_Delay(16);  // real-time pacing for the sim thread
         }
 
+#if defined(LIBFPV_KAMIKAZE)
+        fpv_kamikaze_state ks{};
+        ks.struct_size = sizeof ks;
+        fpv_kamikaze_get_state(drone, &ks);
+        if (kamikazeDemo) {
+            float ch[FPV_CHANNEL_COUNT];
+            if (!demo.update(time, frame, ks, ch)) running = false;
+            fpv_input_set_channels(ch, FPV_CHANNEL_COUNT);
+            SDL_Delay(screenshot.empty() ? 0 : 16);
+        }
+#endif
+
         // moving platform: up and down 2..6 m
         pt.position[1] = 4 + 2 * (float)std::sin(time * 0.6);
         fpv_surface_object_move(platformId, &pt);
@@ -536,6 +741,53 @@ int main(int argc, char **argv) {
             propAngle[i] += frame.motors[i].rpm / 60.0 * 6.2831853 * dt * frame.motors[i].spin_direction;
         for (uint32_t i = 0; i < frame.impact_count; i++)
             if (frame.impacts[i].speed > 4) SDL_Log("impact %.1f m/s", frame.impacts[i].speed);
+
+#if defined(LIBFPV_KAMIKAZE)
+        // the warhead went off: explosion, blast damage, then whatever this
+        // game does next (cutscene + respawn, signal lost, or instant respawn)
+        fpv_detonation det{};
+        det.struct_size = sizeof det;
+        while (fpv_kamikaze_poll_detonation(&det)) {
+            static const char *causes[] = {"impact", "explode switch", "game"};
+            V3 at{det.position[0], det.position[1], det.position[2]};
+            SDL_Log("BOOM (%s) at %.1f %.1f %.1f, %.0f km/h", causes[det.cause], at.x, at.y, at.z,
+                    std::sqrt(dot(V3{det.velocity[0], det.velocity[1], det.velocity[2]},
+                                  V3{det.velocity[0], det.velocity[1], det.velocity[2]})) * 3.6f);
+            blast.pos = at;
+            blast.start = time;
+            demo.detonated = true;
+            for (Target &t : targets) {
+                V3 d = at - t.centre;
+                // distance from the blast to the target's box
+                V3 out{std::fmax(std::fabs(d.x) - t.half.x, 0.0f), std::fmax(std::fabs(d.y) - t.half.y, 0.0f),
+                       std::fmax(std::fabs(d.z) - t.half.z, 0.0f)};
+                bool direct = det.object_id == t.objectId;
+                if (!t.destroyed && (direct || dot(out, out) < 4.0f * 4.0f)) {
+                    t.destroyed = true;
+                    demo.targetHit = true;
+                    demo.directHit |= direct;
+                    SDL_Log("target destroyed (%s)", direct ? "direct hit" : "blast");
+                }
+            }
+            respawnAt = after == AfterBoom::Cutscene ? time + 3.0 : after == AfterBoom::Instant ? time + 0.3 : -1;
+            if (after == AfterBoom::Signal) SDL_Log("SIGNAL LOST - press R for the next drone");
+        }
+        if ((respawnAt >= 0 && time >= respawnAt) || demo.wantRespawn) {
+            respawnAt = -1;
+            demo.wantRespawn = false;
+            fpv_drone_repair(drone);
+            fpv_drone_reset(drone, dd.position, dd.rotation);
+            demo.respawned = true;
+        }
+        {
+            static const char *wh[] = {"SAFE", "ARMING", "ARMED", "DETONATED"};
+            char title[160];
+            snprintf(title, sizeof title, "libfpv standalone - warhead %s%s - after: %s (C) - K bomb, X explode",
+                     wh[ks.warhead], (ks.flags & FPV_KAMIKAZE_BLOCKS_ARMING) ? " (blocks arming)" : "",
+                     afterName(after));
+            SDL_SetWindowTitle(win, title);
+        }
+#endif
 
         int fbw, fbh;
         SDL_GetWindowSizeInPixels(win, &fbw, &fbh);
@@ -565,7 +817,19 @@ int main(int argc, char **argv) {
         }
 
         // scene into the offscreen target
-        const fpv_camera &cam = camMode == 0 ? frame.camera : camMode == 1 ? frame.chase_camera : frame.los_camera;
+        const fpv_camera *camPtr = camMode == 0 ? &frame.camera : camMode == 1 ? &frame.chase_camera : &frame.los_camera;
+        bool cutscene = false;
+#if defined(LIBFPV_KAMIKAZE)
+        fpv_camera orbit;
+        if (blast.start >= 0 && respawnAt >= 0 && after == AfterBoom::Cutscene) {
+            // explosion cutscene: orbit the blast until the respawn
+            float a = (float)(time - blast.start) * 0.5f;
+            orbit = lookCamera(blast.pos + V3{std::sin(a) * 14, 6, std::cos(a) * 14}, blast.pos, 60);
+            camPtr = &orbit;
+            cutscene = true;
+        }
+#endif
+        const fpv_camera &cam = *camPtr;
         float aspect = (float)fbw / (float)std::max(1, fbh);
         M4 viewProj = mul(perspective(cam.fov_y_degrees, aspect, std::max(0.01f, cam.near_plane), 2000), viewFromCamera(cam));
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -578,13 +842,47 @@ int main(int argc, char **argv) {
         glUniformMatrix4fv(glGetUniformLocation(sceneProg, "viewProj"), 1, GL_FALSE, viewProj.m);
         glUniform3f(glGetUniformLocation(sceneProg, "eye"), cam.position[0], cam.position[1], cam.position[2]);
         GLint locModel = glGetUniformLocation(sceneProg, "model");
+        GLint locTint = glGetUniformLocation(sceneProg, "tint"), locEmissive = glGetUniformLocation(sceneProg, "emissive");
+        glUniform3f(locTint, 1, 1, 1);
+        glUniform1f(locEmissive, 0);
         M4 I = identity();
         glUniformMatrix4fv(locModel, 1, GL_FALSE, I.m);
         level.draw();
         M4 pmod = translate({pt.position[0], pt.position[1], pt.position[2]});
         glUniformMatrix4fv(locModel, 1, GL_FALSE, pmod.m);
         platform.draw();
-        if (camMode != 0) {  // the FPV camera sits inside the frame
+        bool drawDrone = camMode != 0 || cutscene;
+#if defined(LIBFPV_KAMIKAZE)
+        for (const Target &t : targets) {
+            M4 sc = identity();
+            sc.m[0] = t.half.x, sc.m[5] = t.half.y, sc.m[10] = t.half.z;
+            M4 tm = mul(translate(t.centre), sc);
+            glUniformMatrix4fv(locModel, 1, GL_FALSE, tm.m);
+            if (t.destroyed) glUniform3f(locTint, 0.15f, 0.13f, 0.12f);  // burnt
+            targetMesh.draw();
+            glUniform3f(locTint, 1, 1, 1);
+        }
+        if (blast.start >= 0 && time - blast.start < 2.5) {
+            // fireball: grows fast, then cools to smoke
+            float age = (float)(time - blast.start);
+            float r = 4.5f * (1 - std::exp(-age * 8));
+            float heat = std::fmax(0.0f, 1 - age / 0.9f);
+            M4 sc = identity();
+            sc.m[0] = sc.m[5] = sc.m[10] = r;
+            M4 fm = mul(translate(blast.pos + V3{0, age * 1.5f, 0}), sc);
+            glUniformMatrix4fv(locModel, 1, GL_FALSE, fm.m);
+            glUniform1f(locEmissive, heat);
+            // white-yellow fire cooling to dark smoke
+            V3 fire{1.0f, 0.75f - 0.25f * (1 - heat), 0.3f * heat}, smoke{0.22f, 0.21f, 0.2f};
+            V3 fc = smoke + (fire - smoke) * std::sqrt(heat);
+            glUniform3f(locTint, fc.x, fc.y, fc.z);
+            fireball.draw();
+            glUniform1f(locEmissive, 0);
+            glUniform3f(locTint, 1, 1, 1);
+        }
+        drawDrone = drawDrone && !(frame.flags & FPV_DRONE_DETONATED);  // nothing left of it
+#endif
+        if (drawDrone) {  // the FPV camera sits inside the frame
             M4 dm = mul(translate({frame.position[0], frame.position[1], frame.position[2]}), fromQuat(frame.rotation));
             glUniformMatrix4fv(locModel, 1, GL_FALSE, dm.m);
             body.draw();
@@ -605,7 +903,17 @@ int main(int argc, char **argv) {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, fboTex);
         glUniform1i(glGetUniformLocation(postProg, "scene"), 0);
-        bool fpv = camMode == 0;
+        bool fpv = camMode == 0 && !cutscene;
+        float flash = 0;
+#if defined(LIBFPV_KAMIKAZE)
+        if (blast.start >= 0 && !fpv) flash = (float)std::fmax(0.0, 0.8 - (time - blast.start) * 3);
+#endif
+        glUniform1f(glGetUniformLocation(postProg, "flash"), flash);
+        float lost = 0;
+#if defined(LIBFPV_KAMIKAZE)
+        if (fpv && (frame.flags & FPV_DRONE_DETONATED)) lost = 1;  // the camera went with the drone
+#endif
+        glUniform1f(glGetUniformLocation(postProg, "lost"), lost);
         glUniform2f(glGetUniformLocation(postProg, "k"), fpv ? frame.camera.distortion_k1 : 0, fpv ? frame.camera.distortion_k2 : 0);
         glUniform1f(glGetUniformLocation(postProg, "zoom"), fpv ? frame.camera.distortion_zoom : 1.0f);
         glUniform1f(glGetUniformLocation(postProg, "aspect"), aspect);
@@ -639,5 +947,11 @@ int main(int argc, char **argv) {
     SDL_GL_DestroyContext(gl);
     SDL_DestroyWindow(win);
     SDL_Quit();
+#if defined(LIBFPV_KAMIKAZE)
+    if (kamikazeDemo) {
+        SDL_Log("[demo] %s (%d failed)", demo.failures ? "FAILED" : "ALL PASSED", demo.failures);
+        return demo.failures ? 1 : 0;
+    }
+#endif
     return 0;
 }

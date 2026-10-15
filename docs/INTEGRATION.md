@@ -139,6 +139,84 @@ Keep showing:
 If the game cannot hide some element (it is baked into the engine), list it
 in the mod's README, so players know why it stays.
 
+## Kamikaze builds
+
+Build libfpv with `-DLIBFPV_KAMIKAZE=ON` for kamikaze (strike) FPV. The
+drone then carries a warhead, and `libfpv.h` gains the "Kamikaze" section
+(the definition `LIBFPV_KAMIKAZE` comes with `libfpv::fpv`; a host not
+using CMake defines it itself). The rules are in the header and in
+DECISIONS D24. In short:
+
+| Switch | Channel | Keyboard | Gamepad |
+|---|---|---|---|
+| Bomb arm | AUX7 | K (toggle) | West / X / Square (toggle) |
+| Explode | AUX8 | X (hold) | right shoulder |
+
+The motors only arm with the bomb switch off. Take off, flip it, and after
+the arming delay (OSD `ARMING 3`, then `STEADY`) the warhead is live. Any
+touch then sets it off, even a light tap on the ground, and so does the
+explode switch. With the bomb switch off nothing explodes. The warhead
+weighs something (by default 60 % of the quad), so a loaded drone climbs
+and turns slower.
+
+### What the game does
+
+libfpv tells the game what happened and leaves the consequences to it:
+
+```c
+fpv_detonation d;
+d.struct_size = sizeof d;
+while (fpv_kamikaze_poll_detonation(&d)) {
+    play_explosion(d.position);               /* host coords */
+    damage_around(d.position, d.object_id);   /* object_id: a direct hit on a surface object */
+    /* then one of the endings below */
+}
+```
+
+While destroyed (`frame.flags & FPV_DRONE_DETONATED`), the wreck sits frozen
+where it exploded, the props are broken, `frame.video` reports no signal,
+the OSD shows `BOOM` for 2 s and then nothing, and the drone does not arm.
+Don't draw the drone model. Pick an ending:
+
+- **Instant respawn** (arcade): right after the explosion, call
+  `fpv_drone_repair(drone)` and then `fpv_drone_reset(drone, spawn, rot)`.
+- **Cutscene**: switch the game camera to an external shot of the blast
+  for a few seconds (the FPV camera now shows only static), then repair
+  and reset as above.
+- **Signal lost** (realistic): keep showing the FPV view. Draw full static
+  while `FPV_DRONE_DETONATED` is set (with `BOOM` over it from the OSD), and
+  respawn only when the pilot asks for the next drone, or when the game
+  hands it out (a limited number of drones, a launch position nearer the
+  front).
+
+`fpv_drone_repair` always gives a new drone with a new, safe warhead. If the
+pilot's bomb switch is still on, it must be turned off before the new
+warhead can arm, so a respawn never starts with a live bomb.
+
+The standalone example does all three: C switches between them, and
+`fpv_standalone --kamikaze-demo [--after cutscene|signal|instant]` flies a
+scripted strike that checks every rule and exits 1 on failure.
+
+### Tuning
+
+`fpv_kamikaze_set_config` sets the arming delay, the contact fuse threshold
+(`min_impact_speed`, default 0.25 m/s), the payload (`payload_mass` kg and
+`payload_drop` below the frame, -1 = automatic) and `FPV_KAMIKAZE_NO_OSD`.
+Players edit the same values in the overlay (F8 > Fly), and both are saved
+in `settings.json`, so only set them at startup if the game must override
+the player (a mission with a fixed payload, for example).
+`fpv_kamikaze_get_state` reports the warhead state and the payload and
+all-up mass for the game's own UI. A quad preset can carry its own default
+payload:
+
+```json
+"payload": { "mass": 0.8, "drop": 0.04 }
+```
+
+Without `FPV_KAMIKAZE_NO_OSD`, libfpv writes the warhead state into
+`frame.osd` itself. With it, the game draws its own, from
+`fpv_kamikaze_get_state`.
+
 ## Lessons from real integrations
 
 These notes come from integrating libfpv into GTA IV

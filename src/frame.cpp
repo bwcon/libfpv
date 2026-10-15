@@ -15,6 +15,47 @@ void updatePresentation(const fpv_frame &f);  // api_present.cpp
 
 static_assert(FPV_CHANNEL_COUNT == kChannelCount, "fpv_frame.channels matches the input channels");
 
+#if defined(LIBFPV_KAMIKAZE)
+static void osdText(uint8_t *osd, int row, const char *text) {
+    int n = (int)std::strlen(text);
+    int col = std::max(0, (FPV_OSD_COLS - n) / 2);
+    for (int i = 0; i < n && col + i < FPV_OSD_COLS; i++) osd[row * FPV_OSD_COLS + col + i] = (uint8_t)text[i];
+}
+
+// The warhead state over Betaflight's OSD, the way strike drones show it
+// (DECISIONS D24): "SAFE", "ARMING 3", "STEADY", then "BOOM".
+static void drawWarheadOsd(uint8_t *osd, const WarheadSnapshot &w, double simTime, bool fcArmed) {
+    const int kStatusRow = 3, kCentreRow = 7;
+    bool blink = std::fmod(simTime, 0.5) < 0.3;
+    if (w.state == WarheadState::Detonated) {
+        // the camera and the transmitter are gone: nothing but the last word
+        std::memset(osd, ' ', FPV_OSD_ROWS * FPV_OSD_COLS);
+        if (simTime - w.stateSince < 2.0) osdText(osd, kCentreRow, "BOOM");
+        return;
+    }
+    char text[32];
+    if (simTime < w.refusedUntil) {
+        if (blink) osdText(osd, kStatusRow, "NOT ARMED");
+        return;
+    }
+    switch (w.state) {
+    case WarheadState::Safe:
+        if (w.bombSwitch && (!fcArmed || w.needsCycle)) {
+            if (blink) osdText(osd, kStatusRow, "BOMB SW ON");
+        } else {
+            osdText(osd, kStatusRow, "SAFE");
+        }
+        break;
+    case WarheadState::Arming:
+        snprintf(text, sizeof text, "ARMING %d", (int)std::ceil(w.armingRemaining));
+        osdText(osd, kStatusRow, text);
+        break;
+    case WarheadState::Armed: osdText(osd, kStatusRow, "STEADY"); break;
+    default: break;
+    }
+}
+#endif
+
 static void put3(float out[3], Vec3 v) {
     out[0] = v.x;
     out[1] = v.y;
@@ -127,9 +168,15 @@ extern "C" FPV_API fpv_result fpv_drone_tick(fpv_drone *d, float frameDt, fpv_fr
     if (cur.modeHorizon) flags |= FPV_DRONE_MODE_HORIZON;
     if (cur.turtle) flags |= FPV_DRONE_TURTLE;
     if (cur.osdDisabled) flags |= FPV_DRONE_OSD_DISABLED;
+#if defined(LIBFPV_KAMIKAZE)
+    if (cur.active && cur.warhead.state == WarheadState::Detonated) flags |= FPV_DRONE_DETONATED;
+#endif
     f.flags = flags;
     f.arming_disable_flags = cur.armingDisableFlags;
     std::string why;
+#if defined(LIBFPV_KAMIKAZE)
+    if (cur.active && cur.warhead.blocksArming) why = "BOMB";
+#endif
     for (int i = 0; i < 32; i++) {
         if (cur.armingDisableFlags & (1u << i)) {
             if (!why.empty()) why += ' ';
@@ -247,6 +294,15 @@ extern "C" FPV_API fpv_result fpv_drone_tick(fpv_drone *d, float frameDt, fpv_fr
 
     memcpy(f.osd, cur.osd.data(), sizeof(f.osd));
     f.osd_revision = cur.osdRevision;
+#if defined(LIBFPV_KAMIKAZE)
+    if (cur.active && !cur.osdDisabled && L.settings.kamikazeOsd) drawWarheadOsd(f.osd, cur.warhead, cur.simTime, cur.armed);
+    // Betaflight's revision cannot see the warhead text: count changes here
+    if (memcmp(L.kamikazeOsd, f.osd, sizeof(f.osd)) != 0) {
+        memcpy(L.kamikazeOsd, f.osd, sizeof(f.osd));
+        L.kamikazeOsdRevision++;
+    }
+    f.osd_revision = L.kamikazeOsdRevision;
+#endif
     for (int i = 0; i < kChannelCount; i++) f.channels[i] = cur.channels[i];
 
     updatePresentation(f);

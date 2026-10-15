@@ -14,7 +14,10 @@ namespace fpv {
 
 using json = nlohmann::json;
 
-InputManager::InputManager() {}
+InputManager::InputManager() {
+    setIdleChannels(m_host);
+    setIdleChannels(m_lastOut);
+}
 InputManager::~InputManager() { stopDevices(); }
 
 void InputManager::setDataDir(const std::string &dir) {
@@ -47,7 +50,7 @@ void InputManager::stopDevices() {
 
 void InputManager::setHostChannels(const float *ch, uint32_t count, double wallTime) {
     std::lock_guard<std::mutex> lock(m_mutex);
-    for (uint32_t i = 0; i < kChannelCount; i++) m_host[i] = (i < count && std::isfinite(ch[i])) ? std::clamp(ch[i], -1.0f, 1.0f) : (i == 2 || i >= 4 ? -1.0f : 0.0f);
+    for (uint32_t i = 0; i < kChannelCount; i++) m_host[i] = (i < count && std::isfinite(ch[i])) ? std::clamp(ch[i], -1.0f, 1.0f) : idleChannel((int)i);
     m_hostTime = wallTime;
 }
 
@@ -197,6 +200,14 @@ void InputManager::mapGamepad(const RawDevice &d, float dt, float out[kChannelCo
     out[kAux2] = 1.0f;
     out[kAux3] = (d.padButtons & 2u) ? 1.0f : -1.0f;  // EAST = beeper
     out[kAux4] = m_padTurtle ? 1.0f : -1.0f;
+#if defined(LIBFPV_KAMIKAZE)
+    // WEST (X / Square) toggles the bomb arm switch, right shoulder explodes
+    bool bombBtn = (d.padButtons & 4u) != 0;  // SDL_GAMEPAD_BUTTON_WEST
+    if (bombBtn && !m_padBombPrev) m_padBomb = !m_padBomb;
+    m_padBombPrev = bombBtn;
+    out[kAux7] = m_padBomb ? 1.0f : -1.0f;
+    out[kAux8] = (d.padButtons & (1u << 10)) ? 1.0f : -1.0f;  // SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER
+#endif
 }
 
 // Keyboard (degraded): W/S throttle, A/D yaw, arrows pitch/roll, Enter arms,
@@ -224,6 +235,14 @@ void InputManager::mapKeyboard(float dt, float out[kChannelCount]) {
     out[kAux2] = 1.0f;
     out[kAux3] = k('B') ? 1.0f : -1.0f;
     out[kAux4] = m_kbTurtle ? 1.0f : -1.0f;
+#if defined(LIBFPV_KAMIKAZE)
+    // K toggles the bomb arm switch, X held is the explode switch
+    bool bombKey = k('K');
+    if (bombKey && !m_kbBombKeyPrev) m_kbBomb = !m_kbBomb;
+    m_kbBombKeyPrev = bombKey;
+    out[kAux7] = m_kbBomb ? 1.0f : -1.0f;
+    out[kAux8] = k('X') ? 1.0f : -1.0f;
+#endif
 }
 
 void InputManager::update(double wallTime, float dt, float out[kChannelCount], bool &radioLost) {
@@ -233,7 +252,8 @@ void InputManager::update(double wallTime, float dt, float out[kChannelCount], b
 
     InputStatus st;
     st.deviceCount = (int)m_devices.size();
-    float ch[kChannelCount] = {0, 0, -1, 0, -1, -1, -1, -1, -1, -1};
+    float ch[kChannelCount];
+    setIdleChannels(ch);
 
     // Host channels win while fresh.
     if (wallTime - m_hostTime < 0.5) {

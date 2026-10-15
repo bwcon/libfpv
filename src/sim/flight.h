@@ -15,6 +15,9 @@
 #include "input/input.h"
 #include "network/packets.h"
 #include "world/collision.h"
+#if defined(LIBFPV_KAMIKAZE)
+#include "sim/kamikaze.h"
+#endif
 
 namespace fpv {
 
@@ -48,6 +51,10 @@ struct FlightSnapshot {
     std::array<uint8_t, 16 * 30> osd{};
     uint32_t osdRevision = 0;
     std::array<float, kChannelCount> channels{};
+#if defined(LIBFPV_KAMIKAZE)
+    WarheadSnapshot warhead;
+    float payloadMass = 0, totalMass = 0;  // kg
+#endif
 };
 
 class Flight {
@@ -79,6 +86,16 @@ public:
     // GPS home point (internal frame). Without one, Betaflight sets home
     // where the drone arms. Any thread.
     void setHome(const Vec3 *home);
+
+#if defined(LIBFPV_KAMIKAZE)
+    Warhead &warhead() { return m_warhead; }
+    // Host-requested detonation (simulation thread).
+    bool detonate(bool evenIfSafe);
+    // The payload (warhead) carried under the frame: kg and metres below
+    // the frame centre, < 0 = the preset's or automatic. Applies at once,
+    // also in flight. Simulation thread.
+    void setPayload(float massKg, float dropM);
+#endif
 
     double simTime() const { return m_simTime; }
     Vec3 pilotPosition() const { return m_pilotPos; }
@@ -129,6 +146,16 @@ private:
     uint32_t m_videoTick = 0;
     int m_yawReversed = -1;
     float m_videoOcclusion = 0;
+#if defined(LIBFPV_KAMIKAZE)
+    Warhead m_warhead;
+    Vec3 m_impactVel;  // velocity before the current contacts resolved
+    void onDetonated();
+    DronePreset withPayload(const DronePreset &bare);
+    DronePreset m_basePreset;                     // without the payload
+    float m_payloadKg = -1, m_payloadDropM = -1;  // requested
+    float m_payloadMass = 0;                      // effective
+    Vec3 m_payloadPos;                            // body frame
+#endif
 };
 
 }  // namespace fpv

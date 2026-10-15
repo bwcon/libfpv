@@ -35,6 +35,12 @@ struct Settings {
     float cameraUptilt = -1, cameraFov = -1;
     float cameraFisheye = 0.5f;  // lens strength 0..1, 0 = off (the preset's own k1/k2)
     bool chaseSmoothing = true;
+#if defined(LIBFPV_KAMIKAZE)
+    // fpv_kamikaze_config, internal units (seconds, m/s, kg, metres)
+    float kamikazeArmingDelay = 3.0f, kamikazeMinImpactSpeed = 0.25f;
+    float kamikazePayloadKg = -1.0f, kamikazePayloadDrop = -1.0f;  // < 0 = automatic
+    bool kamikazeOsd = true;
+#endif
 };
 
 struct Lib {
@@ -80,6 +86,12 @@ struct Lib {
     OsdRenderer *osd = nullptr;
     AudioSynth *audio = nullptr;
 
+#if defined(LIBFPV_KAMIKAZE)
+    // warhead OSD (host thread): last composed OSD and its revision
+    uint8_t kamikazeOsd[FPV_OSD_ROWS * FPV_OSD_COLS] = {};
+    uint32_t kamikazeOsdRevision = 0;
+#endif
+
     // last frame for the overlay/audio (host thread)
     fpv_frame lastFrame{};
     bool lastFrameValid = false;
@@ -99,6 +111,11 @@ void saveSettings();
 const DronePreset &currentPreset();
 fpv_result selectPreset(const std::string &nameOrFile, bool applyToFlight);
 std::string eepromPathFor(const DronePreset &p);
+
+#if defined(LIBFPV_KAMIKAZE)
+// Pushes the kamikaze settings to the warhead and the flight model.
+void applyKamikazeSettings();
+#endif
 
 // Runs a CLI script on the simulation thread; returns BFB_CLI_* code.
 int runCli(const std::string &script, std::string &output);
