@@ -27,13 +27,15 @@ int g_failures = 0, g_checks = 0;
 
 // Axes: 0 roll, 1 pitch, 2 throttle, 3 yaw, 4 arm (2-pos), 5 angle (2-pos),
 // 6 beeper + turtle (3-pos: -1 off, 0 beeper, +1 turtle),
-// 7 air mode + OSD disable (3-pos: -1 off, 0 air mode, +1 OSD off).
+// 7 air mode + OSD disable (3-pos: -1 off, 0 air mode, +1 OSD off),
+// kamikaze builds: 8 bomb arm (2-pos), button 0 explode (momentary).
 struct FakeRadio {
     RawDevice d;
     FakeRadio() {
         d.guid = "fake";
         d.name = "Fake radio";
-        d.axes = {0, 0, -1, 0, -1, -1, -1, -1};
+        d.axes = {0, 0, -1, 0, -1, -1, -1, -1, -1};
+        d.buttons = {0, 0};
     }
 };
 
@@ -91,6 +93,14 @@ void testSharedThreePositionSwitch() {
     CHECK(!w.detected(), "air mode's position is not offered for OSD");
     r.d.axes[7] = 1;  // all the way up: OSD disable
     CHECK(step(w, r), "OSD disable");
+#if defined(LIBFPV_KAMIKAZE)
+    CHECK(w.step() == RadioWizard::Step::BombArmSwitch, "bomb arm step after OSD disable");
+    r.d.axes[8] = 1;
+    CHECK(step(w, r), "bomb arm");
+    r.d.buttons[0] = 1;  // momentary explode button, held while pressing Next
+    CHECK(step(w, r), "explode");
+    r.d.buttons[0] = 0;
+#endif
     CHECK(w.step() == RadioWizard::Step::Done, "wizard done");
 
     const DeviceMapping &m = w.mapping();
@@ -114,6 +124,11 @@ void testSharedThreePositionSwitch() {
     // plain 2-position switches still work
     CHECK(switchPosition(m, kAux1, 1) == 1 && switchPosition(m, kAux1, -1) == -1, "arm switch");
     CHECK(switchPosition(m, kAux2, 0.8f) == 1 && switchPosition(m, kAux2, -0.8f) == -1, "angle switch");
+#if defined(LIBFPV_KAMIKAZE)
+    CHECK(m.channels[kAux7].axis == 8 && switchPosition(m, kAux7, 1) == 1 && switchPosition(m, kAux7, -1) == -1,
+          "bomb arm switch on axis 8 (axis %d)", m.channels[kAux7].axis);
+    CHECK(m.channels[kAux8].button == 0, "explode on button 1 (button %d)", m.channels[kAux8].button);
+#endif
 }
 
 // A middle-only mapping on a 3-position switch is off at the top.
@@ -156,7 +171,11 @@ void testSkipOptionalSwitches() {
         w.skip();
         skipped++;
     }
+#if defined(LIBFPV_KAMIKAZE)
+    CHECK(skipped == 7, "angle, beeper, turtle, air mode, OSD, bomb arm and explode are optional (%d skipped)", skipped);
+#else
     CHECK(skipped == 5, "angle, beeper, turtle, air mode and OSD are optional (%d skipped)", skipped);
+#endif
     CHECK(w.step() == RadioWizard::Step::Done && w.mapping().complete, "done after skipping");
     for (int c = kAux2; c < kChannelCount; c++)
         CHECK(w.mapping().channels[c].axis < 0 && w.mapping().channels[c].button < 0, "AUX%d unbound", c - kAux1 + 1);

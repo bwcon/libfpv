@@ -457,3 +457,90 @@ four times per step brought every task to its rate, but it changes
 Betaflight's timing everywhere (RX then ran at 8 kHz) and was not
 evaluated beyond that, so it was not kept. Patch 0005 fixes the part that
 was wrong rather than late.
+
+## Kamikaze builds
+
+### D24. Warhead, bomb arm and explode switches (`LIBFPV_KAMIKAZE`)
+
+Kamikaze (strike) FPV is a separate build, `-DLIBFPV_KAMIKAZE=ON`, off by
+default. Without it nothing changes: no new symbols, no new channels, same
+header (the kamikaze declarations sit behind `#if defined(LIBFPV_KAMIKAZE)`),
+same behaviour. The option is a PUBLIC compile definition of `libfpv::fpv`,
+so hosts linking through CMake see the API automatically. A host built
+with it against a library built without it fails to link or to resolve
+`fpv_kamikaze_*`, which is the feature check.
+
+**Switches.** AUX7 is the bomb arm switch and AUX8 the explode switch.
+`FPV_CHANNEL_COUNT` becomes 12 and `fpv_frame.channels` grows at its end,
+the same `struct_size`-safe way as in D23. Betaflight receives both
+channels like any other (the Configurator's Receiver tab shows them) but
+has no mode on them: on real strike drones the firing board, not the
+flight controller, reads them. The radio wizard adds both steps after the
+OSD switch, both skippable; the keyboard fallback uses K (bomb toggle) and
+X (explode, held), the gamepad West (toggle) and the right shoulder.
+
+**Rules,** in `src/sim/kamikaze.cpp` (`Warhead`, simulation thread):
+
+* The motors do not arm while the bomb arm switch is on, and a destroyed
+  drone never arms. libfpv holds AUX1 low towards Betaflight, and keeps
+  holding it until the pilot cycles the arm switch, like Betaflight's own
+  ARMSWITCH rule; otherwise turning the bomb off with the arm switch on
+  would arm the motors at once. Betaflight has no arming-disable flag for
+  this and none was patched in, so `arming_disable_flags` stays 0 and
+  `arming_disable_text` reads "BOMB".
+* Switch on with the motors armed: ARMING for `arming_delay` (3 s), then
+  ARMED. Switch off at any time: SAFE. Motors disarmed while ARMING: SAFE
+  and the switch must be cycled. Motors disarmed while ARMED: it stays
+  live (a falling live drone is still a bomb).
+* A switch that is on when the drone spawns or is repaired must be turned
+  off first, so a respawn never comes with a live or arming warhead.
+* Only ARMED explodes, on a contact, on the explode switch's off-to-on
+  edge (an explode switch already on when it goes live does nothing until
+  cycled), or on `fpv_kamikaze_detonate`.
+* The fuse is a contact fuse: every collision contact approaching faster
+  than `min_impact_speed` (default 0.25 m/s, 0.1..30, tunable in the
+  overlay) fires it, and so does a spinning prop striking something. That
+  is far below the 1.5 m/s of `fpv_frame.impacts`, so a light tap on the
+  ground counts. Contacts slower than 0.1 m/s never reach it: a drone
+  resting on the ground with a live warhead does not explode.
+
+**After the explosion** the drone is destroyed but not deleted, so every
+kind of game can build on it: the wreck stays frozen where it exploded,
+the props are broken (CRASHED), the motors are stopped, AUX1 is held low,
+the video reports no signal (noise 1, signal 0), and the OSD shows only
+"BOOM" for 2 s, then nothing. `fpv_drone_repair` is the new drone with a
+new, safe warhead. libfpv never respawns on its own: whether the game
+cuts to a cutscene, respawns at once, or leaves the pilot on static until
+they take the next drone is the game's choice (INTEGRATION.md, "Kamikaze
+builds"). Detonations are queued (`fpv_kamikaze_poll_detonation`, up to
+16) rather than put in `fpv_frame`, so frames keep their layout and a
+host polling less often loses nothing.
+
+**OSD.** libfpv writes the warhead state into `frame.osd` over
+Betaflight's own grid, centred on row 3 (row 7 for BOOM): `SAFE`,
+`BOMB SW ON` (blinking, the motors are blocked), `ARMING 3`, `STEADY`
+(live), `NOT ARMED` (explode switch on a safe bomb) and `BOOM`. These are
+the words seen on strike-drone footage; the exact wording of real firing
+boards is not public, so libfpv follows the convention rather than a
+specific board. The text respects the OSD disable switch and can be turned
+off (`FPV_KAMIKAZE_NO_OSD`) for games that draw their own. Betaflight's
+`osd_revision` cannot see it, so kamikaze builds count revisions of the
+composed grid instead.
+
+**Payload.** The warhead is real weight. Its mass is added to the quad's
+in SimITL, its inertia is added as a point mass `drop` below the centre
+(parallel axis) plus its own solid sphere, and it adds a collision sphere.
+The default is the preset's `"payload": {"mass", "drop"}`, or else 60 % of
+the quad's own mass strapped under the frame, flush with the landing
+points; a sphere hanging below them made the drone balance on it and tip
+over (ANGLE). The centre of mass does not move, because SimITL has no
+offset for it. Changing the payload patches SimITL's live `stateInit`
+instead of re-initialising the physics, so it can change in flight.
+`fpv_kamikaze_config` and the overlay (F8 > Fly) edit the same values
+(payload, arming delay, fuse threshold, OSD), saved in `settings.json`.
+
+Tests: `kamikaze_*` in `fpv_tests` (only in kamikaze builds; the other
+tests run there with no payload and no warhead OSD, since they check a
+bare quad and Betaflight's own OSD), the wizard test with both switches,
+and `fpv_standalone --kamikaze-demo`, which flies a scripted strike in the
+real app and exits 1 if any rule fails.

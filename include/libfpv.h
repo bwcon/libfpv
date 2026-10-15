@@ -8,6 +8,11 @@
  * Any mod or program that links libfpv must be distributed under GPL-3.0
  * compatible terms.
  *
+ * Kamikaze builds (CMake -DLIBFPV_KAMIKAZE=ON, which defines LIBFPV_KAMIKAZE
+ * for libfpv and for every target linking libfpv::fpv) add a warhead: bomb
+ * arm and explode switches, detonation on impact and a warhead OSD. See the
+ * "Kamikaze" section below and docs/INTEGRATION.md#kamikaze-builds.
+ *
  * ---------------------------------------------------------------------------
  * Integration in five calls (see docs/INTEGRATION.md for the full guide):
  *
@@ -383,6 +388,12 @@ enum fpv_drone_flags {
      * game must hide any UI it still shows over the FPV view too. See
      * docs/INTEGRATION.md#osd-disable-switch. */
     FPV_DRONE_OSD_DISABLED = 1u << 9
+#if defined(LIBFPV_KAMIKAZE)
+    ,
+    /* Kamikaze builds: the warhead exploded. The drone is destroyed (frozen
+     * where it exploded, no video signal) until fpv_drone_repair(). */
+    FPV_DRONE_DETONATED = 1u << 10
+#endif
 };
 
 typedef struct fpv_impact {
@@ -398,8 +409,13 @@ typedef struct fpv_impact {
 #define FPV_MAX_IMPACTS 16
 #define FPV_OSD_ROWS 16
 #define FPV_OSD_COLS 30
+#if defined(LIBFPV_KAMIKAZE)
+/* AETR + AUX1..AUX8 (AUX7 bomb arm, AUX8 explode) */
+#define FPV_CHANNEL_COUNT 12
+#else
 /* AETR + AUX1..AUX6 */
 #define FPV_CHANNEL_COUNT 10
+#endif
 
 typedef struct fpv_video_state {
     /* 0 = perfect, 1 = unwatchable. Derived from distance to the pilot,
@@ -444,7 +460,8 @@ typedef struct fpv_frame {
 
     /* Radio channels as Betaflight sees them, AETR + AUX1..6, -1..1:
      * AUX1 arm, AUX2 angle, AUX3 beeper, AUX4 turtle, AUX5 air mode,
-     * AUX6 OSD disable. */
+     * AUX6 OSD disable; kamikaze builds add AUX7 bomb arm and AUX8
+     * explode. */
     float channels[FPV_CHANNEL_COUNT];
 } fpv_frame;
 
@@ -471,6 +488,132 @@ FPV_API fpv_result fpv_drone_tick(fpv_drone *drone, float frame_dt, fpv_frame *f
  * Betaflight: like a real quad, home is then where the drone last armed
  * (the default). Cheap; call it every frame if home moves. */
 FPV_API fpv_result fpv_gps_set_home(const float position[3]);
+
+#if defined(LIBFPV_KAMIKAZE)
+/* ===========================================================================
+ * Kamikaze (only in builds with LIBFPV_KAMIKAZE)
+ *
+ * The drone carries a warhead with two switches: bomb arm (AUX7) and
+ * explode (AUX8). The rules, as on the real thing:
+ *
+ *   - The motors do not arm while the bomb arm switch is on. Arm the
+ *     motors with it off, then turn it on in flight. After a refused arm,
+ *     the arm switch must be cycled, like Betaflight's ARMSWITCH safety.
+ *   - Bomb arm switch on with the motors armed starts the arming delay
+ *     (FPV_WARHEAD_ARMING, OSD "ARMING 3"), then the warhead is live
+ *     (FPV_WARHEAD_ARMED, OSD "STEADY"). Off at any time safes it ("SAFE").
+ *   - Only a live warhead explodes: on any touch (a contact fuse: every
+ *     collision approaching faster than min_impact_speed, 0.25 m/s by
+ *     default, so also a light tap on the ground that fpv_frame.impacts
+ *     does not report; resting on the ground does not fire it), on the explode
+ *     switch (off to on), or on fpv_kamikaze_detonate(). With the bomb arm switch off, nothing
+ *     explodes; the explode switch only shows "NOT ARMED".
+ *   - A switch that is already on when the drone spawns or is repaired
+ *     must be turned off first.
+ *   - After the explosion (OSD "BOOM") the drone is destroyed: frame.flags
+ *     has FPV_DRONE_DETONATED and FPV_DRONE_CRASHED, the wreck stays where
+ *     it exploded, the motors stop, frame.video reports no signal (noise 1,
+ *     signal_strength 0), and it does not arm. fpv_drone_repair() gives a
+ *     new drone with a new, safe warhead (then fpv_drone_reset() to move it).
+ *
+ * The game reacts to fpv_kamikaze_poll_detonation(): play the explosion
+ * at its position, damage what is around, then respawn at once, after a
+ * cutscene, or leave the pilot looking at static until they take the next
+ * drone. See docs/INTEGRATION.md#kamikaze-builds.
+ * ======================================================================== */
+
+typedef enum fpv_warhead_state {
+    FPV_WARHEAD_SAFE = 0,      /* bomb arm switch off (or not cycled yet) */
+    FPV_WARHEAD_ARMING = 1,    /* switch on, arming delay running */
+    FPV_WARHEAD_ARMED = 2,     /* live: explodes on impact or the explode switch */
+    FPV_WARHEAD_DETONATED = 3  /* exploded; the drone is destroyed until repaired */
+} fpv_warhead_state;
+
+enum fpv_kamikaze_state_flags {
+    FPV_KAMIKAZE_BOMB_SWITCH = 1u << 0,     /* bomb arm switch (AUX7) is on */
+    FPV_KAMIKAZE_EXPLODE_SWITCH = 1u << 1,  /* explode switch (AUX8) is on */
+    /* The motors cannot arm now: the bomb arm switch is on (or the drone is
+     * destroyed). arming_disable_text also says "BOMB". */
+    FPV_KAMIKAZE_BLOCKS_ARMING = 1u << 2,
+    /* The bomb arm switch is on but must be turned off before it can arm. */
+    FPV_KAMIKAZE_NEEDS_SWITCH_CYCLE = 1u << 3
+};
+
+typedef struct fpv_kamikaze_state {
+    uint32_t struct_size;
+    fpv_warhead_state warhead;
+    float arming_remaining;     /* seconds until live, while ARMING */
+    uint32_t flags;             /* fpv_kamikaze_state_flags */
+    uint32_t detonation_count;  /* since fpv_global_init */
+    float payload_mass;         /* kg, the warhead the drone carries */
+    float total_mass;           /* kg, all-up weight with the payload */
+} fpv_kamikaze_state;
+
+/* State as of the last fpv_drone_tick(). */
+FPV_API fpv_result fpv_kamikaze_get_state(fpv_drone *drone, fpv_kamikaze_state *state);
+
+typedef enum fpv_detonation_cause {
+    FPV_DETONATION_IMPACT = 0,  /* hit something */
+    FPV_DETONATION_SWITCH = 1,  /* the pilot's explode switch */
+    FPV_DETONATION_HOST = 2     /* fpv_kamikaze_detonate() */
+} fpv_detonation_cause;
+
+typedef struct fpv_detonation {
+    uint32_t struct_size;
+    double sim_time;
+    fpv_detonation_cause cause;
+    float position[3];   /* host coords: the impact point, or the drone */
+    float velocity[3];   /* drone velocity at the moment, host units / s */
+    float normal[3];     /* surface hit, towards the drone; zero unless an impact */
+    uint8_t material;    /* surface hit (impacts) */
+    uint32_t object_id;  /* surface object hit, 0 = static world, raycast or none */
+    int32_t motor_index; /* -1 = frame, 0..3 = a propeller hit, -1 unless an impact */
+} fpv_detonation;
+
+/* Takes the oldest detonation not returned yet. Returns 1 and fills `out`
+ * (struct_size set by the caller), or 0 when there is none. Call it every
+ * frame; a detonation is also visible as FPV_DRONE_DETONATED. */
+FPV_API int fpv_kamikaze_poll_detonation(fpv_detonation *out);
+
+/* The game blows the warhead up (shot down, scripted, a timer). Only a live
+ * (ARMED) warhead explodes unless `even_if_safe` is non-zero (a bullet hit
+ * the explosive). FPV_ERROR_NOT_FOUND when nothing exploded. */
+FPV_API fpv_result fpv_kamikaze_detonate(fpv_drone *drone, int even_if_safe);
+
+enum fpv_kamikaze_config_flags {
+    /* Do not draw the warhead state into frame.osd; the game shows it. */
+    FPV_KAMIKAZE_NO_OSD = 1u << 0
+};
+
+typedef struct fpv_kamikaze_config {
+    uint32_t struct_size;
+    float arming_delay;      /* seconds from bomb arm switch on to live, default 3 */
+    /* Contact fuse threshold: the slowest touch that sets it off, host
+     * units / s, 0.1..30 m/s. Default 0.25 m/s (a light tap). Players can
+     * tune it in the overlay (F8 > Fly). */
+    float min_impact_speed;
+    uint32_t flags;          /* fpv_kamikaze_config_flags */
+    /* The warhead is real weight: it adds to the quad's mass and inertia
+     * (it hangs below the frame) and is the lowest collision point, so a
+     * loaded drone climbs slower and turns lazier. kg; -1 (default) = the
+     * preset's "payload" { "mass": kg, "drop": m }, or else 60% of the
+     * quad's own mass. 0 = no extra weight. */
+    float payload_mass;
+    /* How far below the frame centre it hangs, host units; -1 (default) =
+     * the preset's, or just under the frame. */
+    float payload_drop;
+} fpv_kamikaze_config;
+
+/* Fills the defaults (struct_size included). Call it after fpv_global_init
+ * so min_impact_speed is in host units. */
+FPV_API void fpv_kamikaze_config_defaults(fpv_kamikaze_config *config);
+/* Applies at once (the payload also in flight), for every drone and preset
+ * until changed. Players can tweak the same values in the overlay (F8 > Fly);
+ * both are saved in <data_dir>/settings.json, so set it at startup only if
+ * the game wants to override the player. */
+FPV_API fpv_result fpv_kamikaze_set_config(const fpv_kamikaze_config *config);
+FPV_API fpv_result fpv_kamikaze_get_config(fpv_kamikaze_config *config);
+#endif /* LIBFPV_KAMIKAZE */
 
 /* ===========================================================================
  * Time
@@ -512,8 +655,8 @@ typedef struct fpv_input_status {
 
 FPV_API fpv_result fpv_input_get_status(fpv_input_status *status);
 
-/* Host-injected channels (AETR, AUX1..AUX6, -1..1, throttle -1 = idle;
- * missing AUX channels are off).
+/* Host-injected channels (AETR, AUX1..AUX6, or AUX1..AUX8 in kamikaze
+ * builds, -1..1, throttle -1 = idle; missing AUX channels are off).
  * While injected channels are fresher than 0.5 s they take precedence over
  * devices. Use for scripted tests, replays or a host-side input system. */
 FPV_API void fpv_input_set_channels(const float *channels, uint32_t count);

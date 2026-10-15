@@ -12,6 +12,7 @@ option(LIBFPV_WITH_SDL "Read radios and gamepads with an embedded SDL3" ON)
 option(LIBFPV_WITH_OVERLAY "Build the Dear ImGui overlay" ON)
 option(LIBFPV_BUILD_TESTS "Build the test suite" ON)
 option(LIBFPV_BUILD_EXAMPLES "Build the examples" ON)
+option(LIBFPV_KAMIKAZE "Kamikaze FPV: warhead with bomb arm and explode switches (docs/INTEGRATION.md#kamikaze-builds)" OFF)
 
 include(cmake/SimITLCore.cmake)
 include(cmake/EmbedFiles.cmake)
@@ -103,6 +104,12 @@ if(LIBFPV_WITH_OVERLAY)
   target_include_directories(fpv PRIVATE ${IMGUI_DIR})
 else()
   target_sources(fpv PRIVATE src/overlay/overlay_stub.cpp)
+endif()
+
+if(LIBFPV_KAMIKAZE)
+  target_sources(fpv PRIVATE src/sim/kamikaze.cpp src/api_kamikaze.cpp)
+  # public: the kamikaze API in libfpv.h exists only with this definition
+  target_compile_definitions(fpv PUBLIC LIBFPV_KAMIKAZE=1)
 endif()
 
 if(LIBFPV_WITH_SDL)

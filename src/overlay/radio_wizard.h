@@ -26,8 +26,18 @@ public:
         TurtleSwitch,
         AirModeSwitch,
         OsdSwitch,
+#if defined(LIBFPV_KAMIKAZE)
+        BombArmSwitch,
+        ExplodeSwitch,
+#endif
         Done
     };
+    // the last switch step; every switch after the arm switch is optional
+#if defined(LIBFPV_KAMIKAZE)
+    static constexpr Step kLastSwitch = Step::ExplodeSwitch;
+#else
+    static constexpr Step kLastSwitch = Step::OsdSwitch;
+#endif
 
     void start(const RawDevice &dev);
     void cancel() { m_active = false; }
@@ -44,7 +54,7 @@ public:
 
     const char *title() const;
     const char *instruction() const;
-    bool canSkip() const { return m_step >= Step::AngleSwitch && m_step <= Step::OsdSwitch; }
+    bool canSkip() const { return m_step >= Step::AngleSwitch && m_step <= kLastSwitch; }
     // Live detection feedback for the UI.
     bool detected() const { return m_candidate >= 0; }
     std::string detectedLabel() const;  // e.g. "stick 3, reversed"

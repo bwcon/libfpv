@@ -169,6 +169,12 @@ DronePreset loadPresetFile(const std::string &quadJsonPath) {
     float armLen = std::sqrt(s.quadMotorPos[0].x * s.quadMotorPos[0].x + s.quadMotorPos[0].z * s.quadMotorPos[0].z);
     p.collision.bodyRadius = std::clamp(armLen * 0.4f, 0.02f, 0.06f);
     p.collision.motorRadius = std::clamp(armLen * 0.2f, 0.01f, 0.03f);
+#if defined(LIBFPV_KAMIKAZE)
+    if (q.contains("payload") && q["payload"].is_object()) {
+        p.payloadMass = num(q["payload"], "mass", -1.0f);
+        p.payloadDrop = num(q["payload"], "drop", -1.0f);
+    }
+#endif
     if (q.contains("collision") && q["collision"].is_object()) {
         const json &c = q["collision"];
         p.collision.bodyRadius = num(c, "bodyRadius", p.collision.bodyRadius);

@@ -53,6 +53,11 @@ struct DronePreset {
     CollisionSettings collision;
     // Betaflight CLI tune applied when the player first uses this preset.
     std::string betaflightDiff;
+#if defined(LIBFPV_KAMIKAZE)
+    // the warhead this quad carries ("payload" in the quad JSON):
+    // kg, and metres below the frame centre; < 0 = automatic
+    float payloadMass = -1, payloadDrop = -1;
+#endif
 };
 
 // Loads every quad preset in <dir>/quad, resolving component references in

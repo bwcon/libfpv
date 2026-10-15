@@ -36,6 +36,10 @@ int RadioWizard::channelForStep(Step s) const {
     case Step::TurtleSwitch: return kAux4;
     case Step::AirModeSwitch: return kAux5;
     case Step::OsdSwitch: return kAux6;
+#if defined(LIBFPV_KAMIKAZE)
+    case Step::BombArmSwitch: return kAux7;
+    case Step::ExplodeSwitch: return kAux8;
+#endif
     default: return -1;
     }
 }
@@ -205,11 +209,14 @@ bool RadioWizard::next(std::string &hint) {
     case Step::BeeperSwitch: m_step = Step::TurtleSwitch; break;
     case Step::TurtleSwitch: m_step = Step::AirModeSwitch; break;
     case Step::AirModeSwitch: m_step = Step::OsdSwitch; break;
-    case Step::OsdSwitch:
-        m_step = Step::Done;
-        m_mapping.complete = true;
+    default:
+        if (m_step == kLastSwitch) {
+            m_step = Step::Done;
+            m_mapping.complete = true;
+        } else if (m_step > Step::ArmSwitch && m_step < kLastSwitch) {
+            m_step = (Step)((int)m_step + 1);
+        }
         break;
-    default: break;
     }
     return true;
 }
@@ -218,7 +225,7 @@ void RadioWizard::skip() {
     if (!canSkip()) return;
     m_mapping.channels[channelForStep(m_step)] = ChannelBinding{};
     m_candidate = -1;
-    if (m_step == Step::OsdSwitch) {
+    if (m_step == kLastSwitch) {
         m_step = Step::Done;
         m_mapping.complete = true;
     } else {
@@ -250,6 +257,10 @@ const char *RadioWizard::title() const {
     case Step::TurtleSwitch: return "Turtle (crash flip) switch";
     case Step::AirModeSwitch: return "Air mode switch";
     case Step::OsdSwitch: return "OSD disable switch";
+#if defined(LIBFPV_KAMIKAZE)
+    case Step::BombArmSwitch: return "Bomb arm switch";
+    case Step::ExplodeSwitch: return "Explode switch";
+#endif
     case Step::Done: return "All set";
     }
     return "";
@@ -285,6 +296,15 @@ const char *RadioWizard::instruction() const {
     case Step::OsdSwitch:
         return "Optional: flip a switch to the position that should DISABLE THE OSD (hide everything drawn over the "
                "video), or Skip. It can be another position of the air mode switch.";
+#if defined(LIBFPV_KAMIKAZE)
+    case Step::BombArmSwitch:
+        return "Flip the switch that should ARM THE BOMB to its armed position. Use a switch of its own, away from "
+               "the arm switch. The motors only arm with it off: take off, then flip it; the warhead is live after "
+               "the arming delay and explodes on impact. Skip it and the bomb can never be armed.";
+    case Step::ExplodeSwitch:
+        return "Optional: flip a switch (a momentary one is best) that should EXPLODE the bomb on command, or Skip. "
+               "It only works while the bomb is armed and live.";
+#endif
     case Step::Done:
         return "Your radio is mapped. Check the bars below, then close this window and fly. Throttle down and flip "
                "the arm switch to arm.";

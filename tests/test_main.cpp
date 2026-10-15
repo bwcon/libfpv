@@ -48,7 +48,10 @@ void logCb(void *, fpv_log_level level, const char *msg) {
 }
 
 struct Rc {
-    float ch[FPV_CHANNEL_COUNT] = {0, 0, -1, 0, -1, -1, -1, -1, -1, -1};
+    float ch[FPV_CHANNEL_COUNT];
+    Rc() {
+        for (int i = 0; i < FPV_CHANNEL_COUNT; i++) ch[i] = (i == 2 || i >= 4) ? -1.0f : 0.0f;
+    }
     void send() { fpv_input_set_channels(ch, FPV_CHANNEL_COUNT); }
 };
 
@@ -1040,6 +1043,292 @@ void testOsdAudioOverlay() {
     s.destroy();
 }
 
+#if defined(LIBFPV_KAMIKAZE)
+// --- kamikaze builds -----------------------------------------------------------------
+
+constexpr int kBomb = 10, kExplode = 11;  // AUX7, AUX8
+
+bool osdHas(const fpv_frame &f, const char *text) {
+    for (int r = 0; r < FPV_OSD_ROWS; r++) {
+        std::string row((const char *)&f.osd[r * FPV_OSD_COLS], FPV_OSD_COLS);
+        if (row.find(text) != std::string::npos) return true;
+    }
+    return false;
+}
+
+fpv_kamikaze_state warhead(fpv_drone *d) {
+    fpv_kamikaze_state k{};
+    k.struct_size = sizeof k;
+    fpv_kamikaze_get_state(d, &k);
+    return k;
+}
+
+// Takes off in angle mode with a short climb, then throttles back to
+// about a slow climb or hover, arm switch on.
+void takeOff(Session &s, float seconds) {
+    s.rc.ch[5] = 1;  // angle
+    s.arm();
+    s.rc.ch[2] = -0.3f;
+    s.run(seconds);
+    s.rc.ch[2] = -0.6f;
+}
+
+int drainDetonations(fpv_detonation *last = nullptr) {
+    int n = 0;
+    fpv_detonation d{};
+    d.struct_size = sizeof d;
+    while (fpv_kamikaze_poll_detonation(&d)) {
+        n++;
+        if (last) *last = d;
+        d.struct_size = sizeof d;
+    }
+    return n;
+}
+
+// The motors do not arm with the bomb arm switch on; after it is turned
+// off, the arm switch must be cycled.
+void testKamikazeArmingBlock() {
+    Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    Session s;
+    float p[3];
+    h.pos(0, 0, 0, p);
+    s.spawn(p);
+    s.run(0.3f);
+    CHECK(warhead(s.drone).warhead == FPV_WARHEAD_SAFE, "new drone: warhead safe");
+    CHECK(osdHas(s.f, "SAFE"), "OSD shows SAFE");
+    s.rc.ch[kBomb] = 1;
+    s.run(0.3f);
+    s.arm();
+    CHECK(!s.armed(), "does not arm with the bomb arm switch on");
+    fpv_kamikaze_state k = warhead(s.drone);
+    CHECK(k.flags & FPV_KAMIKAZE_BLOCKS_ARMING, "BLOCKS_ARMING set (flags %x)", k.flags);
+    CHECK(k.warhead == FPV_WARHEAD_SAFE, "a disarmed drone does not arm its warhead (%d)", k.warhead);
+    CHECK(std::strstr(s.f.arming_disable_text, "BOMB") != nullptr, "reports BOMB: \"%s\"", s.f.arming_disable_text);
+    bool shown = false;
+    s.run(1.0f, [&](float) { shown |= osdHas(s.f, "BOMB SW ON"); });
+    CHECK(shown, "OSD warns BOMB SW ON");
+    s.rc.ch[kBomb] = -1;  // bomb safe, arm switch still on
+    s.run(0.5f);
+    CHECK(!s.armed(), "still not armed until the arm switch is cycled");
+    s.arm();
+    CHECK(s.armed(), "arms after cycling the arm switch (%s)", s.f.arming_disable_text);
+    CHECK(drainDetonations() == 0, "nothing exploded");
+    s.destroy();
+}
+
+// In flight: bomb arm switch -> ARMING countdown -> live ("STEADY"); the
+// warhead stays live when the motors disarm, and the fall detonates it.
+void testKamikazeImpact() {
+    Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    Session s;
+    float p[3];
+    h.pos(0, 0, 0, p);
+    s.spawn(p);
+    s.run(0.3f);
+    drainDetonations();
+    fpv_kamikaze_config cfg;
+    fpv_kamikaze_config_defaults(&cfg);
+    CHECK(cfg.arming_delay == 3.0f, "default arming delay 3 s (%.1f)", cfg.arming_delay);
+    cfg.arming_delay = 2.0f;  // a short flight: this quad climbs fast
+    fpv_kamikaze_set_config(&cfg);
+    takeOff(s, 0.4f);
+    CHECK(s.armed() && h.up(s.f.position) > 0.5f, "flying, %.1f m up", h.up(s.f.position));
+    s.rc.ch[kBomb] = 1;
+    s.run(0.2f);
+    fpv_kamikaze_state k = warhead(s.drone);
+    CHECK(k.warhead == FPV_WARHEAD_ARMING && k.arming_remaining > 1.5f && k.arming_remaining < 2,
+          "arming, %.2f s left (state %d)", k.arming_remaining, k.warhead);
+    CHECK(osdHas(s.f, "ARMING 2"), "OSD counts down ARMING 2");
+    // switching off during the countdown safes it
+    s.rc.ch[kBomb] = -1;
+    s.run(0.1f);
+    CHECK(warhead(s.drone).warhead == FPV_WARHEAD_SAFE, "safed during the countdown");
+    s.rc.ch[kBomb] = 1;
+    s.run(2.1f);
+    CHECK(warhead(s.drone).warhead == FPV_WARHEAD_ARMED, "live after the delay (%d)", warhead(s.drone).warhead);
+    CHECK(osdHas(s.f, "STEADY"), "OSD shows STEADY");
+    CHECK(drainDetonations() == 0, "nothing exploded in the air");
+    float height = h.up(s.f.position);
+    CHECK(height > 2, "high enough for the fall, %.1f m", height);
+    s.rc.ch[4] = -1;  // motors off: it falls
+    bool sawDisarmedLive = false;
+    s.run(6.0f, [&](float) {
+        if (!s.armed() && warhead(s.drone).warhead == FPV_WARHEAD_ARMED) sawDisarmedLive = true;
+    });
+    CHECK(sawDisarmedLive, "warhead stays live with the motors disarmed");
+    fpv_detonation d{};
+    CHECK(drainDetonations(&d) == 1, "one detonation");
+    CHECK(d.cause == FPV_DETONATION_IMPACT, "cause impact (%d)", d.cause);
+    CHECK(std::fabs(h.up(d.position)) < 0.3f, "exploded on the ground, %.2f m", h.up(d.position));
+    CHECK(h.dir(d.normal, h.U) > 0.9f, "ground normal");
+    CHECK(s.f.flags & FPV_DRONE_DETONATED, "DETONATED flag");
+    CHECK(s.f.flags & FPV_DRONE_CRASHED, "CRASHED flag");
+    CHECK(s.f.video.signal_strength == 0 && s.f.video.noise == 1, "no video signal");
+    CHECK(s.f.motors[0].rpm < 1, "motors stopped (%.0f rpm)", s.f.motors[0].rpm);
+    CHECK(warhead(s.drone).detonation_count >= 1, "counted");
+    // the OSD showed BOOM right after; check a fresh explosion below
+    float frozen[3];
+    std::memcpy(frozen, s.f.position, sizeof frozen);
+    s.rc.ch[4] = 1;
+    s.rc.ch[kBomb] = -1;
+    s.run(0.5f);
+    CHECK(!s.armed(), "a destroyed drone does not arm");
+    CHECK(std::fabs(s.f.position[1] - frozen[1]) < 1e-3f, "the wreck stays put");
+    // repair = new drone with a new, safe warhead
+    fpv_drone_repair(s.drone);
+    fpv_drone_reset(s.drone, p, nullptr);
+    s.rc.ch[kBomb] = 1;
+    s.run(0.3f);
+    k = warhead(s.drone);
+    CHECK(k.warhead == FPV_WARHEAD_SAFE && !(s.f.flags & FPV_DRONE_DETONATED), "repaired: safe, not destroyed");
+    s.rc.ch[kBomb] = -1;
+    s.rc.ch[4] = -1;
+    s.run(0.3f);
+    s.arm();
+    CHECK(s.armed(), "repaired drone arms (%s)", s.f.arming_disable_text);
+    fpv_kamikaze_config_defaults(&cfg);
+    fpv_kamikaze_set_config(&cfg);
+    s.destroy();
+}
+
+// The explode switch works only on a live warhead; host detonation too,
+// unless forced. Without the bomb switch, crashes do not explode.
+void testKamikazeExplodeSwitch() {
+    Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    Session s;
+    float p[3];
+    h.pos(0, 0, 0, p);
+    s.spawn(p);
+    s.run(0.3f);
+    drainDetonations();
+    fpv_kamikaze_config cfg;
+    fpv_kamikaze_config_defaults(&cfg);
+    cfg.arming_delay = 1.0f;
+    CHECK(fpv_kamikaze_set_config(&cfg) == FPV_OK, "set config: %s", fpv_last_error());
+    takeOff(s, 0.4f);
+    s.rc.ch[kExplode] = 1;  // bomb safe: refused
+    bool refused = false;
+    s.run(0.6f, [&](float) { refused |= osdHas(s.f, "NOT ARMED"); });
+    CHECK(refused, "OSD shows NOT ARMED");
+    s.rc.ch[kExplode] = -1;
+    CHECK(fpv_kamikaze_detonate(s.drone, 0) == FPV_ERROR_NOT_FOUND, "host detonation refused while safe");
+    CHECK(drainDetonations() == 0 && !(s.f.flags & FPV_DRONE_DETONATED), "nothing exploded");
+    s.rc.ch[kBomb] = 1;
+    s.run(1.3f);
+    CHECK(warhead(s.drone).warhead == FPV_WARHEAD_ARMED, "live after the 1 s delay");
+    s.rc.ch[kExplode] = 1;
+    bool boom = false;
+    s.run(0.2f, [&](float) { boom |= osdHas(s.f, "BOOM"); });
+    fpv_detonation d{};
+    CHECK(drainDetonations(&d) == 1 && d.cause == FPV_DETONATION_SWITCH, "explode switch detonates (cause %d)", d.cause);
+    CHECK(h.up(d.position) > 1, "in the air, %.1f m", h.up(d.position));
+    CHECK(boom, "OSD shows BOOM");
+    CHECK(!osdHas(s.f, "STEADY"), "rest of the OSD gone");
+
+    // forced host detonation of a safe warhead
+    fpv_drone_repair(s.drone);
+    fpv_drone_reset(s.drone, p, nullptr);
+    s.rc.ch[kBomb] = s.rc.ch[kExplode] = -1;
+    s.run(0.3f);
+    CHECK(fpv_kamikaze_detonate(s.drone, 1) == FPV_OK, "forced detonation");
+    s.run(0.05f);
+    CHECK(drainDetonations(&d) == 1 && d.cause == FPV_DETONATION_HOST, "host cause (%d)", d.cause);
+    CHECK(s.f.flags & FPV_DRONE_DETONATED, "destroyed");
+
+    // a crash with the bomb safe does not explode
+    fpv_drone_repair(s.drone);
+    fpv_drone_reset(s.drone, p, nullptr);
+    s.rc.ch[4] = -1;
+    s.run(0.3f);
+    takeOff(s, 0.4f);
+    s.rc.ch[4] = -1;
+    s.run(5.0f);
+    CHECK(drainDetonations() == 0 && !(s.f.flags & FPV_DRONE_DETONATED), "safe crash: no explosion");
+    fpv_kamikaze_config_defaults(&cfg);
+    fpv_kamikaze_set_config(&cfg);
+    s.destroy();
+}
+
+// A contact fuse: a light tap on the ground sets it off, resting does not.
+void testKamikazeGroundTap() {
+    Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    Session s;
+    float p[3];
+    h.pos(0, 0, 0, p);
+    s.spawn(p);
+    s.run(0.3f);
+    drainDetonations();
+    s.arm();  // motors idle on the ground
+    s.rc.ch[kBomb] = 1;
+    s.run(3.5f);
+    CHECK(warhead(s.drone).warhead == FPV_WARHEAD_ARMED, "live on the ground (%d)", warhead(s.drone).warhead);
+    s.run(1.0f);
+    CHECK(drainDetonations() == 0 && !(s.f.flags & FPV_DRONE_DETONATED), "resting on the ground does not fire it");
+    float up[3];
+    h.pos(0, 0.03f, 0, up);  // a 3 cm drop: ~0.75 m/s, below the reported-impact speed
+    // a less sensitive fuse (the overlay's "Impact fuse") ignores the tap
+    fpv_kamikaze_config cfg;
+    fpv_kamikaze_config_defaults(&cfg);
+    CHECK(std::fabs(cfg.min_impact_speed - 0.25f) < 1e-4f, "default fuse 0.25 m/s (%.2f)", cfg.min_impact_speed);
+    cfg.min_impact_speed = 2.0f;
+    CHECK(fpv_kamikaze_set_config(&cfg) == FPV_OK, "set fuse: %s", fpv_last_error());
+    fpv_drone_reset(s.drone, up, nullptr);
+    s.run(0.5f);
+    CHECK(drainDetonations() == 0, "a 2 m/s fuse ignores the tap");
+    cfg.min_impact_speed = 0.01f;
+    CHECK(fpv_kamikaze_set_config(&cfg) == FPV_ERROR_INVALID_ARGUMENT, "fuse below 0.1 m/s refused");
+    fpv_kamikaze_config_defaults(&cfg);
+    fpv_kamikaze_set_config(&cfg);
+    fpv_drone_reset(s.drone, up, nullptr);
+    uint32_t reported = 0;
+    s.run(0.5f, [&](float) { reported += s.f.impact_count; });
+    fpv_detonation d{};
+    CHECK(drainDetonations(&d) == 1 && d.cause == FPV_DETONATION_IMPACT, "a tap on the ground detonates");
+    CHECK(reported == 0, "too soft for fpv_frame.impacts (%u reported)", reported);
+    s.destroy();
+}
+
+// The payload is real weight: reported, configurable, and it slows the climb.
+void testKamikazePayload() {
+    Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    float p[3];
+    h.pos(0, 0, 0, p);
+    fpv_kamikaze_config cfg;
+    auto climb = [&](float payloadKg, float &total) {
+        fpv_kamikaze_config_defaults(&cfg);
+        cfg.payload_mass = payloadKg;
+        CHECK(fpv_kamikaze_set_config(&cfg) == FPV_OK, "set payload: %s", fpv_last_error());
+        Session s;
+        s.spawn(p);
+        s.run(0.5f);
+        fpv_kamikaze_state k = warhead(s.drone);
+        total = k.total_mass;
+        if (payloadKg >= 0)
+            CHECK(std::fabs(k.payload_mass - payloadKg) < 1e-4f, "payload %.3f kg reported (%.3f)", payloadKg, k.payload_mass);
+        CHECK(std::fabs(h.up(s.f.position)) < 0.15f, "rests on its payload, %.3f m", h.up(s.f.position));
+        s.rc.ch[5] = 1;
+        s.arm();
+        s.rc.ch[2] = 0.0f;
+        s.run(0.8f);
+        float up = h.up(s.f.position);
+        s.destroy();
+        return up;
+    };
+    float autoTotal = 0, bareTotal = 0, heavyTotal = 0;
+    climb(-1, autoTotal);
+    fpv_kamikaze_config got{};
+    got.struct_size = sizeof got;
+    CHECK(fpv_kamikaze_get_config(&got) == FPV_OK && got.payload_mass < 0, "automatic payload by default");
+    float bare = climb(0, bareTotal);
+    float heavy = climb(0.4f, heavyTotal);
+    CHECK(autoTotal > bareTotal * 1.5f, "automatic payload is 60%% of the quad: %.3f vs %.3f kg", autoTotal, bareTotal);
+    CHECK(std::fabs(heavyTotal - bareTotal - 0.4f) < 1e-3f, "all-up mass %.3f = %.3f + 0.4", heavyTotal, bareTotal);
+    CHECK(heavy < bare * 0.8f, "the loaded drone climbs less: %.1f m vs %.1f m", heavy, bare);
+    fpv_kamikaze_config_defaults(&cfg);
+    fpv_kamikaze_set_config(&cfg);
+}
+#endif
+
 struct Test {
     const char *name;
     std::function<void()> fn;
@@ -1079,6 +1368,13 @@ int main(int argc, char **argv) {
         {"pinned", testPinned},
         {"terminate_reinit", testTerminateReinit},
         {"threaded", testThreadedMode},
+#if defined(LIBFPV_KAMIKAZE)
+        {"kamikaze_arming_block", testKamikazeArmingBlock},
+        {"kamikaze_impact", testKamikazeImpact},
+        {"kamikaze_explode_switch", testKamikazeExplodeSwitch},
+        {"kamikaze_ground_tap", testKamikazeGroundTap},
+        {"kamikaze_payload", testKamikazePayload},
+#endif
     };
     int ran = 0;
     for (auto &t : tests) {
@@ -1092,6 +1388,16 @@ int main(int argc, char **argv) {
             fpv_free(o);
             // and from a plain 200 m ground in the default convention
             loadWorld(makeLevel(Host(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1)), 100, 0));
+#if defined(LIBFPV_KAMIKAZE)
+            // the other tests fly a bare quad and read Betaflight's own OSD
+            fpv_kamikaze_config kc;
+            fpv_kamikaze_config_defaults(&kc);
+            if (std::string(t.name).rfind("kamikaze", 0) != 0) {
+                kc.payload_mass = 0;
+                kc.flags = FPV_KAMIKAZE_NO_OSD;
+            }
+            fpv_kamikaze_set_config(&kc);
+#endif
         }
         int before = g_failures;
         auto t0 = std::chrono::steady_clock::now();
