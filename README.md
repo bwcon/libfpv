@@ -108,6 +108,30 @@ with `-B build/win32` instead.
 MSVC hosts can make an import library with `lib /def:libfpv.def /machine:x64`
 or load the DLL with `LoadLibrary`.
 
+### Updating
+
+`git pull` alone is usually not enough. It does not move the submodules to
+their new commits, and `cmake --build` does not apply patches that were added
+to `patches/`; only a configure does. After each pull, run:
+
+```sh
+git pull
+git submodule update --init
+cmake -S . -B build/linux    # once for each build directory you use
+cmake --build build/linux -j
+```
+
+The patched submodules are marked `ignore = dirty`, so `git status` will not
+tell you they are out of date. If the build fails with undeclared Betaflight
+or SimITL symbols after a pull, a patch is probably missing. Reset the
+submodules (this discards any local changes in them) and configure again:
+
+```sh
+git submodule foreach 'git checkout -- . && git clean -fd'
+git submodule update --init
+cmake -S . -B build/linux
+```
+
 ### macOS
 
 macOS builds natively with Apple Clang (tested on Apple Silicon):
