@@ -152,9 +152,17 @@ DECISIONS D24. In short:
 | Bomb arm | AUX7 | K (toggle) | West / X / Square (toggle) |
 | Explode | AUX8 | X (hold) | right shoulder |
 
-The motors only arm with the bomb switch off. Take off, flip it, and after
-the arming delay (OSD `ARMING 3`, then `STEADY`) the warhead is live. Any
-touch then sets it off, even a light tap on the ground, and so does the
+The bomb is not installed by default: until it is, the drone flies like in
+any other build (no extra weight, no warhead OSD, the bomb switches do
+nothing). The player installs it in the overlay (F8 > Fly > "Bomb
+installed"), or the game calls `fpv_kamikaze_set_installed(1)` (a
+kamikaze mission, a drone picked up). It stays installed for the session,
+not per drone: a new, respawned or repaired drone carries it too. It is
+not saved, so every launch of the game starts without it.
+
+The motors only arm with the bomb switch off. Take off, flip it, and the
+warhead is live (OSD `STEADY`; with an arming delay set, `ARMING 3` first).
+Any touch then sets it off, even a light tap on the ground, and so does the
 explode switch. With the bomb switch off nothing explodes. The warhead
 weighs something (by default 60 % of the quad), so a loaded drone climbs
 and turns slower.
@@ -200,7 +208,7 @@ scripted strike that checks every rule and exits 1 on failure.
 
 ### Tuning
 
-`fpv_kamikaze_set_config` sets the arming delay, the contact fuse threshold
+`fpv_kamikaze_set_config` sets the arming delay (default 0, none), the contact fuse threshold
 (`min_impact_speed`, default 0.25 m/s), the payload (`payload_mass` kg and
 `payload_drop` below the frame, -1 = automatic) and `FPV_KAMIKAZE_NO_OSD`.
 Players edit the same values in the overlay (F8 > Fly), and both are saved
@@ -214,9 +222,13 @@ payload:
 "payload": { "mass": 0.8, "drop": 0.04 }
 ```
 
-Without `FPV_KAMIKAZE_NO_OSD`, libfpv writes the warhead state into
-`frame.osd` itself. With it, the game draws its own, from
-`fpv_kamikaze_get_state`.
+Without `FPV_KAMIKAZE_NO_OSD`, the warhead state is part of `frame.osd`:
+it is Betaflight's "Custom message 1" element, centred on row 3 by
+default. Players move or hide it like any other element, in the overlay
+(F8 > OSD > "Bomb status") or in the Betaflight Configurator's OSD tab,
+and other elements, the post-flight stats and the OSD disable switch
+cover it as they do on a real quad. With the flag, the game draws its own,
+from `fpv_kamikaze_get_state`.
 
 ## Lessons from real integrations
 

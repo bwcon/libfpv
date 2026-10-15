@@ -199,6 +199,7 @@ void Flight::onDetonated() {
 DronePreset Flight::withPayload(const DronePreset &bare) {
     DronePreset p = bare;
     float m = m_payloadKg >= 0 ? m_payloadKg : bare.payloadMass >= 0 ? bare.payloadMass : kAutoPayloadRatio * bare.init.quadMass;
+    if (!m_warhead.installed()) m = 0;  // no bomb, no extra weight
     float drop = m_payloadDropM >= 0 ? m_payloadDropM
                  : bare.payloadDrop >= 0 ? bare.payloadDrop
                                          : 0.5f * bare.collision.bodyRadius;  // strapped under the frame
@@ -221,6 +222,16 @@ DronePreset Flight::withPayload(const DronePreset &bare) {
 void Flight::setPayload(float massKg, float dropM) {
     m_payloadKg = massKg;
     m_payloadDropM = dropM;
+    refreshPayload();
+}
+
+void Flight::setBombInstalled(bool on) {
+    if (m_warhead.installed() == on) return;
+    m_warhead.setInstalled(on, m_simTime);
+    refreshPayload();
+}
+
+void Flight::refreshPayload() {
     if (!m_bfReady) return;
     // patch the live physics (no reinit: keeps the flight, battery and motors)
     float dir[4];  // synced from Betaflight (syncPropDirection), not the preset
@@ -534,6 +545,11 @@ void Flight::step(float dt, const float channels[kChannelCount], bool radioLost)
     }
 #if defined(LIBFPV_KAMIKAZE)
     if (m_active && m_warhead.update(dt, m_simTime, m_input.rcData, bfb_is_armed(), m_pos, m_vel)) onDetonated();
+    // the warhead state is Betaflight's custom message 1 element: placed,
+    // layered and hidden (OSD disable switch) like any other element
+    char bombText[24] = "";
+    if (m_active) m_warhead.statusText(bombText, sizeof bombText, m_simTime, bfb_is_armed());
+    bfb_osd_set_host_message(0, bombText);
 #endif
 
     // --- snapshot -----------------------------------------------------------

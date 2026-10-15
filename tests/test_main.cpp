@@ -1073,6 +1073,15 @@ void takeOff(Session &s, float seconds) {
     s.rc.ch[2] = -0.6f;
 }
 
+// Betaflight's post-flight stats cover the OSD (bomb line too) for 60 s
+// after a disarm; pitch up dismisses them, as on a real quad.
+void skipStats(Session &s) {
+    s.rc.ch[1] = 1;
+    s.run(0.2f);
+    s.rc.ch[1] = 0;
+    s.run(0.5f);
+}
+
 int drainDetonations(fpv_detonation *last = nullptr) {
     int n = 0;
     fpv_detonation d{};
@@ -1093,7 +1102,8 @@ void testKamikazeArmingBlock() {
     float p[3];
     h.pos(0, 0, 0, p);
     s.spawn(p);
-    s.run(0.3f);
+    s.run(1.0f);  // past Betaflight's boot logo
+    skipStats(s);  // an earlier test may have flown
     CHECK(warhead(s.drone).warhead == FPV_WARHEAD_SAFE, "new drone: warhead safe");
     CHECK(osdHas(s.f, "SAFE"), "OSD shows SAFE");
     s.rc.ch[kBomb] = 1;
@@ -1128,15 +1138,15 @@ void testKamikazeImpact() {
     drainDetonations();
     fpv_kamikaze_config cfg;
     fpv_kamikaze_config_defaults(&cfg);
-    CHECK(cfg.arming_delay == 3.0f, "default arming delay 3 s (%.1f)", cfg.arming_delay);
+    CHECK(cfg.arming_delay == 0.0f, "no arming delay by default (%.1f)", cfg.arming_delay);
     cfg.arming_delay = 2.0f;  // a short flight: this quad climbs fast
     fpv_kamikaze_set_config(&cfg);
     takeOff(s, 0.4f);
     CHECK(s.armed() && h.up(s.f.position) > 0.5f, "flying, %.1f m up", h.up(s.f.position));
     s.rc.ch[kBomb] = 1;
-    s.run(0.2f);
+    s.run(0.45f);  // Betaflight redraws the OSD every ~0.3 s
     fpv_kamikaze_state k = warhead(s.drone);
-    CHECK(k.warhead == FPV_WARHEAD_ARMING && k.arming_remaining > 1.5f && k.arming_remaining < 2,
+    CHECK(k.warhead == FPV_WARHEAD_ARMING && k.arming_remaining > 1.5f && k.arming_remaining < 1.6f,
           "arming, %.2f s left (state %d)", k.arming_remaining, k.warhead);
     CHECK(osdHas(s.f, "ARMING 2"), "OSD counts down ARMING 2");
     // switching off during the countdown safes it
@@ -1144,7 +1154,7 @@ void testKamikazeImpact() {
     s.run(0.1f);
     CHECK(warhead(s.drone).warhead == FPV_WARHEAD_SAFE, "safed during the countdown");
     s.rc.ch[kBomb] = 1;
-    s.run(2.1f);
+    s.run(2.5f);
     CHECK(warhead(s.drone).warhead == FPV_WARHEAD_ARMED, "live after the delay (%d)", warhead(s.drone).warhead);
     CHECK(osdHas(s.f, "STEADY"), "OSD shows STEADY");
     CHECK(drainDetonations() == 0, "nothing exploded in the air");
@@ -1208,7 +1218,7 @@ void testKamikazeExplodeSwitch() {
     takeOff(s, 0.4f);
     s.rc.ch[kExplode] = 1;  // bomb safe: refused
     bool refused = false;
-    s.run(0.6f, [&](float) { refused |= osdHas(s.f, "NOT ARMED"); });
+    s.run(1.2f, [&](float) { refused |= osdHas(s.f, "NOT ARMED"); });
     CHECK(refused, "OSD shows NOT ARMED");
     s.rc.ch[kExplode] = -1;
     CHECK(fpv_kamikaze_detonate(s.drone, 0) == FPV_ERROR_NOT_FOUND, "host detonation refused while safe");
@@ -1286,6 +1296,82 @@ void testKamikazeGroundTap() {
     CHECK(drainDetonations(&d) == 1 && d.cause == FPV_DETONATION_IMPACT, "a tap on the ground detonates");
     CHECK(reported == 0, "too soft for fpv_frame.impacts (%u reported)", reported);
     s.destroy();
+}
+
+// Without the bomb installed the drone is a plain quad; installed, it is
+// live at once (no arming delay by default), its OSD line is a Betaflight
+// element, and it stays installed for the next drone.
+void testKamikazeInstall() {
+    Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    float p[3];
+    h.pos(0, 0, 0, p);
+    auto cli = [](const char *cmd) {
+        char *o = nullptr;
+        fpv_cli_exec(cmd, &o);
+        fpv_free(o);
+    };
+    CHECK(fpv_kamikaze_set_installed(0) == FPV_OK && !fpv_kamikaze_is_installed(), "uninstalled");
+    Session s;
+    s.spawn(p);
+    s.run(0.5f);
+    drainDetonations();
+    fpv_kamikaze_state k = warhead(s.drone);
+    CHECK(!(k.flags & FPV_KAMIKAZE_INSTALLED) && k.payload_mass == 0, "no bomb, no payload (%.3f kg)", k.payload_mass);
+    CHECK(!osdHas(s.f, "SAFE") && !osdHas(s.f, "CUSTOM"), "no bomb OSD");
+    s.rc.ch[kBomb] = 1;
+    s.run(0.2f);
+    takeOff(s, 0.4f);
+    CHECK(s.armed(), "arms with the bomb arm switch on (%s)", s.f.arming_disable_text);
+    s.rc.ch[kExplode] = 1;
+    s.run(0.5f);
+    k = warhead(s.drone);
+    CHECK(k.warhead == FPV_WARHEAD_SAFE && !(k.flags & FPV_KAMIKAZE_BOMB_SWITCH), "switches ignored (%d, %x)", k.warhead,
+          k.flags);
+    CHECK(!osdHas(s.f, "NOT ARMED") && !osdHas(s.f, "STEADY"), "nothing on the OSD");
+    CHECK(fpv_kamikaze_detonate(s.drone, 1) == FPV_ERROR_NOT_FOUND, "nothing to detonate");
+    CHECK(drainDetonations() == 0, "nothing exploded");
+    s.rc.ch[kExplode] = -1;
+
+    // installed in flight, with the bomb switch left on: it must be cycled
+    CHECK(fpv_kamikaze_set_installed(1) == FPV_OK && fpv_kamikaze_is_installed(), "installed");
+    s.run(0.3f);
+    k = warhead(s.drone);
+    CHECK((k.flags & FPV_KAMIKAZE_INSTALLED) && k.payload_mass > 0, "carries the payload (%.3f kg)", k.payload_mass);
+    CHECK(k.warhead == FPV_WARHEAD_SAFE && (k.flags & FPV_KAMIKAZE_NEEDS_SWITCH_CYCLE), "switch left on: safe");
+    s.rc.ch[kBomb] = -1;
+    s.run(0.1f);
+    s.rc.ch[kBomb] = 1;
+    s.run(0.5f);
+    CHECK(warhead(s.drone).warhead == FPV_WARHEAD_ARMED, "live at once (%d)", warhead(s.drone).warhead);
+    CHECK(osdHas(s.f, "STEADY"), "OSD shows STEADY");
+    // the OSD line is the custom message 1 element: it moves, and the OSD
+    // disable switch hides it
+    cli("set osd_custom_msg0_pos = 2434\nsave");  // column 2, row 12
+    s.run(0.5f);
+    std::string row12((const char *)&s.f.osd[12 * FPV_OSD_COLS], FPV_OSD_COLS);
+    CHECK(row12.find("STEADY") != std::string::npos, "moved to row 12: \"%s\"", row12.c_str());
+    s.rc.ch[9] = 1;
+    s.run(0.5f);
+    CHECK(!osdHas(s.f, "STEADY"), "hidden by the OSD disable switch");
+    s.rc.ch[9] = -1;
+    // removed: safe and light again
+    fpv_kamikaze_set_installed(0);
+    s.run(0.2f);
+    k = warhead(s.drone);
+    CHECK(k.warhead == FPV_WARHEAD_SAFE && k.payload_mass == 0, "removed: safe, no payload (%d)", k.warhead);
+    CHECK(drainDetonations() == 0, "nothing exploded");
+    s.destroy();
+
+    // kept for the next drone
+    fpv_kamikaze_set_installed(1);
+    Session s2;
+    s2.spawn(p);
+    s2.run(1.0f);
+    skipStats(s2);  // the first drone flew: Betaflight shows its stats
+    k = warhead(s2.drone);
+    CHECK((k.flags & FPV_KAMIKAZE_INSTALLED) && k.payload_mass > 0, "a new drone carries it too");
+    CHECK(osdHas(s2.f, "SAFE"), "OSD shows SAFE");
+    s2.destroy();
 }
 
 // The payload is real weight: reported, configurable, and it slows the climb.
@@ -1374,6 +1460,7 @@ int main(int argc, char **argv) {
         {"kamikaze_explode_switch", testKamikazeExplodeSwitch},
         {"kamikaze_ground_tap", testKamikazeGroundTap},
         {"kamikaze_payload", testKamikazePayload},
+        {"kamikaze_install", testKamikazeInstall},
 #endif
     };
     int ran = 0;
@@ -1390,13 +1477,11 @@ int main(int argc, char **argv) {
             loadWorld(makeLevel(Host(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1)), 100, 0));
 #if defined(LIBFPV_KAMIKAZE)
             // the other tests fly a bare quad and read Betaflight's own OSD
+            // (the bomb is not installed by default)
             fpv_kamikaze_config kc;
             fpv_kamikaze_config_defaults(&kc);
-            if (std::string(t.name).rfind("kamikaze", 0) != 0) {
-                kc.payload_mass = 0;
-                kc.flags = FPV_KAMIKAZE_NO_OSD;
-            }
             fpv_kamikaze_set_config(&kc);
+            fpv_kamikaze_set_installed(std::string(t.name).rfind("kamikaze", 0) == 0);
 #endif
         }
         int before = g_failures;

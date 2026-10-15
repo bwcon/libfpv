@@ -470,6 +470,18 @@ so hosts linking through CMake see the API automatically. A host built
 with it against a library built without it fails to link or to resolve
 `fpv_kamikaze_*`, which is the feature check.
 
+**Installed or not.** The bomb is a per-session choice, off by default:
+`fpv_kamikaze_set_installed` or the overlay's "Bomb installed" (F8 >
+Fly). Uninstalled, the drone is the plain quad of other builds: no
+payload weight or collision sphere, no warhead OSD, and `Warhead` ignores
+AUX7 and AUX8 (it does not hold AUX1, reports both switches off, and
+neither the switches nor `fpv_kamikaze_detonate` can fire it). The flag
+lives in `Lib` and on the `Warhead` of the one `Flight`, which outlives
+drones, so a new, respawned or repaired drone keeps it; it is not saved in
+`settings.json`, since a game decides per mission whether the drone
+carries a bomb. Installing or removing it safes the warhead (a switch left
+on must be cycled), except on a wreck, which stays one until repaired.
+
 **Switches.** AUX7 is the bomb arm switch and AUX8 the explode switch.
 `FPV_CHANNEL_COUNT` becomes 12 and `fpv_frame.channels` grows at its end,
 the same `struct_size`-safe way as in D23. Betaflight receives both
@@ -488,8 +500,10 @@ X (explode, held), the gamepad West (toggle) and the right shoulder.
   would arm the motors at once. Betaflight has no arming-disable flag for
   this and none was patched in, so `arming_disable_flags` stays 0 and
   `arming_disable_text` reads "BOMB".
-* Switch on with the motors armed: ARMING for `arming_delay` (3 s), then
-  ARMED. Switch off at any time: SAFE. Motors disarmed while ARMING: SAFE
+* Switch on with the motors armed: ARMED at once, or ARMING for
+  `arming_delay` first when one is set (default 0: strike pilots fly with
+  a live warhead the moment they flip it; a delay is a game's or a
+  player's choice). Switch off at any time: SAFE. Motors disarmed while ARMING: SAFE
   and the switch must be cycled. Motors disarmed while ARMED: it stays
   live (a falling live drone is still a bomb).
 * A switch that is on when the drone spawns or is repaired must be turned
@@ -519,16 +533,29 @@ builds"). Detonations are queued (`fpv_kamikaze_poll_detonation`, up to
 16) rather than put in `fpv_frame`, so frames keep their layout and a
 host polling less often loses nothing.
 
-**OSD.** libfpv writes the warhead state into `frame.osd` over
-Betaflight's own grid, centred on row 3 (row 7 for SIGNAL LOST): `SAFE`,
+**OSD.** The warhead state is a Betaflight OSD element: `SAFE`,
 `BOMB SW ON` (blinking, the motors are blocked), `ARMING 3`, `STEADY`
-(live), `NOT ARMED` (explode switch on a safe bomb) and `SIGNAL LOST`. These are
-the words seen on strike-drone footage; the exact wording of real firing
-boards is not public, so libfpv follows the convention rather than a
-specific board. The text respects the OSD disable switch and can be turned
-off (`FPV_KAMIKAZE_NO_OSD`) for games that draw their own. Betaflight's
-`osd_revision` cannot see it, so kamikaze builds count revisions of the
-composed grid instead.
+(live) and `NOT ARMED` (explode switch on a safe bomb). These are the words
+seen on strike-drone footage; the exact wording of real firing boards is
+not public, so libfpv follows the convention rather than a specific board.
+At first libfpv wrote the text into `frame.osd` over Betaflight's grid,
+which put it above everything, the post-flight stats included, and fixed
+on row 3. It now takes Betaflight's "Custom message 1" (`OSD_CUSTOM_MSG0`,
+meant for text sent over MSPv2): Betaflight patch 0006 lets the host
+supply that element's text (`bfb_osd_set_host_message`, set every step by
+`Flight`), and SimITL patch 0010 adds `osd_custom_msg0_pos`..`3_pos` to
+the CLI, which upstream lacks (the Configurator moves it over MSP), so the
+overlay's OSD tab ("Bomb status") and scripts can place it too. Betaflight
+then layers it like any element, as the pilot name became one after
+patch 0003. The text is centred in a 10-character field so it stays put as
+it changes, the field defaults to columns 10..19 of row 3, and EEPROM
+upgrade `bomb-osd-4` shows it there unless the player already placed it.
+Blinking is 1 Hz because Betaflight redraws the simulated OSD only every
+~0.3 s. `SIGNAL LOST` (row 7) is still drawn by libfpv over a blank grid:
+it is the goggles' message, not the flight controller's. Both can be
+turned off (`FPV_KAMIKAZE_NO_OSD`) for games that draw their own, and
+since Betaflight's `osd_revision` cannot see `SIGNAL LOST`, kamikaze
+builds count revisions of the composed grid instead.
 
 **Payload.** The warhead is real weight. Its mass is added to the quad's
 in SimITL, its inertia is added as a point mass `drop` below the centre
@@ -540,10 +567,11 @@ over (ANGLE). The centre of mass does not move, because SimITL has no
 offset for it. Changing the payload patches SimITL's live `stateInit`
 instead of re-initialising the physics, so it can change in flight.
 `fpv_kamikaze_config` and the overlay (F8 > Fly) edit the same values
-(payload, arming delay, fuse threshold, OSD), saved in `settings.json`.
+(payload, arming delay, fuse threshold, OSD), saved in `settings.json`;
+those settings only show with the bomb installed.
 
 Tests: `kamikaze_*` in `fpv_tests` (only in kamikaze builds; the other
-tests run there with no payload and no warhead OSD, since they check a
-bare quad and Betaflight's own OSD), the wizard test with both switches,
+tests run there without the bomb installed, since they check a bare quad
+and Betaflight's own OSD), the wizard test with both switches,
 and `fpv_standalone --kamikaze-demo`, which flies a scripted strike in the
 real app and exits 1 if any rule fails.

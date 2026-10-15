@@ -1,0 +1,44 @@
+diff --git a/src/main/osd/osd_elements.c b/src/main/osd/osd_elements.c
+--- a/src/main/osd/osd_elements.c
++++ b/src/main/osd/osd_elements.c
+@@ -839,12 +839,20 @@
+     memcpy(element->buff, compassBar + osdGetHeadingIntoDiscreteDirections(DECIDEGREES_TO_DEGREES(attitude.values.yaw), 16), 9);
+     element->buff[9] = 0;
+ }
++
++// Text a simulator host supplies for a custom message element; it replaces
++// the MSPv2 message while osdHostCustomMsgSet is true (empty = draw nothing).
++char osdHostCustomMsg[OSD_CUSTOM_MSG_COUNT][MAX_NAME_LENGTH + 1];
++bool osdHostCustomMsgSet[OSD_CUSTOM_MSG_COUNT];
+ 
+ //display custom message from MSPv2
+ static void osdElementCustomMsg(osdElementParms_t *element)
+ {
+     int msgIndex = element->item - OSD_CUSTOM_MSG0;
+-    if (msgIndex < 0 || msgIndex >= OSD_CUSTOM_MSG_COUNT || pilotConfig()->message[msgIndex][0] == '\0') {
++    if (msgIndex >= 0 && msgIndex < OSD_CUSTOM_MSG_COUNT && osdHostCustomMsgSet[msgIndex]) {
++        strncpy(element->buff, osdHostCustomMsg[msgIndex], MAX_NAME_LENGTH);
++        element->buff[MAX_NAME_LENGTH] = 0;
++    } else if (msgIndex < 0 || msgIndex >= OSD_CUSTOM_MSG_COUNT || pilotConfig()->message[msgIndex][0] == '\0') {
+         tfp_sprintf(element->buff, "CUSTOM_MSG%d", msgIndex + 1);
+     } else {
+         strncpy(element->buff, pilotConfig()->message[msgIndex], MAX_NAME_LENGTH);
+diff --git a/src/main/osd/osd_elements.h b/src/main/osd/osd_elements.h
+--- a/src/main/osd/osd_elements.h
++++ b/src/main/osd/osd_elements.h
+@@ -23,6 +23,7 @@
+ #include "drivers/display.h"
+ 
+ #include "osd/osd.h"
++#include "pg/pilot.h"
+ 
+ typedef enum {
+     OSD_ELEMENT_TYPE_1 = 0,
+@@ -72,3 +73,7 @@
+ #ifdef USE_SPEC_PREARM_SCREEN
+ bool osdDrawSpec(displayPort_t *osdDisplayPort);
+ #endif // USE_SPEC_PREARM_SCREEN
++
++// Host-supplied text for the custom message elements (see osd_elements.c).
++extern char osdHostCustomMsg[][MAX_NAME_LENGTH + 1];
++extern bool osdHostCustomMsgSet[];

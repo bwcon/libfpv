@@ -29,6 +29,7 @@
 #include "io/gps.h"
 #include "io/gps_virtual.h"
 #include "osd/osd.h"
+#include "osd/osd_elements.h"
 #include "drivers/barometer/barometer_virtual.h"
 #include "pg/pg.h"
 #include "scheduler/scheduler.h"
@@ -292,6 +293,16 @@ int bfb_crash_flip_active(void)
 {
     /* on a real quad, disarming sends the ESCs back to normal direction */
     return ARMING_FLAG(ARMED) && isCrashFlipModeActive();
+}
+
+void bfb_osd_set_host_message(int index, const char *text)
+{
+    if (index < 0 || index >= OSD_CUSTOM_MSG_COUNT) {
+        return;
+    }
+    osdHostCustomMsgSet[index] = text != NULL;
+    strncpy(osdHostCustomMsg[index], text ? text : "", MAX_NAME_LENGTH);
+    osdHostCustomMsg[index][MAX_NAME_LENGTH] = '\0';
 }
 
 int bfb_osd_disabled(void)

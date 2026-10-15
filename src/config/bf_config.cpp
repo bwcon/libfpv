@@ -76,6 +76,10 @@ std::string betaflightBaseDefaults() {
            "aux 0 0 0 1700 2100 0 0\n";
 }
 
+#if defined(LIBFPV_KAMIKAZE)
+std::string betaflightBombOsdLine() { return "set osd_custom_msg0_pos = " + std::to_string(osdPos(10, 3)) + "\n"; }
+#endif
+
 std::string betaflightFirstRunScript() {
     std::ostringstream s;
     s << betaflightBaseDefaults();
@@ -98,6 +102,9 @@ std::string betaflightFirstRunScript() {
     s << "set osd_gps_speed_pos = " << osdPos(12, 1) << "\n";
     s << "set osd_craft_name_pos = " << osdPos(11, 12) << "\n";
     s << "set craft_name = LIBFPV\n";
+#if defined(LIBFPV_KAMIKAZE)
+    s << betaflightBombOsdLine();
+#endif
     return s.str();
 }
 

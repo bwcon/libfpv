@@ -45,12 +45,14 @@ engine or mod loader.
 - **Camera.** Uptilt and FOV are adjustable, and there is a fisheye lens
   (on by default). Analog video noise grows with range and with obstacles in
   the way.
-- **Kamikaze builds** (optional, `-DLIBFPV_KAMIKAZE=ON`). The drone carries
-  a warhead with real weight, on a bomb arm switch (AUX7) and an explode
-  switch (AUX8). The motors won't arm with the bomb switch on, and there is
-  an arming delay. Once live, a contact fuse sets it off on any touch. The
-  OSD shows `SAFE`, `ARMING`, `STEADY` and `SIGNAL LOST`, and the game gets the
-  detonation to play its own explosion, cutscene or "signal lost".
+- **Kamikaze builds** (optional, `-DLIBFPV_KAMIKAZE=ON`). The drone can
+  carry a warhead with real weight, installed from the overlay or by the
+  game, on a bomb arm switch (AUX7) and an explode switch (AUX8). The motors
+  won't arm with the bomb switch on, and an arming delay can be set. Once
+  live, a contact fuse sets it off on any touch. A movable OSD element shows
+  `SAFE`, `STEADY` and the like, the screen shows `SIGNAL LOST` after the
+  blast, and the game gets the detonation to play its own explosion,
+  cutscene or "signal lost".
 
 ## Building
 

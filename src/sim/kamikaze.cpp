@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 
 #include "util/log.h"
 
@@ -46,10 +48,44 @@ void Warhead::reset(double simTime) {
     m_explodePrev = true;
 }
 
+void Warhead::setInstalled(bool on, double simTime) {
+    if (m_snap.installed == on) return;
+    m_snap.installed = on;
+    // a new bomb, or none: safe, and a switch left on must be cycled first
+    if (!detonated()) reset(simTime);
+}
+
+void Warhead::statusText(char *out, size_t size, double simTime, bool fcArmed) {
+    const WarheadSnapshot &w = m_snap;
+    bool blink = std::fmod(simTime, 1.0) < 0.6;  // slow enough for Betaflight's OSD refresh
+    const char *text = "";
+    char arming[16];
+    if (!w.installed || !config().osd || detonated()) {
+        text = "";
+    } else if (simTime < w.refusedUntil) {
+        if (blink) text = "NOT ARMED";
+    } else if (w.state == WarheadState::Safe) {
+        if (!w.bombSwitch || (fcArmed && !w.needsCycle)) text = "SAFE";
+        else if (blink) text = "BOMB SW ON";
+    } else if (w.state == WarheadState::Arming) {
+        std::snprintf(arming, sizeof arming, "ARMING %d", (int)std::ceil(w.armingRemaining));
+        text = arming;
+    } else if (w.state == WarheadState::Armed) {
+        text = "STEADY";
+    }
+    // centred in the width of the longest word, so it stays put as it changes
+    const int kWidth = 10;
+    int n = (int)std::strlen(text);
+    int pad = n ? std::max(0, (kWidth - n) / 2) : 0;
+    std::snprintf(out, size, "%*s%s", pad, "", text);
+}
+
 void Warhead::filterChannels(float ch[kChannelCount], bool fcArmed) {
     bool armSwitch = switchOn(ch[kAux1]);
-    m_snap.bombSwitch = switchOn(ch[kAux7]);
-    m_snap.explodeSwitch = switchOn(ch[kAux8]);
+    // without the bomb its switches do nothing (a wreck stays a wreck)
+    bool present = m_snap.installed || detonated();
+    m_snap.bombSwitch = present && switchOn(ch[kAux7]);
+    m_snap.explodeSwitch = present && switchOn(ch[kAux8]);
     // Takeoff with a live (or arming) bomb is what the bomb switch guards
     // against: the motors only arm with it off. A destroyed drone never arms.
     m_snap.blocksArming = !fcArmed && (m_snap.bombSwitch || detonated());
@@ -60,7 +96,7 @@ void Warhead::filterChannels(float ch[kChannelCount], bool fcArmed) {
 }
 
 bool Warhead::update(float dt, double simTime, const float ch[kChannelCount], bool fcArmed, Vec3 pos, Vec3 vel) {
-    if (detonated()) return false;
+    if (detonated() || !m_snap.installed) return false;
     bool bomb = switchOn(ch[kAux7]), explode = switchOn(ch[kAux8]);
     bool explodeEdge = explode && !m_explodePrev;
     m_explodePrev = explode;
@@ -70,8 +106,13 @@ bool Warhead::update(float dt, double simTime, const float ch[kChannelCount], bo
     switch (m_snap.state) {
     case WarheadState::Safe:
         if (bomb && fcArmed && !m_snap.needsCycle) {
-            setState(WarheadState::Arming, simTime);
-            m_snap.armingRemaining = std::max(0.0f, delay);
+            if (delay > 0) {
+                setState(WarheadState::Arming, simTime);
+                m_snap.armingRemaining = delay;
+            } else {
+                setState(WarheadState::Armed, simTime);  // no arming delay: live at once
+                FPV_LOGD("warhead live");
+            }
         }
         break;
     case WarheadState::Arming:
@@ -132,7 +173,7 @@ bool Warhead::impact(double simTime, Vec3 pos, Vec3 vel, Vec3 point, Vec3 normal
 }
 
 bool Warhead::detonate(double simTime, Vec3 pos, Vec3 vel, bool evenIfSafe) {
-    if (detonated()) return false;
+    if (detonated() || !m_snap.installed) return false;
     if (m_snap.state != WarheadState::Armed && !evenIfSafe) return false;
     DetonationEvent e;
     e.simTime = simTime;
