@@ -175,7 +175,8 @@ while (fpv_kamikaze_poll_detonation(&d)) {
 
 While destroyed (`frame.flags & FPV_DRONE_DETONATED`), the wreck sits frozen
 where it exploded, the props are broken, `frame.video` reports no signal,
-the OSD shows `BOOM` for 2 s and then nothing, and the drone does not arm.
+the OSD shows only `SIGNAL LOST` (even with the OSD disable switch on), and
+the drone does not arm.
 Don't draw the drone model. Pick an ending:
 
 - **Instant respawn** (arcade): right after the explosion, call
@@ -184,7 +185,7 @@ Don't draw the drone model. Pick an ending:
   for a few seconds (the FPV camera now shows only static), then repair
   and reset as above.
 - **Signal lost** (realistic): keep showing the FPV view. Draw full static
-  while `FPV_DRONE_DETONATED` is set (with `BOOM` over it from the OSD), and
+  while `FPV_DRONE_DETONATED` is set (with `SIGNAL LOST` over it from the OSD), and
   respawn only when the pilot asks for the next drone, or when the game
   hands it out (a limited number of drones, a launch position nearer the
   front).

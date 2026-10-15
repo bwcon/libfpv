@@ -23,14 +23,14 @@ static void osdText(uint8_t *osd, int row, const char *text) {
 }
 
 // The warhead state over Betaflight's OSD, the way strike drones show it
-// (DECISIONS D24): "SAFE", "ARMING 3", "STEADY", then "BOOM".
+// (DECISIONS D24): "SAFE", "ARMING 3", "STEADY", then "SIGNAL LOST".
 static void drawWarheadOsd(uint8_t *osd, const WarheadSnapshot &w, double simTime, bool fcArmed) {
     const int kStatusRow = 3, kCentreRow = 7;
     bool blink = std::fmod(simTime, 0.5) < 0.3;
     if (w.state == WarheadState::Detonated) {
-        // the camera and the transmitter are gone: nothing but the last word
+        // the camera and the transmitter are gone: only the goggles' message, until repaired
         std::memset(osd, ' ', FPV_OSD_ROWS * FPV_OSD_COLS);
-        if (simTime - w.stateSince < 2.0) osdText(osd, kCentreRow, "BOOM");
+        osdText(osd, kCentreRow, "SIGNAL LOST");
         return;
     }
     char text[32];
@@ -295,7 +295,9 @@ extern "C" FPV_API fpv_result fpv_drone_tick(fpv_drone *d, float frameDt, fpv_fr
     memcpy(f.osd, cur.osd.data(), sizeof(f.osd));
     f.osd_revision = cur.osdRevision;
 #if defined(LIBFPV_KAMIKAZE)
-    if (cur.active && !cur.osdDisabled && L.settings.kamikazeOsd) drawWarheadOsd(f.osd, cur.warhead, cur.simTime, cur.armed);
+    // SIGNAL LOST is the goggles', not the flight controller's: it ignores the OSD disable switch
+    if (cur.active && L.settings.kamikazeOsd && (!cur.osdDisabled || cur.warhead.state == WarheadState::Detonated))
+        drawWarheadOsd(f.osd, cur.warhead, cur.simTime, cur.armed);
     // Betaflight's revision cannot see the warhead text: count changes here
     if (memcmp(L.kamikazeOsd, f.osd, sizeof(f.osd)) != 0) {
         memcpy(L.kamikazeOsd, f.osd, sizeof(f.osd));
