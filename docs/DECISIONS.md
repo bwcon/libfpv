@@ -508,7 +508,10 @@ X (explode, held), the gamepad West (toggle) and the right shoulder.
 kind of game can build on it: the wreck stays frozen where it exploded,
 the props are broken (CRASHED), the motors are stopped, AUX1 is held low,
 the video reports no signal (noise 1, signal 0), and the OSD shows only
-"BOOM" for 2 s, then nothing. `fpv_drone_repair` is the new drone with a
+"SIGNAL LOST" until the repair, the way goggles do when the video drops. It
+is the goggles' message, not the flight controller's, so the OSD disable
+switch doesn't hide it; games can still draw their own with
+`FPV_KAMIKAZE_NO_OSD`. `fpv_drone_repair` is the new drone with a
 new, safe warhead. libfpv never respawns on its own: whether the game
 cuts to a cutscene, respawns at once, or leaves the pilot on static until
 they take the next drone is the game's choice (INTEGRATION.md, "Kamikaze
@@ -517,9 +520,9 @@ builds"). Detonations are queued (`fpv_kamikaze_poll_detonation`, up to
 host polling less often loses nothing.
 
 **OSD.** libfpv writes the warhead state into `frame.osd` over
-Betaflight's own grid, centred on row 3 (row 7 for BOOM): `SAFE`,
+Betaflight's own grid, centred on row 3 (row 7 for SIGNAL LOST): `SAFE`,
 `BOMB SW ON` (blinking, the motors are blocked), `ARMING 3`, `STEADY`
-(live), `NOT ARMED` (explode switch on a safe bomb) and `BOOM`. These are
+(live), `NOT ARMED` (explode switch on a safe bomb) and `SIGNAL LOST`. These are
 the words seen on strike-drone footage; the exact wording of real firing
 boards is not public, so libfpv follows the convention rather than a
 specific board. The text respects the OSD disable switch and can be turned

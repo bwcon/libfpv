@@ -510,7 +510,7 @@ FPV_API fpv_result fpv_gps_set_home(const float position[3]);
  *     explodes; the explode switch only shows "NOT ARMED".
  *   - A switch that is already on when the drone spawns or is repaired
  *     must be turned off first.
- *   - After the explosion (OSD "BOOM") the drone is destroyed: frame.flags
+ *   - After the explosion (OSD "SIGNAL LOST") the drone is destroyed: frame.flags
  *     has FPV_DRONE_DETONATED and FPV_DRONE_CRASHED, the wreck stays where
  *     it exploded, the motors stop, frame.video reports no signal (noise 1,
  *     signal_strength 0), and it does not arm. fpv_drone_repair() gives a

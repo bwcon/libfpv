@@ -49,7 +49,7 @@ engine or mod loader.
   a warhead with real weight, on a bomb arm switch (AUX7) and an explode
   switch (AUX8). The motors won't arm with the bomb switch on, and there is
   an arming delay. Once live, a contact fuse sets it off on any touch. The
-  OSD shows `SAFE`, `ARMING`, `STEADY` and `BOOM`, and the game gets the
+  OSD shows `SAFE`, `ARMING`, `STEADY` and `SIGNAL LOST`, and the game gets the
   detonation to play its own explosion, cutscene or "signal lost".
 
 ## Building

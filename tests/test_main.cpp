@@ -1166,7 +1166,7 @@ void testKamikazeImpact() {
     CHECK(s.f.video.signal_strength == 0 && s.f.video.noise == 1, "no video signal");
     CHECK(s.f.motors[0].rpm < 1, "motors stopped (%.0f rpm)", s.f.motors[0].rpm);
     CHECK(warhead(s.drone).detonation_count >= 1, "counted");
-    // the OSD showed BOOM right after; check a fresh explosion below
+    CHECK(osdHas(s.f, "SIGNAL LOST"), "OSD shows SIGNAL LOST");
     float frozen[3];
     std::memcpy(frozen, s.f.position, sizeof frozen);
     s.rc.ch[4] = 1;
@@ -1218,11 +1218,11 @@ void testKamikazeExplodeSwitch() {
     CHECK(warhead(s.drone).warhead == FPV_WARHEAD_ARMED, "live after the 1 s delay");
     s.rc.ch[kExplode] = 1;
     bool boom = false;
-    s.run(0.2f, [&](float) { boom |= osdHas(s.f, "BOOM"); });
+    s.run(0.2f, [&](float) { boom |= osdHas(s.f, "SIGNAL LOST"); });
     fpv_detonation d{};
     CHECK(drainDetonations(&d) == 1 && d.cause == FPV_DETONATION_SWITCH, "explode switch detonates (cause %d)", d.cause);
     CHECK(h.up(d.position) > 1, "in the air, %.1f m", h.up(d.position));
-    CHECK(boom, "OSD shows BOOM");
+    CHECK(boom, "OSD shows SIGNAL LOST");
     CHECK(!osdHas(s.f, "STEADY"), "rest of the OSD gone");
 
     // forced host detonation of a safe warhead
