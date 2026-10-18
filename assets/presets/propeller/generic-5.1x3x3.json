@@ -1,0 +1,23 @@
+{
+    "version": 1,
+    "name": "Generic 5.1x3x3",
+    "fileName": "generic-5.1x3x3",
+    "buildIn": true,
+    "description": "A smooth low-pitch tri-blade freestyle prop (HQ 5.1x3x3, Gemfan 51433 class): about 1.6 kgf on a 2207 1950kV at 6S, 4.3 g.",
+    "bladeCount": 3,
+    "pitchInch": 3.0,
+    "propMaxRpm": 33000.0,
+    "propAudioPitch": 0.9,
+    "propAFactor": 1.423e-8,
+    "propTorqueFactor": 0.0095,
+    "propInertia": 0.0000075,
+    "propThrustFactor": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 15.5
+    },
+    "propHarmonic1Amp": 0.02,
+    "propHarmonic2Amp": 0.04,
+    "mass": 0.0043,
+    "durability": 11.0
+}

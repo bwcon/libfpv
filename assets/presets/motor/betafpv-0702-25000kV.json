@@ -1,0 +1,19 @@
+{
+    "version": 1,
+    "name": "BetaFPV 0702 25000kV",
+    "fileName": "betafpv-0702-25000kV",
+    "buildIn": true,
+    "description": "BetaFPV's freestyle 0702 for the Air65 II: 25000kV, brass bushings, 1.5 g. About 34 g of thrust on a Gemfan 1219S (interpolated from BetaFPV's 23000kV/27000kV figures).",
+    "motorKV": 25000.0,
+    "motorR": 0.5,
+    "motorI0": 0.2,
+    "motorRth": 40.0,
+    "motorCth": 0.7,
+    "motorMaxT": 128.0,
+    "motorImbalance": {
+        "x": 10.0,
+        "y": 6.0,
+        "z": 5.0
+    },
+    "mass": 0.0015
+}

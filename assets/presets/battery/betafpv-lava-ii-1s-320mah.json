@@ -1,0 +1,12 @@
+{
+    "version": 1,
+    "name": "BetaFPV LAVA II 1S 320mAh",
+    "fileName": "betafpv-lava-ii-1s-320mah",
+    "buildIn": true,
+    "description": "BetaFPV LAVA II 1S 320mAh 95C LiHV with a BT2.0 plug, 8.2 g. Charged to 4.35 V.",
+    "maxVoltageSag": 0.4,
+    "batCellCount": 1,
+    "batCapacityCharged": 336.0,
+    "batCapacity": 320.0,
+    "mass": 0.0082
+}

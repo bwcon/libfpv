@@ -1,0 +1,120 @@
+diff --git a/src/network/packets.h b/src/network/packets.h
+--- a/src/network/packets.h
++++ b/src/network/packets.h
+@@ -53,6 +53,15 @@
+   Vec3F propThrustFactor {};
+   float propHarmonic1Amp = 0.0f;
+   float propHarmonic2Amp = 0.0f;
++  // libfpv: geometric prop pitch and diameter in metres. With a pitch, static
++  // thrust is propThrustFactor.z * (rpm / propMaxRpm)^2 and falls off with
++  // the axial inflow (advance ratio). 0 keeps SimITL's propThrustFactor curve.
++  float propPitch = 0.0f;
++  float propDiameter = 0.0f;
++  // libfpv: rotor (induced) drag against airspeed in the prop plane, as a
++  // fraction of the momentum drag of the air each disc pulls through at
++  // hover. 0 = none.
++  float rotorDragFactor = 0.0f;
+ 
+   Vec3F frameDragArea {};
+   float frameDragConstant = 0.0f;
+diff --git a/src/sim/physics.cpp b/src/sim/physics.cpp
+--- a/src/sim/physics.cpp
++++ b/src/sim/physics.cpp
+@@ -271,9 +271,35 @@
+     }
+ 
+     return torque;
++  }
++
++  // libfpv: share of static thrust left at an axial inflow of `vel` m/s
++  // (climbing, positive). Measured small-prop thrust coefficients follow
++  // CT(J) ~ CT0 * (1 - (J / J0)^2), with zero thrust (J0) at about 0.9 of the
++  // geometric pitch speed. Descending (vel < 0) keeps static thrust.
++  constexpr float ZERO_THRUST_PITCH_RATIO = 0.9f;
++
++  static float inflowThrustFactor(float pitch, float rpm, float vel) {
++    if (vel <= 0.0f) return 1.0f;
++    const float zeroThrustVel = ZERO_THRUST_PITCH_RATIO * pitch * std::max(rpm, 0.0f) / 60.0f;
++    if (zeroThrustVel <= 0.01f) return 0.0f;
++    const float j = vel / zeroThrustVel;
++    return std::max(0.0f, 1.0f - j * j);
++  }
++
++  // Shaft power drops less than thrust as the prop unloads: at zero thrust a
++  // small prop still needs about a quarter of its static torque.
++  static float inflowTorqueFactor(float pitch, float rpm, float vel) {
++    return 0.25f + 0.75f * inflowThrustFactor(pitch, rpm, vel);
+   }
+ 
+   float Physics::propThrust(float rpm, float vel) {
++    if (mSimState->stateInit.propPitch > 0.0f) {
++      const float rpmRatio = std::max(rpm, 0.0f) / std::max(mSimState->stateInit.propMaxRpm, 0.01f);
++      const float staticThrust = mSimState->stateInit.propThrustFactor.z * rpmRatio * rpmRatio;
++      return staticThrust * inflowThrustFactor(mSimState->stateInit.propPitch, rpm, vel);
++    }
++    vel = std::max(0.0f, vel);
+     // max thrust vs velocity:
+     auto propF = mSimState->stateInit.propThrustFactor.x * vel * vel +
+                  mSimState->stateInit.propThrustFactor.y * vel +
+@@ -291,6 +317,12 @@
+   }
+ 
+   float Physics::propTorque(float rpm, float vel) {
++    if (mSimState->stateInit.propPitch > 0.0f) {
++      const float rpmRatio = std::max(rpm, 0.0f) / std::max(mSimState->stateInit.propMaxRpm, 0.01f);
++      const float staticThrust = mSimState->stateInit.propThrustFactor.z * rpmRatio * rpmRatio;
++      return staticThrust * mSimState->stateInit.propTorqueFactor *
++             inflowTorqueFactor(mSimState->stateInit.propPitch, rpm, vel);
++    }
+     return propThrust(rpm, vel) * mSimState->stateInit.propTorqueFactor;
+   }
+ 
+@@ -512,7 +544,8 @@
+ 
+     vec3 linVel;
+     copy(linVel, state.linearVelocity);
+-    const auto vel = std::max(0.0f, dot(linVel, up));
++    // axial inflow through the props, positive when climbing along the thrust axis
++    const auto vel = dot(linVel, up);
+ 
+     const auto ambientTemp = mSimState->stateInit.ambientTemp;
+     // prevent div by 0 
+@@ -720,6 +753,29 @@
+     vec3 dragLinear = dragDir * areaLinear;
+     total_force = total_force - dragLinear;
+ 
++    // libfpv: rotor drag. A spinning prop turns the air it pulls through
++    // along with it, so airspeed in the prop plane costs momentum: about
++    // rho * A * v_induced * v at hover (momentum theory), times
++    // rotorDragFactor (measured ~0.6 on open racing props, Faessler et al.
++    // 2018). It grows with rotor speed (Mahony et al. 2012), so per rotor
++    // F = -c * omega * v_inplane with c fixed by the hover value.
++    std::array<vec3, 4> rotorDrag{};
++    const float propRadius = 0.5f * mSimState->stateInit.propDiameter;
++    if (mSimState->stateInit.rotorDragFactor > 0.0f && propRadius > 0.0f) {
++      const float discArea = float(M_PI) * propRadius * propRadius;
++      const float maxOmega = std::max(mSimState->stateInit.propMaxRpm, 0.01f) * 2.0f * float(M_PI) / 60.0f;
++      const float c = mSimState->stateInit.rotorDragFactor *
++                      std::sqrt(0.5f * AIR_RHO * discArea * std::max(mSimState->stateInit.propThrustFactor.z, 0.0f)) /
++                      maxOmega;
++      vec3 localVel = xform_inv(rotation, linearVelocity);
++      localVel[1] = 0.0f;  // in the prop plane only
++      for (auto i = 0u; i < 4; i++) {
++        const float omega = std::abs(motors[i].rpm) * 2.0f * float(M_PI) / 60.0f;
++        rotorDrag[i] = xform(rotation, localVel * (-c * omega * (1.0f - state.propDamage[i])));
++        total_force = total_force + rotorDrag[i];
++      }
++    }
++
+     // motors:
+     for (auto i = 0u; i < 4; i++) {
+       total_force = total_force + xform(rotation, vec3{0, motors[i].thrust, 0});
+@@ -796,7 +852,7 @@
+     total_moment = total_moment + xform(rotation, local_aero_torque);
+ 
+     for (auto i = 0u; i < 4; i++) {
+-      auto force = xform(rotation, {0, motors[i].thrust, 0});
++      auto force = xform(rotation, {0, motors[i].thrust, 0}) + rotorDrag[i];
+       auto rad = xform(rotation, motors[i].position);
+       total_moment = total_moment + cross(rad, force);
+     }

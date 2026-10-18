@@ -421,9 +421,8 @@ output device. Stop and join it before deleting the drone.
 
 - `FPV_INPUT_SOURCE_HOST` / `fpv_input_set_channels` let the mod fly
   scripted test flights. The GTA IV mod's autotest arms, holds altitude,
-  pitches forward into a car or ped, and logs everything. For the PropEater
-  5" in ANGLE mode, hover is about -0.7 throttle (−1..1). A throttle of 0.1
-  climbs to 700 m in 18 s.
+  pitches forward into a car or ped, and logs everything. For the default
+  Freestyler 5" in ANGLE mode, hover is about -0.56 throttle (−1..1).
 - Log the drone state every couple of seconds (position, flags, altitude,
   throttle, `arming_disable_text`, FOV, near plane). Most bugs showed up
   there before they showed up on screen.

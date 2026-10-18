@@ -130,7 +130,7 @@ struct Session {
         fpv_drone_desc d;
         fpv_drone_desc_defaults(&d);
         std::memcpy(d.position, pos, sizeof(d.position));
-        d.preset = preset ? preset : "propeater-5";
+        d.preset = preset ? preset : "freestyler-5";
         fpv_result r = fpv_drone_create(&d, &drone);
         CHECK(r == FPV_OK, "drone_create: %s", fpv_last_error());
     }
@@ -366,10 +366,10 @@ void testSecondDroneRejected() {
 // Arms in the air at a given throttle, lets the motors settle, then
 // teleports back to the start with zero velocity (staying armed). Returns
 // the session ready to measure from rest.
-void hoverFromRest(Session &s, const Host &h, float thr) {
+void hoverFromRest(Session &s, const Host &h, float thr, const char *preset = nullptr) {
     float p[3];
     h.pos(0, 50, 0, p);  // high up: no ground effect
-    s.spawn(p);
+    s.spawn(p, preset);
     s.rc.ch[5] = 1;  // ANGLE mode (AUX2) keeps it level
     s.arm();
     s.rc.ch[2] = thr;
@@ -380,12 +380,12 @@ void hoverFromRest(Session &s, const Host &h, float thr) {
 }
 
 // Hover throttle by bisection on the direction of motion from rest.
-float findHoverThrottle(const Host &h) {
+float findHoverThrottle(const Host &h, const char *preset = nullptr) {
     float lo = -1.0f, hi = 0.2f;
     for (int iter = 0; iter < 14; iter++) {
         float mid = 0.5f * (lo + hi);
         Session s;
-        hoverFromRest(s, h, mid);
+        hoverFromRest(s, h, mid, preset);
         float y0 = h.up(s.f.position);
         s.run(1.0f);
         bool rising = h.up(s.f.position) > y0;
@@ -428,6 +428,87 @@ void testPunchOut() {
     CHECK(maxV > 60.0f && maxV < 320.0f, "plausible punch-out speed %.0f km/h", maxV);
     CHECK(height > 20.0f, "climbed %.1f m", height);
     s.destroy();
+}
+
+// Flight benchmarks against what real quads of each class do. Printed for
+// tuning presets; the checks are wide plausibility bands (docs/DECISIONS.md
+// D25 lists the reference figures).
+struct RealismBand {
+    const char *preset;
+    float hoverMin, hoverMax;  // throttle stick %
+    float chopDropMin;         // m fallen 1 s after cutting throttle from hover (free fall 4.9 m)
+    float punchMin, punchMax;  // km/h climbing 1 s into a full-throttle punch from hover
+    float topMin, topMax;      // km/h level, full throttle, 80 deg tilt
+    float coastMax;            // s to slow from 40 to 20 km/h after levelling out at hover throttle
+};
+
+void testFlightRealism() {
+    Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    loadWorld(makeLevel(h, 300, 0));
+    const RealismBand bands[] = {
+        {"freestyler-5", 15, 30, 3.5f, 80, 170, 110, 180, 2.5f},
+        {"betafpv-air65-ii", 20, 45, 3.0f, 40, 110, 45, 85, 1.5f},
+    };
+    for (const RealismBand &b : bands) {
+        float thr = findHoverThrottle(h, b.preset);
+        float hoverPct = (thr + 1) * 50;
+
+        Session s;
+        hoverFromRest(s, h, thr, b.preset);
+        float y0 = h.up(s.f.position);
+        s.rc.ch[2] = -1.0f;
+        s.run(1.0f);
+        float drop = y0 - h.up(s.f.position);
+        s.destroy();
+
+        hoverFromRest(s, h, thr, b.preset);
+        y0 = h.up(s.f.position);
+        s.rc.ch[2] = 1.0f;
+        s.run(0.25f);
+        float punch025 = h.up(s.f.velocity) * 3.6f;
+        s.run(0.75f);
+        float punch1 = h.up(s.f.velocity) * 3.6f;
+        float climbed = h.up(s.f.position) - y0;
+        s.destroy();
+
+        // top speed: ANGLE mode with an 80 degree limit, full forward, full throttle
+        char *o = nullptr;
+        fpv_cli_exec("set angle_limit = 80\nsave", &o);
+        fpv_free(o);
+        hoverFromRest(s, h, thr, b.preset);
+        s.rc.ch[1] = 1.0f;
+        s.rc.ch[2] = 1.0f;
+        float top = 0;
+        s.run(8.0f, [&](float) {
+            float hs = std::sqrt(h.fwd(s.f.velocity) * h.fwd(s.f.velocity) + h.right(s.f.velocity) * h.right(s.f.velocity));
+            top = std::max(top, hs * 3.6f);
+        });
+        // coast: level out at hover throttle from top speed, time to lose half the speed
+        s.rc.ch[1] = 0.0f;
+        s.rc.ch[2] = thr;
+        // and, the "floaty" part, from 40 to 20 km/h
+        float v0 = std::fabs(h.fwd(s.f.velocity)), half = -1, at40 = -1, at20 = -1;
+        s.run(10.0f, [&](float t) {
+            float v = std::fabs(h.fwd(s.f.velocity));
+            if (half < 0 && v < 0.5f * v0) half = t;
+            if (at40 < 0 && v * 3.6f < 40) at40 = t;
+            if (at20 < 0 && v * 3.6f < 20) at20 = t;
+        });
+        float coast = (at40 >= 0 && at20 >= 0) ? at20 - at40 : -1;
+        s.destroy();
+        fpv_cli_exec("set angle_limit = 60\nsave", &o);
+        fpv_free(o);
+
+        std::printf("    %s: hover %.0f%% stick | chop: %.2f m in 1 s | punch: %.0f km/h at 0.25 s, %.0f km/h and "
+                    "%.0f m at 1 s | top %.0f km/h | level-out from %.0f km/h halves in %.2f s, 40 -> 20 km/h in %.2f s\n",
+                    b.preset, hoverPct, drop, punch025, punch1, climbed, top, v0 * 3.6f, half, coast);
+        CHECK(hoverPct > b.hoverMin && hoverPct < b.hoverMax, "%s hover %.0f%%", b.preset, hoverPct);
+        CHECK(drop > b.chopDropMin, "%s chop drop %.2f m", b.preset, drop);
+        CHECK(punch1 > b.punchMin && punch1 < b.punchMax, "%s punch %.0f km/h", b.preset, punch1);
+        CHECK(top > b.topMin && top < b.topMax, "%s top speed %.0f km/h", b.preset, top);
+        CHECK(half > 0, "%s slows down after levelling out", b.preset);
+        CHECK(coast > 0 && coast < b.coastMax, "%s coasts from 40 to 20 km/h in %.2f s", b.preset, coast);
+    }
 }
 
 // Stick directions in every host convention: pitch forward flies forward,
@@ -593,7 +674,7 @@ void testMotorBurnout() {
     Session s;
     float p[3];
     h.pos(0, 0, 0, p);
-    s.spawn(p);
+    s.spawn(p, "propeater-5");
     s.arm();
     s.rc.ch[2] = 1.0f;
     float maxT = 0;
@@ -667,7 +748,7 @@ void testPresetSwitchBattery() {
         return at == std::string::npos ? s : s.substr(at, s.find('\n', at) - at);
     };
     float p[3] = {0, 0, 0};
-    const char *order[] = {"propeater-5", "vtx-slayer-one-4", "propeater-5"};
+    const char *order[] = {"freestyler-5", "vtx-slayer-one-4", "freestyler-5"};
     for (const char *name : order) {
         Session s;
         s.spawn(p, name);
@@ -942,7 +1023,7 @@ void testGps() {
     });
     std::printf("    speed: OSD %g km/h, drone %.0f km/h (worst gap %.1f); flown %g m\n", number(7), kmh, worst, number(8));
     CHECK(kmh > 20 && worst < 0.1f * kmh + 2, "OSD speed within %.1f km/h of %.0f", worst, kmh);
-    CHECK(number(8) > 15, "distance flown %g m", number(8));
+    CHECK(number(8) > 10, "distance flown %g m", number(8));
 
     // altitude and vario in a climb. The OSD redraws each element only a few
     // times a second, so a reading must match the truth of the last second.
@@ -1109,9 +1190,9 @@ fpv_kamikaze_state warhead(fpv_drone *d) {
 void takeOff(Session &s, float seconds) {
     s.rc.ch[5] = 1;  // angle
     s.arm();
-    s.rc.ch[2] = -0.3f;
+    s.rc.ch[2] = -0.2f;
     s.run(seconds);
-    s.rc.ch[2] = -0.6f;
+    s.rc.ch[2] = -0.45f;
 }
 
 // Betaflight's post-flight stats cover the OSD (bomb line too) for 60 s
@@ -1480,6 +1561,7 @@ int main(int argc, char **argv) {
         {"second_drone_rejected", testSecondDroneRejected},
         {"hover", testHover},
         {"punch_out", testPunchOut},
+        {"flight_realism", testFlightRealism},
         {"wall_crash", testWallCrash},
         {"thirty_mps_thin_wall", testThirtyMetersPerSecond},
         {"motor_burnout", testMotorBurnout},

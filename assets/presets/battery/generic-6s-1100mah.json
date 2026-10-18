@@ -1,0 +1,12 @@
+{
+    "version": 1,
+    "name": "Generic 6S 1100mAh",
+    "fileName": "generic-6s-1100mah",
+    "buildIn": true,
+    "description": "A 6S 1100mAh 120C freestyle pack, 185 g. Sags about 3 V on a full-throttle punch when fresh.",
+    "maxVoltageSag": 3.0,
+    "batCellCount": 6,
+    "batCapacityCharged": 1100.0,
+    "batCapacity": 1100.0,
+    "mass": 0.185
+}

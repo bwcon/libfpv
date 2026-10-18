@@ -1,0 +1,66 @@
+# BetaFPV Air65 II: flight settings from BetaFPV's factory diff
+# (Betaflight 4.5.3, BETAFPVG473_V2, posted by Oscar Liang:
+# https://intofpv.com/t-original-cli-diff-for-betafpv-air65-ii-champion).
+# The Champion and Freestyle versions share the flight controller, so the
+# filters, battery thresholds and tune are the same; hardware lines (board,
+# DShot, OSD layout, VTX table) are left out.
+
+# master
+set gyro_lpf1_static_hz = 0
+set gyro_lpf2_static_hz = 550
+set dyn_notch_count = 2
+set dyn_notch_q = 500
+set dyn_notch_min_hz = 120
+set dyn_notch_max_hz = 400
+set gyro_lpf1_dyn_min_hz = 0
+set gyro_lpf1_dyn_max_hz = 550
+set vbat_max_cell_voltage = 440
+set vbat_warning_cell_voltage = 345
+set yaw_motors_reversed = ON
+set small_angle = 180
+set simplified_gyro_filter_multiplier = 110
+
+profile 0
+
+# profile 0
+set profile_name = AIR65
+set throttle_boost = 0
+set p_pitch = 37
+set i_pitch = 64
+set d_pitch = 29
+set f_pitch = 31
+set p_roll = 36
+set i_roll = 61
+set d_roll = 27
+set f_roll = 30
+set p_yaw = 36
+set i_yaw = 61
+set f_yaw = 30
+set d_min_roll = 25
+set d_min_pitch = 27
+set d_max_gain = 20
+set auto_profile_cell_count = 1
+set feedforward_averaging = 2_POINT
+set feedforward_smooth_factor = 65
+set feedforward_jitter_factor = 5
+set simplified_master_multiplier = 85
+set simplified_i_gain = 95
+set simplified_pi_gain = 95
+set simplified_dmax_gain = 20
+set simplified_feedforward_gain = 30
+set simplified_pitch_d_gain = 95
+set tpa_rate = 60
+set tpa_breakpoint = 1180
+
+rateprofile 0
+
+# rateprofile 0
+set rates_type = BETAFLIGHT
+set roll_rc_rate = 110
+set pitch_rc_rate = 100
+set yaw_rc_rate = 110
+set roll_expo = 3
+set pitch_expo = 3
+set roll_srate = 65
+set pitch_srate = 70
+set yaw_srate = 60

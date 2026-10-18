@@ -1,0 +1,49 @@
+{
+    "version": 1,
+    "name": "Freestyler (5\" 6S)",
+    "fileName": "freestyler-5",
+    "buildIn": true,
+    "description": "The 5\" you see in every bando edit: a 225 mm true-X freestyle frame, 2207 1950kV motors, 5.1x3x3 props, a 6S 1100 on top and a digital HD air unit. 580 g ready to fly without an action camera, about 11:1 thrust to weight, around 140 km/h flat out.",
+    "frameDragArea": {
+        "x": 0.0095,
+        "y": 0.0085,
+        "z": 0.0095
+    },
+    "frameDragConstant": 1.2,
+    "rotorDragFactor": 0.6,
+    "mass": 0.21,
+    "invInertia": {
+        "x": 620.0,
+        "y": 340.0,
+        "z": 620.0
+    },
+    "gyroBaseNoiseAmp": 0.005,
+    "gyrobaseNoiseFreq": 233.0,
+    "frameHarmonic1Amp": 0.0175,
+    "frameHarmonic1Freq": 210.0,
+    "frameHarmonic2Amp": 0.004,
+    "frameHarmonic2Freq": 420.0,
+    "minPropWashSpeed": 1.0,
+    "maxPropWashSpeed": 20.0,
+    "propWashAngleOfAttack": 0.1,
+    "propWashFactor": 1.1,
+    "maxGroundEffectDist": 0.33,
+    "motor1Pos": { "x": 0.0795, "y": 0.005, "z": -0.0795 },
+    "motor2Pos": { "x": 0.0795, "y": 0.005, "z": 0.0795 },
+    "motor3Pos": { "x": -0.0795, "y": 0.005, "z": -0.0795 },
+    "motor4Pos": { "x": -0.0795, "y": 0.005, "z": 0.0795 },
+    "motorVariance": {
+        "x": 0.985,
+        "y": 0.995,
+        "z": 0.99,
+        "w": 1.0
+    },
+    "motor": "Generic 2207 1950kV",
+    "propeller": "Generic 5.1x3x3",
+    "battery": "Generic 6S 1100mAh",
+    "vtx": "Digital HD vtx",
+    "soundMaxRpm": 33000.0,
+    "camera": {
+        "uptiltDeg": 25.0
+    }
+}
