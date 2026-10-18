@@ -104,8 +104,9 @@ struct HoverFeedback {
     bool airborne = false;  // a drone exists and nothing touches the ground
 };
 
-// Keyboard throttle exponent default (1/s), see mapKeyboard.
+// Keyboard throttle and yaw exponent defaults (1/s), see mapKeyboard.
 constexpr float kDefaultKeyboardThrottleExpo = 3.0f;
+constexpr float kDefaultKeyboardYawExpo = 4.0f;
 
 struct InputStatus {
     InputSource source = InputSource::None;
@@ -132,6 +133,8 @@ public:
     void setKeyboardHover(bool on) { m_kbHover = on; }
     // How fast W raises the throttle: it grows by e^(expo * seconds held).
     void setKeyboardThrottleExpo(float expo) { m_kbThrottleExpo = expo; }
+    // How fast A/D raise the yaw, the same way from a small start.
+    void setKeyboardYawExpo(float expo) { m_kbYawExpo = expo; }
 
     // --- simulation thread ----------------------------------------------
     void setHoverFeedback(const HoverFeedback &f);
@@ -173,9 +176,11 @@ private:
     std::atomic<bool> m_wizardActive{false};
     std::atomic<bool> m_kbHover{false};
     std::atomic<float> m_kbThrottleExpo{kDefaultKeyboardThrottleExpo};
+    std::atomic<float> m_kbYawExpo{kDefaultKeyboardYawExpo};
 
     // fallback state
     float m_kbThrottle = 0;  // 0..1
+    float m_kbYaw = 0;
     HoverFeedback m_hover;
     std::unordered_map<std::string, float> m_hoverThrottle;  // learned, per preset
     bool m_kbArmed = false, m_kbArmKeyPrev = false;
