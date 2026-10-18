@@ -81,6 +81,8 @@ for v1.
   to 0 on every in-process reboot (`systemReset`), while Betaflight's
   statics survive it. Timestamps they hold then lay in the future: the
   virtual GPS stayed silent for as long as the uptime before the reboot.
+* `0011-rotor-drag-advance-ratio-thrust.patch`: thrust ∝ rpm² that falls
+  off with the advance ratio, and rotor drag (D25).
 
 ## Simulation
 
@@ -210,13 +212,14 @@ The alternative, stepping inside the host's tick, would tie radio sampling
 and PID timing to the game's frame rate (16 ms at 60 FPS) and break the
 "radio polled at sim rate" requirement.
 
-### D12. libfpv does not retune SimITL's aerodynamics
+### D12. libfpv does not retune SimITL's aerodynamics (superseded by D25)
 
 Measured with PropEater 5" (6S, 1900 kV): hover at 14 % throttle, and a
 vertical punch-out reaches about 275 km/h after 2 s (thrust-to-weight
 about 15:1 from the prop JSON). That is high but within what real 6S
 racing quads do, and the model is SimITL's by design. Tests check
-plausibility ranges, not exact values.
+plausibility ranges, not exact values. D25 replaced this: pilots found the
+quads floaty, with a soft throttle.
 
 ### D13. `diff all` import rules
 
@@ -243,6 +246,78 @@ plausibility ranges, not exact values.
 * Corpus: six real diffs from Betaflight 4.0.6 to 4.5.1
   (`tests/diffs/README.md`). Every one imports, arms and flies in the test
   suite.
+
+### D25. Realistic thrust and rotor drag (patch `0011`)
+
+Pilots of real 5" quads and tiny whoops reported that libfpv felt floaty.
+With the throttle cut, the quad fell too slowly. Full throttle had the
+opposite problem: it climbed endlessly. Reading SimITL's model against the
+literature found three causes:
+
+* Static thrust was `b·rpm + a·rpm²`. The linear term made idle thrust
+  about 4× too high: 26 % of the weight on PropEater at Betaflight's 5.5 %
+  idle. Real props follow rpm², about 7 %.
+* Thrust fell with climb speed through a fixed quadratic that did not
+  depend on rpm. It only reached zero at 142 m/s, so a punch reached
+  240 km/h within a second.
+* Nothing modelled rotor (induced) drag. That drag is linear in speed and
+  is the main drag of a quadrotor at low and medium speed. NeuroBEM
+  (Bauersfeld et al. 2021) calls it "the dominant source of drag".
+  Without it, a quad that levels out at 40 km/h coasted for about 7 s
+  (computed) before reaching 20 km/h.
+
+The patch adds `propPitch`, `propDiameter` and `rotorDragFactor` to
+`StateInit`. When a pitch is known, the model changes as follows:
+
+* Static thrust is `Tmax·(rpm/propMaxRpm)²`, with `Tmax` =
+  `propThrustFactor.z`.
+* Thrust is scaled by `1 − (v/v0)²`, where `v` is the axial inflow
+  (climbing along the thrust axis) and `v0` = 0.9 × pitch speed. That is
+  the shape of measured small-prop CT(J) curves. Descending keeps static
+  thrust.
+* Prop torque keeps 25 % of its static value at zero thrust, so an
+  unloaded prop speeds up the way a real one does.
+* Rotor drag per motor is `F = −c·ω·v_inplane`. It acts at the motor, so
+  flying forward also pitches the nose up a little. `c` is
+  `rotorDragFactor` times the momentum drag of the air one disc pulls
+  through at hover: `c = k·sqrt(ρ·A·Tmax/2)/ω_max`.
+  * For open props `k = 0.6` (the quad JSON's default) matches Faessler et
+    al. 2018: 0.45 s⁻¹ mass-normalised at hover on a 5"–6" racer, against
+    a measured 0.39–0.54.
+  * Ducted whoops use `k = 1`.
+
+The pitch comes from `pitchInch` in the prop JSON, or from the name
+("5.1x3x3"); `diameterInch` works the same way. A prop with no known pitch
+keeps SimITL's curve, and `rotorDragFactor: 0` turns rotor drag off. Every
+shipped prop name carries its pitch, so every shipped preset uses the new
+model.
+
+`flight_realism` measures each preset. The reference bands come from real
+quads of the class:
+
+| Measurement | Freestyler 5" (6S, 580 g) | Air65 II (1S, 26 g) |
+|---|---|---|
+| Hover throttle (stick) | 22 % | 30 % |
+| Drop 1 s after cutting throttle (free fall: 4.9 m) | 4.3 m | 3.5 m |
+| Climb speed 1 s into a full punch | 137 km/h | 58 km/h |
+| Top speed, level | 142 km/h | 62 km/h |
+| Coast from 40 to 20 km/h after levelling out | 1.3 s | 0.4 s |
+
+The Freestyler and Air65 II presets were built from real parts.
+Freestyler is the default and is a typical 5" freestyle quad: 2207
+1950 kV motors, 5.1x3x3 props, a 6S 1100 pack and an HD air unit. The
+Air65 II uses BetaFPV's published figures: 17.8 g dry, 0702 25000 kV
+motors, Gemfan 1219S props, a LAVA II 1S 320 mAh LiHV pack (8.2 g) and
+about 34 g of thrust per motor. Its `.diff.txt` carries BetaFPV's factory
+filters, PIDs, rates and `vbat_max_cell_voltage = 440`; without that,
+Betaflight reports a full LiHV cell as "NOT PRESENT".
+
+Still open:
+
+* Vortex ring state. SimITL's propwash noise stands in for it.
+* Thrust gain in a fast descent.
+* Validation against a logged flight. NeuroBEM's raw Betaflight logs with
+  motion-capture positions are the reference to fit next.
 
 ## Presentation
 

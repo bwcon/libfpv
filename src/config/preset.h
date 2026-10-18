@@ -65,7 +65,7 @@ struct DronePreset {
 std::vector<DronePreset> loadPresetDirectory(const std::string &dir, std::vector<std::string> &errors);
 DronePreset loadPresetFile(const std::string &quadJsonPath);  // throws std::runtime_error
 
-// A conservative 5" freestyle quad used when no preset files are found.
+// The Freestyler 5" (the default preset), used when no preset files are found.
 DronePreset builtinDefaultPreset();
 
 }  // namespace fpv

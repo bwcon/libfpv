@@ -56,12 +56,14 @@ static json findByName(const fs::path &dir, const std::string &name) {
     throw std::runtime_error("component \"" + name + "\" not found in " + pathToUtf8(dir));
 }
 
-// "SProp 5.1x3.7x3" -> 5.1 inch
-static float propDiameterFromName(const std::string &name) {
+// "SProp 5.1x3.7x3" -> 5.1 inch diameter, 3.7 inch pitch
+static bool propSizeFromName(const std::string &name, float &diameter, float &pitch) {
     std::smatch m;
-    static const std::regex re(R"((\d+(?:\.\d+)?)x\d)");
-    if (std::regex_search(name, m, re)) return std::stof(m[1].str());
-    return 5.0f;
+    static const std::regex re(R"((\d+(?:\.\d+)?)x(\d+(?:\.\d+)?))");
+    if (!std::regex_search(name, m, re)) return false;
+    diameter = std::stof(m[1].str());
+    pitch = std::stof(m[2].str());
+    return true;
 }
 
 DronePreset loadPresetFile(const std::string &quadJsonPath) {
@@ -86,6 +88,8 @@ DronePreset loadPresetFile(const std::string &quadJsonPath) {
     s.maxPropWashSpeed = num(q, "maxPropWashSpeed", 18.0f);
     s.propWashAngleOfAttack = num(q, "propWashAngleOfAttack", 0.5f);
     s.propWashFactor = num(q, "propWashFactor", 1.0f);
+    // open props ~0.6 (Faessler et al. 2018); ducts add their own ram drag
+    s.rotorDragFactor = num(q, "rotorDragFactor", 0.6f);
     const char *posKeys[4] = {"motor1Pos", "motor2Pos", "motor3Pos", "motor4Pos"};
     const char *dirKeys[4] = {"motor1Dir", "motor2Dir", "motor3Dir", "motor4Dir"};
     const float defDir[4] = {-1, 1, 1, -1};
@@ -139,7 +143,12 @@ DronePreset loadPresetFile(const std::string &quadJsonPath) {
     s.propHarmonic1Amp = num(pr, "propHarmonic1Amp", 0.1f);
     s.propHarmonic2Amp = num(pr, "propHarmonic2Amp", 0.3f);
     float propMass = num(pr, "mass", 0.0028f);
-    float diameterInch = num(pr, "diameterInch", propDiameterFromName(str(pr, "name")));
+    float nameDiameter = 5.0f, namePitch = 0.0f;
+    propSizeFromName(str(pr, "name"), nameDiameter, namePitch);
+    float diameterInch = num(pr, "diameterInch", nameDiameter);
+    // a known pitch selects libfpv's thrust model (rpm^2 and advance ratio)
+    s.propPitch = num(pr, "pitchInch", namePitch) * 0.0254f;
+    s.propDiameter = diameterInch * 0.0254f;
     p.collision.propRadius = diameterInch * 0.0254f * 0.5f;
     p.collision.propDurability = num(pr, "durability", 11.0f);
 
@@ -227,39 +236,44 @@ std::vector<DronePreset> loadPresetDirectory(const std::string &dir, std::vector
 }
 
 DronePreset builtinDefaultPreset() {
+    // assets/presets/quad/freestyler-5.json with its components
     DronePreset p;
-    p.name = "Default 5\" Freestyle";
+    p.name = "Freestyler (5\" 6S)";
     p.fileName = "builtin-default";
     StateInit &s = p.init;
-    s.frameDragArea = {0.0097f, 0.0081f, 0.0098f};
+    s.frameDragArea = {0.0095f, 0.0085f, 0.0095f};
     s.frameDragConstant = 1.2f;
-    s.quadInvInertia = {550.0f, -310.0f, 550.0f};
-    const Vec3F pos[4] = {{0.08f, 0.005f, -0.08f}, {0.08f, 0.005f, 0.08f}, {-0.08f, 0.005f, -0.08f},
-                          {-0.08f, 0.005f, 0.08f}};
+    s.rotorDragFactor = 0.6f;
+    s.quadInvInertia = {620.0f, -340.0f, 620.0f};
+    const Vec3F pos[4] = {{0.0795f, 0.005f, -0.0795f}, {0.0795f, 0.005f, 0.0795f}, {-0.0795f, 0.005f, -0.0795f},
+                          {-0.0795f, 0.005f, 0.0795f}};
     const float dir[4] = {-1, 1, 1, -1};
+    const float variance[4] = {0.985f, 0.995f, 0.99f, 1.0f};
     for (int i = 0; i < 4; i++) {
         s.quadMotorPos[i] = pos[i];
         s.quadMotorDir[i] = dir[i];
-        s.motorKV[i] = 1900.0f;
-        s.motorR[i] = 0.105f;
-        s.motorI0[i] = 1.2f;
+        s.motorKV[i] = 1950.0f * variance[i];
+        s.motorR[i] = 0.125f;
+        s.motorI0[i] = 1.4f;
     }
     s.motorRth = 7.0f;
-    s.motorCth = 19.0f;
+    s.motorCth = 18.0f;
     s.motorMaxT = 128.0f;
     s.propBladeCount = 3;
     s.propMaxRpm = 33000.0f;
-    s.propAFactor = 1.331e-8f;
-    s.propTorqueFactor = 0.0182f;
-    s.propInertia = 8.1e-6f;
-    s.propThrustFactor = {-3.62e-5f, -0.1275f, 18.8f};
+    s.propAFactor = 1.423e-8f;
+    s.propTorqueFactor = 0.0095f;
+    s.propInertia = 7.5e-6f;
+    s.propThrustFactor = {0.0f, 0.0f, 15.5f};
+    s.propPitch = 3.0f * 0.0254f;
+    s.propDiameter = 5.1f * 0.0254f;
     s.propHarmonic1Amp = 0.02f;
     s.propHarmonic2Amp = 0.04f;
-    s.maxVoltageSag = 1.05f;
+    s.maxVoltageSag = 3.0f;
     s.quadBatCellCount = 6;
-    s.quadBatCapacityCharged = 1130.0f;
+    s.quadBatCapacityCharged = 1100.0f;
     s.quadBatCapacity = 1100.0f;
-    s.quadMass = 0.11f + 4 * 0.038f + 4 * 0.004f + 0.211f;
+    s.quadMass = 0.21f + 4 * 0.035f + 4 * 0.0043f + 0.185f;
     s.ambientTemp = 25.0f;
     s.minPropWashSpeed = 1.0f;
     s.maxPropWashSpeed = 20.0f;
@@ -272,8 +286,13 @@ DronePreset builtinDefaultPreset() {
     p.frameHarmonic2Amp = 0.004f;
     p.frameHarmonic2Freq = 420.0f;
     p.motorImbalance = {8.0f, 5.0f, 4.0f};
-    p.maxGroundEffectDist = 0.333f;
-    p.soundMaxRpm = 28000.0f;
+    p.maxGroundEffectDist = 0.33f;
+    p.soundMaxRpm = 33000.0f;
+    p.vtx.digital = true;
+    p.vtx.noiseFloor = 0.01f;
+    p.vtx.noiseFactor = 1.0f;
+    p.vtx.rangeM = 2000.0f;
+    p.camera.aspect = 16.0f / 9.0f;
     p.collision.propRadius = 5.1f * 0.0254f * 0.5f;
     return p;
 }

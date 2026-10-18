@@ -1,0 +1,53 @@
+{
+    "version": 1,
+    "name": "BetaFPV Air65 II Freestyle",
+    "fileName": "betafpv-air65-ii",
+    "buildIn": true,
+    "description": "BetaFPV Air65 II Freestyle: 65 mm 1S brushless whoop with 0702 25000kV motors, Gemfan 1219S props, C03 camera and an analog VTX, on a LAVA II 1S 320mAh. 17.8 g dry, 26 g ready to fly, about 5:1 thrust to weight.",
+    "frameDragArea": {
+        "x": 0.0022,
+        "y": 0.0045,
+        "z": 0.0022
+    },
+    "frameDragConstant": 1.2,
+    "rotorDragFactor": 1.0,
+    "mass": 0.0111,
+    "invInertia": {
+        "x": 100000.0,
+        "y": 65000.0,
+        "z": 100000.0
+    },
+    "gyroBaseNoiseAmp": 0.015,
+    "gyrobaseNoiseFreq": 333.0,
+    "frameHarmonic1Amp": 0.0,
+    "frameHarmonic1Freq": 0.0,
+    "frameHarmonic2Amp": 0.0,
+    "frameHarmonic2Freq": 0.0,
+    "minPropWashSpeed": 1.0,
+    "maxPropWashSpeed": 8.0,
+    "propWashAngleOfAttack": 0.15,
+    "propWashFactor": 1.0,
+    "maxGroundEffectDist": 0.1,
+    "motor1Pos": { "x": 0.023, "y": 0.006, "z": -0.023 },
+    "motor2Pos": { "x": 0.023, "y": 0.006, "z": 0.023 },
+    "motor3Pos": { "x": -0.023, "y": 0.006, "z": -0.023 },
+    "motor4Pos": { "x": -0.023, "y": 0.006, "z": 0.023 },
+    "motorVariance": {
+        "x": 0.98,
+        "y": 0.99,
+        "z": 0.985,
+        "w": 1.0
+    },
+    "motor": "BetaFPV 0702 25000kV",
+    "propeller": "Gemfan 1219S 3-blade",
+    "battery": "BetaFPV LAVA II 1S 320mAh",
+    "vtx": "25mW analog vtx",
+    "soundMaxRpm": 48000.0,
+    "camera": {
+        "uptiltDeg": 20.0
+    },
+    "collision": {
+        "bodyRadius": 0.02,
+        "motorRadius": 0.017
+    }
+}

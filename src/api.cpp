@@ -442,7 +442,7 @@ FPV_API fpv_result fpv_global_init(const fpv_global_config *cfgIn) {
         int idx = findPreset(L.settings.preset);
         if (idx >= 0) L.presetIndex = idx;
     } else {
-        int idx = findPreset("propeater-5");
+        int idx = findPreset("freestyler-5");
         if (idx >= 0) L.presetIndex = idx;
     }
 
