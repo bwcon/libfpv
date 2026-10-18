@@ -827,7 +827,7 @@ void Overlay::tabControls() {
         ImGui::BulletText("W: climb, S: cut throttle, neither (or both): hover");
     else
         ImGui::BulletText("W / S: throttle up / down");
-    ImGui::BulletText("A / D: yaw");
+    ImGui::BulletText("A / D: yaw (grows while held)");
     ImGui::BulletText("Arrow keys: pitch and roll (self-level mode)");
     ImGui::BulletText("Enter: arm / disarm, B: beeper, T: turtle mode on / off");
     if (ImGui::Checkbox("Hover throttle (like the RC helicopter in GTA)", &L.settings.keyboardHover)) {
@@ -840,6 +840,10 @@ void Overlay::tabControls() {
         if (ImGui::IsItemDeactivatedAfterEdit()) saveSettings();
         ImGui::TextDisabled("How fast W raises the throttle from hover to full. The hover throttle is learned in flight.");
     }
+    if (ImGui::SliderFloat("A / D yaw exponent", &L.settings.keyboardYawExpo, 0.5f, 20.0f, "%.1f"))
+        L.input.setKeyboardYawExpo(L.settings.keyboardYawExpo);
+    if (ImGui::IsItemDeactivatedAfterEdit()) saveSettings();
+    ImGui::TextDisabled("How fast A / D raise the yaw from a slow turn to full.");
     sectionTitle("Gamepad (degraded fallback)");
     ImGui::BulletText("Left stick up: throttle (centre = idle), left stick sideways: yaw");
     ImGui::BulletText("Right stick: pitch and roll (self-level mode)");

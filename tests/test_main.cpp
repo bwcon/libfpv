@@ -465,6 +465,19 @@ void testKeyboardHover() {
         run(0.4f);
         press('S', false);
         CHECK(h.up(s.f.position) < y0 - 0.3f, "%s: S cuts the throttle, %.2f m below", name, y0 - h.up(s.f.position));
+        // A/D yaw starts slow and grows: the yaw rate after 0.1 s is well
+        // below the rate after 0.8 s
+        float yaw01 = 0, yaw08 = 0;
+        int steps = 0;
+        press('D', true);
+        run(0.8f, [&] {
+            float r = std::fabs(s.f.angular_velocity[1]);
+            if (++steps == 10) yaw01 = r;
+            yaw08 = r;
+        });
+        press('D', false);
+        std::printf("    %s: yaw rate %.0f deg/s after 0.1 s, %.0f deg/s after 0.8 s\n", name, yaw01 * 57.3f, yaw08 * 57.3f);
+        CHECK(yaw08 > 3 * yaw01 && yaw08 > 3.0f, "%s: D yaw grows while held (%.2f -> %.2f rad/s)", name, yaw01, yaw08);
         press(FPV_KEY_ENTER, true);
         run(0.1f);
         press(FPV_KEY_ENTER, false);

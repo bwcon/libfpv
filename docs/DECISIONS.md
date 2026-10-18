@@ -499,7 +499,9 @@ to 2 m/s, frozen while the throttle is pinned at 0 or 100%), so it adapts to
 each quad, its battery sag and payload without a thrust model; it is kept in
 memory per preset (first guess 0.25; the presets hover at 0.16..0.31). On
 the ground, upside down or in turtle mode no key means idle, so arming never
-lifts off by itself. The runner feeds the previous step's climb rate, tilt
+lifts off by itself. A/D yaw ramps the same way, always (not only with the
+hover throttle): 15% right after the press, times e^(expo * dt) up to full
+(`keyboardYawExpo`, default 4, so about half a second). The runner feeds the previous step's climb rate, tilt
 and ground contact to the input manager (`HoverFeedback`).
 
 ## Sensors

@@ -215,14 +215,16 @@ constexpr float kHoverSeed = 0.25f;    // first guess for a preset not flown yet
 constexpr float kHoverDamping = 3.0f;  // 1/s, wanted climb deceleration per m/s
 constexpr float kHoverLearn = 6.0f;    // 1/s^2, how fast the hover throttle adapts
 constexpr float kHoverLearnMaxClimb = 2.0f;  // m/s, limits the learning right after W/S
+constexpr float kYawStart = 0.15f;  // keyboard yaw right after A/D, grows to full
 
 void InputManager::setHoverFeedback(const HoverFeedback &f) {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_hover = f;
 }
 
-// Keyboard (degraded): A/D yaw, arrows pitch/roll, Enter arms, T toggles
-// turtle, ANGLE mode on. W/S move the throttle up and down, or, with the
+// Keyboard (degraded): A/D yaw (from a small rate, growing exponentially to
+// full while held), arrows pitch/roll, Enter arms, T toggles turtle, ANGLE
+// mode on. W/S move the throttle up and down, or, with the
 // hover throttle enabled, it works like an RC helicopter in GTA: no
 // key (or W and S together) hovers, S cuts the throttle, W raises it
 // exponentially up to full. The hover holds the climb rate at zero and
@@ -262,7 +264,16 @@ void InputManager::mapKeyboard(float dt, float out[kChannelCount]) {
         m_kbThrottle = 0;
     }
     out[kThrottle] = m_kbThrottle * 2.0f - 1.0f;
-    out[kYaw] = (k('D') ? 1.0f : 0.0f) - (k('A') ? 1.0f : 0.0f);
+    float yawDir = (k('D') ? 1.0f : 0.0f) - (k('A') ? 1.0f : 0.0f);
+    if (yawDir == 0) {
+        m_kbYaw = 0;
+    } else if (m_kbYaw * yawDir <= 0) {
+        m_kbYaw = yawDir * kYawStart;  // pressed, or reversed
+    } else {
+        float expo = std::max(0.0f, m_kbYawExpo.load());
+        m_kbYaw = yawDir * std::min(1.0f, std::fabs(m_kbYaw) * std::exp(expo * dt));
+    }
+    out[kYaw] = m_kbYaw;
     out[kRoll] = (k(FPV_KEY_RIGHT) ? 0.6f : 0.0f) - (k(FPV_KEY_LEFT) ? 0.6f : 0.0f);
     out[kPitch] = (k(FPV_KEY_UP) ? 0.6f : 0.0f) - (k(FPV_KEY_DOWN) ? 0.6f : 0.0f);
     bool armKey = k(FPV_KEY_ENTER);

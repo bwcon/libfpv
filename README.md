@@ -172,10 +172,11 @@ cmake -S . -B build/asan -DCMAKE_BUILD_TYPE=Debug \
 | F11 or Alt+Enter | Fullscreen |
 | Esc | Quit |
 
-Without a radio, use the keyboard: Enter arms, A/D is yaw and the arrow
-keys pitch and roll (self-level) and W/S move the throttle. With "Hover
-throttle" enabled in F8 > Controls it works like the RC helicopter in GTA
-instead: W climbs (the throttle rises exponentially to full, how fast is set
+Without a radio, use the keyboard: Enter arms, W/S move the throttle, A/D
+is yaw (starting slow and rising exponentially to full while held, how fast
+is set in F8 > Controls) and the arrow keys pitch and roll (self-level).
+With "Hover throttle" enabled in F8 > Controls the throttle works like the
+RC helicopter in GTA instead: W climbs (the throttle rises exponentially to full, how fast is set
 there too), S cuts it, and no key (or both) hovers at a throttle learned in
 flight for each drone. T toggles turtle mode: to
 flip a crashed drone back over, turn it on, arm, hold an arrow key until
