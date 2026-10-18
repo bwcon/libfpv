@@ -412,6 +412,68 @@ void testHover() {
     s.destroy();
 }
 
+// Keyboard hover throttle (opt-in setting): no key hovers at a throttle the
+// input learns in flight, W climbs, S cuts. Flown with keys only, on quads
+// whose hover throttle differs a lot.
+void testKeyboardHover() {
+    auto setHover = [](bool on) {
+        fpv_global_terminate();
+        std::ofstream(std::filesystem::path(g_dataDir) / "settings.json") << "{\"keyboardHover\": " << (on ? "true" : "false") << "}";
+        init(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    };
+    setHover(true);
+    Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    loadWorld(makeLevel(h, 200, 0));
+    fpv_input_clear_channels();
+    for (const char *name : {"freestyler-5", "betafpv-air65-ii", "270Supra"}) {
+        Session s;
+        float p[3];
+        h.pos(0, 0, 0, p);
+        s.spawn(p, name);
+        auto run = [&](float seconds, const std::function<void()> &each = nullptr) {
+            for (int i = 0, n = (int)std::lround(seconds / 0.01f); i < n; i++) {
+                fpv_step(0.01f);
+                fpv_drone_tick(s.drone, 0.01f, &s.f);
+                if (each) each();
+            }
+        };
+        auto press = [](int key, bool down) { fpv_input_key(key, down ? 1 : 0); };
+        run(0.5f);
+        press(FPV_KEY_ENTER, true);
+        run(0.1f);
+        press(FPV_KEY_ENTER, false);
+        run(1.0f);
+        CHECK(s.armed(), "%s: arms from the keyboard (%s)", name, s.f.arming_disable_text);
+        CHECK(s.f.flags & FPV_DRONE_ON_GROUND, "%s: no key on the ground does not lift off", name);
+        press('W', true);
+        run(0.7f);
+        press('W', false);
+        float top = h.up(s.f.position);
+        CHECK(top > 1.0f, "%s: W climbs, %.2f m after 0.7 s", name, top);
+        run(5.0f);  // settle and learn
+        float y0 = h.up(s.f.position), maxDev = 0;
+        run(3.0f, [&] { maxDev = std::max(maxDev, std::fabs(h.up(s.f.position) - y0)); });
+        std::printf("    %s: climbed to %.1f m, hovering at %.1f m, deviation over 3 s %.2f m\n", name, top, y0, maxDev);
+        CHECK(y0 > 1.0f, "%s: still in the air after releasing W, %.2f m", name, y0);
+        CHECK(maxDev < 0.3f, "%s: no key holds altitude within 0.3 m, deviation %.2f m", name, maxDev);
+        press('W', true);
+        press('S', true);
+        y0 = h.up(s.f.position);
+        run(1.0f);
+        CHECK(std::fabs(h.up(s.f.position) - y0) < 0.3f, "%s: W and S together hover, moved %.2f m", name, h.up(s.f.position) - y0);
+        press('W', false);
+        run(0.4f);
+        press('S', false);
+        CHECK(h.up(s.f.position) < y0 - 0.3f, "%s: S cuts the throttle, %.2f m below", name, y0 - h.up(s.f.position));
+        press(FPV_KEY_ENTER, true);
+        run(0.1f);
+        press(FPV_KEY_ENTER, false);
+        run(0.1f);
+        s.destroy();
+    }
+    setHover(false);
+}
+
 void testPunchOut() {
     Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
     loadWorld(makeLevel(h, 300, 0));
@@ -1560,6 +1622,7 @@ int main(int argc, char **argv) {
         {"eeprom_upgrade", testEepromUpgrade},
         {"second_drone_rejected", testSecondDroneRejected},
         {"hover", testHover},
+        {"keyboard_hover", testKeyboardHover},
         {"punch_out", testPunchOut},
         {"flight_realism", testFlightRealism},
         {"wall_crash", testWallCrash},

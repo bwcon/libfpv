@@ -11,6 +11,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace fpv {
@@ -94,6 +95,18 @@ public:
 
 std::unique_ptr<DeviceBackend> createSdlBackend();
 
+// What the keyboard's hover hold needs to know about the drone, taken from
+// the previous simulation step.
+struct HoverFeedback {
+    std::string preset;     // the learned hover throttle is kept per preset
+    float climbRate = 0;    // m/s, up positive
+    float upright = 1;      // cosine of the tilt from level (< 0 upside down)
+    bool airborne = false;  // a drone exists and nothing touches the ground
+};
+
+// Keyboard throttle exponent default (1/s), see mapKeyboard.
+constexpr float kDefaultKeyboardThrottleExpo = 3.0f;
+
 struct InputStatus {
     InputSource source = InputSource::None;
     std::string deviceName;
@@ -115,8 +128,14 @@ public:
     void clearHostChannels();
     void key(int key, bool down);
     void setKeyboardEnabled(bool enabled) { m_keyboardEnabled = enabled; }
+    // GTA-style hover throttle (see mapKeyboard); off = W/S move the throttle.
+    void setKeyboardHover(bool on) { m_kbHover = on; }
+    // How fast W raises the throttle: it grows by e^(expo * seconds held).
+    void setKeyboardThrottleExpo(float expo) { m_kbThrottleExpo = expo; }
 
     // --- simulation thread ----------------------------------------------
+    void setHoverFeedback(const HoverFeedback &f);
+
     // Polls devices and produces Betaflight channels. `radioLost` is true
     // when the active radio disappeared while it was the input source.
     void update(double wallTime, float dt, float out[kChannelCount], bool &radioLost);
@@ -152,9 +171,13 @@ private:
     std::array<bool, 512> m_keys{};
     std::atomic<bool> m_keyboardEnabled{true};
     std::atomic<bool> m_wizardActive{false};
+    std::atomic<bool> m_kbHover{false};
+    std::atomic<float> m_kbThrottleExpo{kDefaultKeyboardThrottleExpo};
 
     // fallback state
-    float m_kbThrottle = -1;
+    float m_kbThrottle = 0;  // 0..1
+    HoverFeedback m_hover;
+    std::unordered_map<std::string, float> m_hoverThrottle;  // learned, per preset
     bool m_kbArmed = false, m_kbArmKeyPrev = false;
     bool m_kbTurtle = false, m_kbTurtleKeyPrev = false;
     bool m_padArmed = false, m_padArmPrev = false;
