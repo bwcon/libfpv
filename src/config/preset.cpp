@@ -90,6 +90,8 @@ DronePreset loadPresetFile(const std::string &quadJsonPath) {
     s.propWashFactor = num(q, "propWashFactor", 1.0f);
     // open props ~0.6 (Faessler et al. 2018); ducts add their own ram drag
     s.rotorDragFactor = num(q, "rotorDragFactor", 0.6f);
+    s.ductThrustGain = num(q, "ductThrustGain", 0.0f);
+    s.electronicsPower = num(q, "electronicsPower", 5.0f);
     const char *posKeys[4] = {"motor1Pos", "motor2Pos", "motor3Pos", "motor4Pos"};
     const char *dirKeys[4] = {"motor1Dir", "motor2Dir", "motor3Dir", "motor4Dir"};
     const float defDir[4] = {-1, 1, 1, -1};
@@ -155,6 +157,7 @@ DronePreset loadPresetFile(const std::string &quadJsonPath) {
     // --- battery -------------------------------------------------------
     json b = findByName(root / "battery", str(q, "battery"));
     s.maxVoltageSag = num(b, "maxVoltageSag", 1.3f);
+    s.batInternalResistance = num(b, "internalResistance", 0.0f);
     s.quadBatCellCount = (uint8_t)num(b, "batCellCount", 4);
     s.quadBatCapacityCharged = num(b, "batCapacityCharged", 850.0f);
     s.quadBatCapacity = num(b, "batCapacity", 850.0f);

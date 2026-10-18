@@ -83,6 +83,9 @@ for v1.
   virtual GPS stayed silent for as long as the uptime before the reboot.
 * `0011-rotor-drag-advance-ratio-thrust.patch`: thrust ∝ rpm² that falls
   off with the advance ratio, and rotor drag (D25).
+* `0013-battery-draw-sag-duct-thrust.patch`: the motors' no-load current
+  is drawn from the pack, the electronics draw on top of the motors,
+  optional pack resistance for the sag, and duct thrust (D27).
 
 ## Simulation
 
@@ -297,11 +300,14 @@ quads of the class:
 
 | Measurement | Freestyler 5" (6S, 580 g) | Air65 II (1S, 26 g) |
 |---|---|---|
-| Hover throttle (stick) | 22 % | 30 % |
-| Drop 1 s after cutting throttle (free fall: 4.9 m) | 4.3 m | 3.5 m |
-| Climb speed 1 s into a full punch | 137 km/h | 58 km/h |
-| Top speed, level | 142 km/h | 62 km/h |
-| Coast from 40 to 20 km/h after levelling out | 1.3 s | 0.4 s |
+| Hover throttle (stick) | 22 % | 29 % |
+| Drop 1 s after cutting throttle (free fall: 4.9 m) | 4.2 m | 3.9 m |
+| Climb speed 0.25 s into a full punch | 70 km/h | 34 km/h |
+| Climb speed 1 s into a full punch | 137 km/h | 59 km/h |
+| Top speed, level | 141 km/h | 63 km/h |
+| Coast from 40 to 20 km/h after levelling out | 1.3 s | 0.6 s |
+
+(Air65 II figures after D27.)
 
 The Freestyler and Air65 II presets were built from real parts.
 Freestyler is the default and is a typical 5" freestyle quad: 2207
@@ -340,6 +346,60 @@ Still open:
 * Thrust gain in a fast descent.
 * Validation against a logged flight. NeuroBEM's raw Betaflight logs with
   motion-capture positions are the reference to fit next.
+
+### D27. Battery draw and whoop punch (patch `0013`)
+
+A pilot flew the Air65 II hard for 2:30 and still read 3.8 V at hover; the
+real quad would have landed by then. It also took too long to reach its
+top climb speed in a punch, where the real one gets there almost at once.
+
+Battery. The Air65 II drew 1.2 A at hover against about 3 A on a real
+65 mm 1S whoop; full throttle (14.5 A) was about right. Three causes:
+
+* The motor current came from the output torque only. The no-load
+  current `motorI0`, which the model already spends as friction torque,
+  was never drawn from the pack. It now is (the Freestyler's hover went
+  from 2.5 A to 4.1 A at 25 V, about 5.7 g/W against a real 4–5).
+* SimITL took 5 W as a floor for the whole quad, not on top of the
+  motors, so at hover it hid the whoop's motors entirely. The
+  electronics now draw on top of the motors: `electronicsPower` in the
+  quad JSON, 5 W by default (an HD air unit), 2 W on the Air65 II
+  (analog VTX at 25 mW, camera, AIO board).
+* Sag was `maxVoltageSag × throttle²`, 0.04 V at hover on 1S. A pack with
+  `internalResistance` (ohms, pack plus plug and leads) now sags by
+  `I × R × (1 + used²)`, the last factor being SimITL's growth as the
+  pack empties. The LAVA II uses 35 mΩ: 0.1 V at hover, 0.65 V on a punch.
+
+The 0702 now has `motorI0` 1.3 A and `motorR` 0.33 Ω (motor, ESC and
+wiring). A 0702's bench no-load current is lower; the extra lumps the
+iron and ESC losses that make a whoop far less efficient at hover than at
+full throttle, which a prop with power ∝ rpm³ cannot do on its own. R
+keeps full-throttle rpm, and so the top speed, where it was.
+
+`battery_endurance` flies a hard pack as a repeating 4 s cycle (1 s full
+throttle, 1 s at 60 %, 1 s at zero, 1 s hover) until the hover cell
+voltage drops below 3.5 V:
+
+| | Freestyler 5" | Air65 II |
+|---|---|---|
+| Hover draw | 4.1 A | 2.9 A |
+| Full-throttle draw | 77 A | 19 A |
+| Hard pack lands after | 124 s | 128 s (251 of 320 mAh) |
+
+Punch. BetaFPV's bench figures (32 g at 23000 kV and 35.4 g at 27000 kV
+on the 1219S) give about 34 g per motor and a 5.2:1 thrust to weight.
+Even without drag that needs 0.45 s to reach a 60 km/h climb, so the
+punch could not be made quicker by drag or motor response alone. Those
+figures are for a bare prop on a stand. A whoop's duct adds static thrust
+through the suction on its lip, and loses it as the quad climbs.
+`ductThrustGain` in the quad JSON is that extra static thrust (0.3 on the
+Air65 II, the low end of measured whoop ducts). It fades linearly to zero
+at half the zero-thrust inflow speed, about the top climb speed, so the
+top speed stays the same. From a steady hover, 90 % of the climb speed now
+comes after about 0.5 s instead of 0.7 s (34 km/h at 0.25 s instead of
+27), and hover throttle drops from 32 % to 29 %. `flight_realism` now lets
+the quad settle for 1 s after the teleport before it punches; the wobble
+from the teleport had been costing about 10 % of the thrust.
 
 ## Presentation
 

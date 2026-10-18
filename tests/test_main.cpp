@@ -513,6 +513,7 @@ struct RealismBand {
     float hoverMin, hoverMax;  // throttle stick %
     float chopDropMin;         // m fallen 1 s after cutting throttle from hover (free fall 4.9 m)
     float punchMin, punchMax;  // km/h climbing 1 s into a full-throttle punch from hover
+    float punch025Min;         // km/h climbing 0.25 s into it: how quickly the punch builds
     float topMin, topMax;      // km/h level, full throttle, 80 deg tilt
     float coastMax;            // s to slow from 40 to 20 km/h after levelling out at hover throttle
 };
@@ -521,8 +522,8 @@ void testFlightRealism() {
     Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
     loadWorld(makeLevel(h, 300, 0));
     const RealismBand bands[] = {
-        {"freestyler-5", 15, 30, 3.5f, 80, 170, 110, 180, 2.5f},
-        {"betafpv-air65-ii", 20, 45, 3.0f, 40, 110, 45, 85, 1.5f},
+        {"freestyler-5", 15, 30, 3.5f, 80, 170, 55, 110, 180, 2.5f},
+        {"betafpv-air65-ii", 20, 45, 3.0f, 40, 110, 31, 45, 85, 1.5f},
     };
     for (const RealismBand &b : bands) {
         float thr = findHoverThrottle(h, b.preset);
@@ -537,6 +538,7 @@ void testFlightRealism() {
         s.destroy();
 
         hoverFromRest(s, h, thr, b.preset);
+        s.run(1.0f);  // settle from the teleport: the punch starts from a steady hover
         y0 = h.up(s.f.position);
         s.rc.ch[2] = 1.0f;
         s.run(0.25f);
@@ -580,12 +582,74 @@ void testFlightRealism() {
         CHECK(hoverPct > b.hoverMin && hoverPct < b.hoverMax, "%s hover %.0f%%", b.preset, hoverPct);
         CHECK(drop > b.chopDropMin, "%s chop drop %.2f m", b.preset, drop);
         CHECK(punch1 > b.punchMin && punch1 < b.punchMax, "%s punch %.0f km/h", b.preset, punch1);
+        CHECK(punch025 > b.punch025Min, "%s punch builds to %.0f km/h in 0.25 s", b.preset, punch025);
         CHECK(top > b.topMin && top < b.topMax, "%s top speed %.0f km/h", b.preset, top);
         CHECK(half > 0, "%s slows down after levelling out", b.preset);
         CHECK(coast > 0 && coast < b.coastMax, "%s coasts from 40 to 20 km/h in %.2f s", b.preset, coast);
     }
 }
 
+
+// Battery draw and flight time against real quads of each class. A hard
+// freestyle pack is flown as a repeating 4 s cycle: 1 s full throttle, 1 s at
+// 60 %, 1 s at zero throttle, 1 s hovering, teleported back each cycle. The
+// pack is done when the cell voltage at the end of the hover second (what the
+// pilot reads on the OSD, averaged over its last half) drops below 3.5 V.
+struct BatteryBand {
+    const char *preset;
+    float hoverAmpMin, hoverAmpMax;  // A at hover, fresh pack
+    float fullAmpMin, fullAmpMax;    // A at full throttle, fresh pack
+    float packMin, packMax;          // s of hard flying
+};
+
+void testBatteryEndurance() {
+    Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    loadWorld(makeLevel(h, 300, 0));
+    const BatteryBand bands[] = {
+        {"freestyler-5", 3, 8, 60, 130, 100, 240},
+        {"betafpv-air65-ii", 2.5f, 4, 12, 22, 110, 165},
+    };
+    for (const BatteryBand &b : bands) {
+        float thr = findHoverThrottle(h, b.preset);
+        Session s;
+        hoverFromRest(s, h, thr, b.preset);
+        float start[3];
+        std::memcpy(start, s.f.position, sizeof start);
+        s.run(1.0f);
+        float hoverAmp = s.f.battery.current_amp, fresh = s.f.battery.cell_voltage;
+        s.rc.ch[2] = 1.0f;
+        s.run(1.0f);
+        float fullAmp = s.f.battery.current_amp;
+        float pack = -1, mahAtLand = 0, cellAt150 = 0;
+        for (float t = 0; t < 600 && (pack < 0 || t < 150); t += 4) {
+            float rot[4] = {0, 0, 0, 1};
+            fpv_drone_reset(s.drone, start, rot);
+            s.rc.ch[2] = 1.0f;
+            s.run(1.0f);
+            s.rc.ch[2] = 0.2f;
+            s.run(1.0f);
+            s.rc.ch[2] = -1.0f;
+            s.run(1.0f);
+            s.rc.ch[2] = thr;
+            s.run(0.5f);
+            float cell = 0;
+            s.run(0.5f, [&](float) { cell += s.f.battery.cell_voltage / 50; });
+            if (t + 4 <= 150) cellAt150 = cell;
+            if (pack < 0 && cell < 3.5f) {
+                pack = t + 4;
+                mahAtLand = s.f.battery.mah_drawn;
+            }
+        }
+        CHECK(s.armed(), "%s still armed after the pack", b.preset);
+        s.destroy();
+        std::printf("    %s: fresh %.2f V/cell at hover | hover %.1f A, full throttle %.1f A | hard flying: %.2f V/cell "
+                    "at hover after 150 s, lands (3.5 V) after %.0f s with %.0f mAh used\n",
+                    b.preset, fresh, hoverAmp, fullAmp, cellAt150, pack, mahAtLand);
+        CHECK(hoverAmp > b.hoverAmpMin && hoverAmp < b.hoverAmpMax, "%s hover draw %.1f A", b.preset, hoverAmp);
+        CHECK(fullAmp > b.fullAmpMin && fullAmp < b.fullAmpMax, "%s full-throttle draw %.1f A", b.preset, fullAmp);
+        CHECK(pack > b.packMin && pack < b.packMax, "%s pack lasts %.0f s of hard flying", b.preset, pack);
+    }
+}
 
 // Zero throttle with air mode: the I-term holds the attitude while the quad
 // falls, so a tilted drop from rest drifts only a few degrees. The Freestyler
@@ -1707,6 +1771,7 @@ int main(int argc, char **argv) {
         {"punch_out", testPunchOut},
         {"flight_realism", testFlightRealism},
         {"idle_attitude", testIdleAttitude},
+        {"battery_endurance", testBatteryEndurance},
         {"wall_crash", testWallCrash},
         {"thirty_mps_thin_wall", testThirtyMetersPerSecond},
         {"motor_burnout", testMotorBurnout},
