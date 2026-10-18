@@ -586,6 +586,52 @@ void testFlightRealism() {
     }
 }
 
+
+// Zero throttle with air mode: the I-term holds the attitude while the quad
+// falls, so a tilted drop from rest drifts only a few degrees. The Freestyler
+// runs without air mode first: switching quads must reboot Betaflight so the
+// Air65 II gets its own features (air mode on), not the previous quad's.
+void testIdleAttitude() {
+    Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    loadWorld(makeLevel(h, 300, 0));
+    float p[3];
+    h.pos(0, 250, 0, p);
+    Session s;
+    s.spawn(p, "freestyler-5");
+    char *o = nullptr;
+    fpv_import_betaflight_diff("feature -AIRMODE\n", &o);  // reboots: air mode off now
+    fpv_free(o);
+    s.destroy();
+    for (const char *name : {"betafpv-air65-ii", "freestyler-5"}) {
+        if (std::string(name) == "freestyler-5") {
+            s.spawn(p, name);
+            fpv_import_betaflight_diff("feature AIRMODE\n", &o);
+            fpv_free(o);
+            s.destroy();
+        }
+        s.spawn(p, name);
+        s.arm();
+        s.rc.ch[2] = 0.0f;  // raise the throttle once: air mode activates
+        s.run(0.3f);
+        std::printf("    %s drift 3 s after a zero-throttle drop:", name);
+        for (float deg : {45.0f, 90.0f, 135.0f}) {
+            float half = deg / 57.3f / 2;
+            float q[4] = {std::sin(half), 0, 0, std::cos(half)};
+            fpv_drone_reset(s.drone, p, q);
+            s.rc.ch[2] = -1.0f;
+            s.run(3.0f);
+            const float *r = s.f.rotation;
+            float upY = 1 - 2 * (r[0] * r[0] + r[2] * r[2]);
+            float drift = std::fabs(std::acos(std::max(-1.0f, std::min(1.0f, upY))) * 57.3f - deg);
+            std::printf(" %.0f deg -> %.1f", deg, drift);
+            CHECK(drift < 10.0f, "%s holds %.0f deg at zero throttle, drifted %.1f deg", name, deg, drift);
+        }
+        std::printf("\n");
+        CHECK(s.armed(), "%s still armed", name);
+        s.destroy();
+    }
+}
+
 // Stick directions in every host convention: pitch forward flies forward,
 // roll right flies right, yaw right turns clockwise seen from above.
 void testAxes(fpv_coords_preset_id preset, float upm, const char *name) {
@@ -1638,6 +1684,7 @@ int main(int argc, char **argv) {
         {"keyboard_hover", testKeyboardHover},
         {"punch_out", testPunchOut},
         {"flight_realism", testFlightRealism},
+        {"idle_attitude", testIdleAttitude},
         {"wall_crash", testWallCrash},
         {"thirty_mps_thin_wall", testThirtyMetersPerSecond},
         {"motor_burnout", testMotorBurnout},

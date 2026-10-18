@@ -375,6 +375,17 @@ int bfb_gps_running(void)
     return featureIsEnabled(FEATURE_GPS) && info.isEnabled;
 }
 
+int bfb_features_pending(void)
+{
+    for (int bit = 0; bit < 32; bit++) {
+        const uint32_t mask = 1u << bit;
+        if (!featureIsEnabled(mask) != !featureIsConfigured(mask)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 void bfb_gps_update(float east, float north, float up, float vEast, float vNorth, float vUp)
 {
     const float ground = sqrtf(vEast * vEast + vNorth * vNorth);

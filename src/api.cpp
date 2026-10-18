@@ -172,9 +172,17 @@ static void applyFirstRunConfig(const DronePreset &p) {
 static std::string g_activeEeprom;
 static void warmUpBetaflight();
 
+// Features (the simulated GPS of D22, air mode in a preset tune) and filters
+// only take effect at boot.
+static void rebootIfNeeded(bool always) {
+    if (always || !bfb_gps_running() || bfb_features_pending()) bfb_reboot();
+}
+
 // Makes sure libfpv's essentials survived edits made in the Configurator
-// (another motor protocol would leave the motors stopped). Simulation thread.
-static void ensureEssentials() {
+// (another motor protocol would leave the motors stopped), then reboots
+// Betaflight if it has to, or always with `reboot` (a quad's EEPROM was just
+// switched to or created). Simulation thread.
+static void ensureEssentials(bool reboot) {
     char *o = nullptr;
     bfb_cli_run("get motor_pwm_protocol", &o);
     std::string out = o ? o : "";
@@ -191,14 +199,16 @@ static void ensureEssentials() {
         bfb_cli_run("feature GPS\nsave noreboot", &o);
         bfb_free(o);
     }
-    if (!bfb_gps_running()) bfb_reboot();
 
     std::string done;
     readTextFile(upgradeMarker(g_activeEeprom), done);
     size_t next = 0;  // first upgrade not applied yet
     for (size_t i = 0; i < std::size(kEepromUpgrades); i++)
         if (done == kEepromUpgrades[i]) next = i + 1;
-    if (next == std::size(kEepromUpgrades)) return;
+    if (next == std::size(kEepromUpgrades)) {
+        rebootIfNeeded(reboot);
+        return;
+    }
     bfb_cli_run("aux", &o);
     std::string aux = o ? o : "";
     bfb_free(o);
@@ -233,6 +243,7 @@ static void ensureEssentials() {
         bfb_free(o);
     }
     writeFileAtomic(upgradeMarker(g_activeEeprom), kEepromUpgrade);
+    rebootIfNeeded(reboot);
 }
 
 // Activates the preset's EEPROM (one virtual flight controller per quad).
@@ -243,7 +254,10 @@ static void activateEepromFor(const DronePreset &p) {
     g_activeEeprom = path;
     int existed = bfb_switch_eeprom(path.c_str());
     if (existed == 0) applyFirstRunConfig(p);
-    ensureEssentials();
+    // reading an EEPROM only reloads the PID and rate profiles: gyro filters,
+    // the mixer and features are set up at boot and would stay the previous
+    // quad's
+    ensureEssentials(true);
     warmUpBetaflight();  // reading an EEPROM suspends RX briefly
 }
 
@@ -469,7 +483,7 @@ FPV_API fpv_result fpv_global_init(const fpv_global_config *cfgIn) {
         L.flight.initBetaflight(eeprom, preset);
         g_activeEeprom = eeprom;
         if (fresh) applyFirstRunConfig(preset);
-        ensureEssentials();
+        ensureEssentials(fresh);  // the first-run tune is saved without a reboot
         L.flight.applyPreset(preset);
         warmUpBetaflight();
     } else {
@@ -821,7 +835,9 @@ FPV_API fpv_result fpv_import_betaflight_diff(const char *diff, char **outReport
     std::string cliOut;
     int rc = runCli(imp.script, cliOut);
     if (rc == BFB_CLI_BUSY) return setError(FPV_ERROR_BUSY, "the Betaflight Configurator is using the CLI");
-    bool reboot = L.runner.call([] { return bfb_reboot_required() != 0; });
+    // features (air mode) only take effect at boot, and Betaflight does not
+    // flag them as needing one
+    bool reboot = L.runner.call([] { return bfb_reboot_required() != 0 || bfb_features_pending() != 0; });
     if (reboot) {
         L.runner.call([] {
             bfb_reboot();

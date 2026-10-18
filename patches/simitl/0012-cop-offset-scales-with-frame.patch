@@ -1,0 +1,27 @@
+diff --git a/src/sim/physics.cpp b/src/sim/physics.cpp
+--- a/src/sim/physics.cpp
++++ b/src/sim/physics.cpp
+@@ -279,6 +279,10 @@
+   // geometric pitch speed. Descending (vel < 0) keeps static thrust.
+   constexpr float ZERO_THRUST_PITCH_RATIO = 0.9f;
+ 
++  // libfpv: height of the frame's centre of pressure over the centre of
++  // mass, as a share of the centre-to-motor distance.
++  constexpr float COP_OFFSET_ARM_RATIO = 0.1f;
++
+   static float inflowThrustFactor(float pitch, float rpm, float vel) {
+     if (vel <= 0.0f) return 1.0f;
+     const float zeroThrustVel = ZERO_THRUST_PITCH_RATIO * pitch * std::max(rpm, 0.0f) / 60.0f;
+@@ -842,7 +846,11 @@
+     // 4. Center of Pressure (CoP) Offset
+     // If the drone battery is mounted on the bottom/top, the drag center is NOT the center of mass.
+     // This naturally creates a pendulum "shake".
+-    vec3 cop_offset = {0.0f, 0.02f, 0.0f}; // e.g., 2cm above the Center of Mass
++    // libfpv: SimITL's fixed 2 cm is a 5" number (a tenth to a fifth of the
++    // arm); scale it with the frame so a 65 mm whoop is not pushed by the
++    // lever of a 5". The torque grows with v^2 and drag area while a small
++    // quad's motors give little authority at idle.
++    vec3 cop_offset = {0.0f, COP_OFFSET_ARM_RATIO * motorDist, 0.0f};
+     vec3 local_drag_force = local_dir * (-0.5f * AIR_RHO * vel2 * areaLinear * mSimState->stateInit.frameDragConstant);
+     vec3 cop_torque = cross(cop_offset, local_drag_force);
+ 
