@@ -308,9 +308,31 @@ Freestyler is the default and is a typical 5" freestyle quad: 2207
 1950 kV motors, 5.1x3x3 props, a 6S 1100 pack and an HD air unit. The
 Air65 II uses BetaFPV's published figures: 17.8 g dry, 0702 25000 kV
 motors, Gemfan 1219S props, a LAVA II 1S 320 mAh LiHV pack (8.2 g) and
-about 34 g of thrust per motor. Its `.diff.txt` carries BetaFPV's factory
-filters, PIDs, rates and `vbat_max_cell_voltage = 440`; without that,
-Betaflight reports a full LiHV cell as "NOT PRESENT".
+about 34 g of thrust per motor. Its `.diff.txt` carries the filters, PIDs and
+rates from a pilot's own flying Air65 II (Betaflight 2026.6), plus
+`vbat_max_cell_voltage = 440`; without that, Betaflight reports a full LiHV
+cell as "NOT PRESENT". Only the tune is taken from that diff. The quad keeps
+libfpv's defaults: air mode on, libfpv's OSD and switches.
+
+Zero throttle (patch `0012`). Pilots found the Air65 II rolling hard toward
+belly-first as soon as they chopped the throttle. SimITL puts the frame's
+centre of pressure a fixed 2 cm above the centre of mass. On a 5" that is
+about a fifth of the arm. On a 65 mm whoop it is most of the quad, and the
+torque from it at 30 km/h was larger than all four motors at full throttle
+could answer. The offset is now 0.1 × the centre-to-motor distance (11 mm
+on the Freestyler, 3 mm on the Air65 II). `idle_attitude` drops both from
+rest at 45°, 90° and 135° with zero throttle. With air mode, both hold
+within about 4° over 3 s. Without air mode, Betaflight resets the I-term at
+zero throttle and halves the PID authority, and both quads still fall
+belly-first, as real quads do.
+
+Switching quads reboots Betaflight. Reading a quad's EEPROM only reloads
+its PID and rate profiles. Features, gyro filters and the dynamic notch are
+set up at boot. Before this change the next quad kept the previous quad's
+features (air mode included) and filters until a reboot. The same applied
+to a fresh quad's first-run tune, which is saved without a reboot.
+`fpv_import_betaflight_diff` also reboots when a feature changed, because
+Betaflight does not flag feature changes as needing a reboot.
 
 Still open:
 

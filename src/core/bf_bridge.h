@@ -77,6 +77,9 @@ int bfb_settling(void);
 int bfb_gps_configured(void);
 /* Betaflight booted with the GPS feature on (features apply at boot). */
 int bfb_gps_running(void);
+/* The active EEPROM turns a feature on or off that the running Betaflight
+ * does not have that way yet (features apply at boot). */
+int bfb_features_pending(void);
 /* Feeds Betaflight's virtual GPS: position (metres) and velocity (m/s) in
  * a local east/north/up frame. */
 void bfb_gps_update(float east, float north, float up, float vEast, float vNorth, float vUp);
