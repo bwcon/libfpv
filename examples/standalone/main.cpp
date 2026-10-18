@@ -540,6 +540,9 @@ int main(int argc, char **argv) {
 
     // The game's own SDL (video + audio). libfpv uses a separate, hidden SDL
     // instance for radios; the game does not initialise joysticks for it.
+    // Text input is on for the overlay's text fields; without this, holding
+    // W/S on macOS opens the accent picker instead of repeating the key.
+    SDL_SetHint(SDL_HINT_MAC_PRESS_AND_HOLD, "0");
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
@@ -936,7 +939,10 @@ int main(int argc, char **argv) {
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
         // OSD (FPV view only) and overlay, in window coordinates
-        fpv_overlay_set_display((float)ww, (float)wh, (float)fbw / (float)std::max(1, ww));
+        // the overlay works in window coordinates, so its scale is the content
+        // scale only (Windows 150% = 1.5), not the Retina pixel density
+        float uiScale = SDL_GetWindowDisplayScale(win) / std::max(1.0f, SDL_GetWindowPixelDensity(win));
+        fpv_overlay_set_display((float)ww, (float)wh, uiScale > 0 ? uiScale : 1.0f);
         if (fpv) fpv_gl3_render(&ui, fpv_osd_draw_data(&frame, (float)ww, (float)wh, FPV_OSD_STYLE_ANALOG), fbw, fbh);
         fpv_gl3_render(&ui, fpv_overlay_render(dt), fbw, fbh);
 
