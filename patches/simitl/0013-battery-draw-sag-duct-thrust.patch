@@ -1,0 +1,103 @@
+diff --git a/src/network/packets.h b/src/network/packets.h
+--- a/src/network/packets.h
++++ b/src/network/packets.h
+@@ -62,6 +62,13 @@
+   // fraction of the momentum drag of the air each disc pulls through at
+   // hover. 0 = none.
+   float rotorDragFactor = 0.0f;
++  // libfpv: extra static thrust from a whoop's ducts, as a share of the bare
++  // prop's (0.3 = 30 % more). Fades out as the quad climbs along its thrust
++  // axis. 0 = open props.
++  float ductThrustGain = 0.0f;
++  // libfpv: watts drawn by everything but the motors (FC, receiver, camera,
++  // VTX), on top of the motors.
++  float electronicsPower = 5.0f;
+ 
+   Vec3F frameDragArea {};
+   float frameDragConstant = 0.0f;
+@@ -69,6 +76,10 @@
+   float quadMass = 0.0f;
+   Vec3F quadInvInertia {};
+   float maxVoltageSag = 0.0f;
++  // libfpv: resistance of the pack, its plug and leads in ohms. With it the
++  // sag follows the current drawn (and grows as the pack empties) instead of
++  // maxVoltageSag * throttle^2. 0 keeps SimITL's sag.
++  float batInternalResistance = 0.0f;
+   uint8_t quadBatCellCount = 1;
+   //charged up capacity, can be lower or higher than quadBatCapacity
+   float quadBatCapacityCharged  = 0.0f;
+diff --git a/src/sim/physics.cpp b/src/sim/physics.cpp
+--- a/src/sim/physics.cpp
++++ b/src/sim/physics.cpp
+@@ -290,7 +290,20 @@
+     const float j = vel / zeroThrustVel;
+     return std::max(0.0f, 1.0f - j * j);
+   }
++
++  // libfpv: a duct adds thrust through the suction on its lip, which only
++  // exists while the prop pulls in slow air around it. It is gone by about
++  // half the zero-thrust inflow; past that the bare prop's curve applies.
++  constexpr float DUCT_FADE_ZERO_THRUST_RATIO = 0.5f;
+ 
++  static float ductThrustFactor(float gain, float pitch, float rpm, float vel) {
++    if (gain <= 0.0f || pitch <= 0.0f) return 1.0f;
++    if (vel <= 0.0f) return 1.0f + gain;
++    const float fadeVel = DUCT_FADE_ZERO_THRUST_RATIO * ZERO_THRUST_PITCH_RATIO * pitch * std::max(rpm, 0.0f) / 60.0f;
++    if (fadeVel <= 0.01f) return 1.0f;
++    return 1.0f + gain * std::max(0.0f, 1.0f - vel / fadeVel);
++  }
++
+   // Shaft power drops less than thrust as the prop unloads: at zero thrust a
+   // small prop still needs about a quarter of its static torque.
+   static float inflowTorqueFactor(float pitch, float rpm, float vel) {
+@@ -349,6 +362,12 @@
+   
+     float vSag = mSimState->stateInit.maxVoltageSag * powerFactor2 + // power dependency
+                  (mSimState->stateInit.maxVoltageSag * chargeFactorInv * chargeFactorInv * powerFactor2); // charge state dependency
++    if (mSimState->stateInit.batInternalResistance > 0.0f) {
++      // libfpv: I * R on the last step's current, the resistance rising as
++      // the pack empties the way SimITL's charge term does
++      vSag = mSimState->batteryState.amperage * mSimState->stateInit.batInternalResistance *
++             (1.0f + chargeFactorInv * chargeFactorInv);
++    }
+ 
+     // actual vbat - sag - fuluctuations
+     mSimState->batteryState.batVoltageSag = mSimState->batteryState.batVoltage - vSag - std::abs(randf() * 0.01f);
+@@ -364,9 +383,11 @@
+         batteryCurrent += phaseCurrent * duty;
+     }
+ 
+-    // minimum consumption of ~ 5W + random fluctuation of 0.5W
+-    const float mAMin = (5.0 + randf() * 0.25) / std::max(mSimState->batteryState.batVoltageSag, 0.01f);
+-    batteryCurrent = std::max(batteryCurrent, mAMin );
++    // libfpv: the electronics draw on top of the motors (SimITL took a flat
++    // 5 W as a floor, which hid the motors' draw at hover on a 1S whoop),
++    // with a 5 % fluctuation
++    const float electronicsPower = mSimState->stateInit.electronicsPower * (1.0f + randf() * 0.05f);
++    batteryCurrent += electronicsPower / std::max(mSimState->batteryState.batVoltageSag, 0.01f);
+ 
+ 
+     // 1W = 1V * 1A
+@@ -640,7 +661,11 @@
+       // Add this right before `motorTorque()` is called
+       float dynamic_I0 = I0 + (state.propDamage[i] * 2.0f); // 2 extra amps of friction if 100% damaged
+       const auto mTorque = motorTorque(volts, rpm, kV, R, dynamic_I0) * motorDamageEffect;
++      // libfpv: the no-load current (I0) is drawn on top of the current that
++      // makes the output torque
+       auto current       = motorCurrent(mTorque, kV);
++      if (rpm > 1.0f) current += dynamic_I0;
++      else if (rpm < -1.0f) current -= dynamic_I0;
+ 
+       // The aerodynamic drag (torque) drops much less than thrust when a prop is damaged.
+       float torqueHealthFactor = 1.0f - (state.propDamage[i] * 0.5f);   
+@@ -659,7 +684,9 @@
+       }
+ 
+       float currentAbs = std::abs(current);
+-      float thrust = propThrust(rpm, vel) * propHealthFactor * groundEffect * propwashEffect * propDamageEffect;
++      float thrust = propThrust(rpm, vel) *
++                     ductThrustFactor(mSimState->stateInit.ductThrustGain, mSimState->stateInit.propPitch, rpm, vel) *
++                     propHealthFactor * groundEffect * propwashEffect * propDamageEffect;
+       // a prop spun backwards pushes the other way, with a less efficient
+       // (inverted) airfoil
+       const float spinDir = state.motorsReversed ? -1.0f : 1.0f;
