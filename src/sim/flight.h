@@ -112,6 +112,7 @@ private:
     };
 
     void buildShape();
+    float shapeBottom() const;
     void stopMotors();
     void syncPropDirection();
     void resolveContacts(float dt);
