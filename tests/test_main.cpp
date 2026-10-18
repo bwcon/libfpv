@@ -859,6 +859,28 @@ void testPresets() {
 
 // Betaflight sets its low-voltage thresholds when it first sees a battery;
 // a full 4S pack after a 6S quad must not read as critical.
+// Switching quads on the ground: a bigger quad must not start inside the
+// ground (the penetration push slid it away, then it fell through).
+void testPresetSwitchRest() {
+    float p[3] = {0, 0, 0};
+    for (const char *to : {"freestyler-5", "propeater-5"}) {
+        Session s;
+        s.spawn(p, "betafpv-air65-ii");
+        s.run(1.0f);
+        for (const char *name : {to, "betafpv-air65-ii"}) {
+            float before[3];
+            std::memcpy(before, s.f.position, sizeof before);
+            CHECK(fpv_drone_set_preset(s.drone, name) == FPV_OK, "set preset %s: %s", name, fpv_last_error());
+            s.run(2.0f);
+            float dx = s.f.position[0] - before[0], dz = s.f.position[2] - before[2];
+            float slide = std::sqrt(dx * dx + dz * dz);
+            CHECK(slide < 0.05f, "%s stays put after the switch, slid %.2f m", name, slide);
+            CHECK(s.f.position[1] > -0.01f, "%s stays on the ground, y %.3f", name, s.f.position[1]);
+        }
+        s.destroy();
+    }
+}
+
 void testPresetSwitchBattery() {
     auto batteryStatus = []() {
         char *out = nullptr;
@@ -1690,6 +1712,7 @@ int main(int argc, char **argv) {
         {"motor_burnout", testMotorBurnout},
         {"presets", testPresets},
         {"preset_switch_battery", testPresetSwitchBattery},
+        {"preset_switch_rest", testPresetSwitchRest},
         {"cli", testCli},
         {"diff_import", [&] { testDiffImport(corpus); }},
         {"axes_y_up_right", [] { testAxes(FPV_COORDS_Y_UP_RIGHT_HANDED, 1, "Y-up right-handed"); }},

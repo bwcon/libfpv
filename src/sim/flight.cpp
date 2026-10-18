@@ -107,6 +107,14 @@ float Flight::restHeight() const {
     return h;
 }
 
+// World height of the collision shape's lowest point at the current pose.
+float Flight::shapeBottom() const {
+    Mat3 rot = toMat3(m_rot);
+    float y = m_pos.y;
+    for (const Sphere &s : m_shape) y = std::min(y, m_pos.y + (rot * s.local).y - s.radius);
+    return y;
+}
+
 void Flight::applyPreset(const DronePreset &presetIn) {
 #if defined(LIBFPV_KAMIKAZE)
     m_basePreset = presetIn;
@@ -114,6 +122,10 @@ void Flight::applyPreset(const DronePreset &presetIn) {
 #else
     const DronePreset &preset = presetIn;
 #endif
+    // a drone switched in place keeps its lowest point where it was: a
+    // bigger quad would otherwise start inside the ground, and the
+    // penetration push would shove it sideways until it fell through
+    float bottom = m_shape.empty() ? 0 : shapeBottom();
     m_preset = preset;
     StateInit init = preset.init;
     std::memset(init.eepromName, 0, sizeof(init.eepromName));
@@ -122,7 +134,9 @@ void Flight::applyPreset(const DronePreset &presetIn) {
     // battery: without this a 6S quad's thresholds stay in effect on a 4S
     // quad and it warns LAND NOW at full charge
     if (m_bfReady) bfb_battery_reset();
+    bool hadShape = !m_shape.empty();
     buildShape();
+    if (m_active && hadShape) m_pos.y += bottom - shapeBottom();
     m_yawReversed = -1;
     syncPropDirection();
     for (int i = 0; i < 4; i++) {
@@ -245,7 +259,9 @@ void Flight::refreshPayload() {
     StateInit &live = SimITL::Sim::getInstance().mSimState.stateInit;
     live.quadMass = m_preset.init.quadMass;
     live.quadInvInertia = m_preset.init.quadInvInertia;
+    float bottom = shapeBottom();
     buildShape();
+    if (m_active) m_pos.y += bottom - shapeBottom();  // a warhead hanging lower lifts it
 }
 
 bool Flight::detonate(bool evenIfSafe) {
