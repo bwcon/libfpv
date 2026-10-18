@@ -757,6 +757,9 @@ FPV_API int fpv_overlay_wants_input(void);
  * in the overlay; the host does not need to handle it. */
 FPV_API void fpv_overlay_set_toggle_key(int key);
 
+/* width/height in the coordinates mouse positions use (window points), and
+ * ui_scale the OS content scale in those coordinates (1.0 on a Retina Mac,
+ * 1.5 at Windows 150%), not the framebuffer/window pixel ratio. */
 FPV_API void fpv_overlay_set_display(float width, float height, float ui_scale);
 FPV_API void fpv_overlay_mouse_move(float x, float y);
 FPV_API void fpv_overlay_mouse_button(int button, int down);   /* 0 left, 1 right, 2 middle */
