@@ -485,6 +485,23 @@ Upgrades are now an ordered list and the file holds the last one applied
 gets only the new switches, and turtle is never re-added after the player
 removed it. A `diff all` import may now move modes to AUX2..AUX6.
 
+### D26. Keyboard hover throttle
+
+Opt-in (F8 > Controls, `keyboardHover` in settings.json), because it only
+applies to the keyboard fallback and should never surprise a radio pilot.
+The throttle works like the RC helicopter in GTA: no key (or W and S
+together) hovers, S cuts the throttle, W multiplies it by e^(expo * dt) from
+at least the hover up to 100% (`keyboardThrottleExpo`, 1/s, default 3).
+The hover is a climb-rate hold: throttle = hover / sqrt(cos tilt) *
+(1 - 3 * climb / 2g), since thrust grows about with the throttle squared.
+`hover` is learned while holding (an integrator on the climb rate, clamped
+to 2 m/s, frozen while the throttle is pinned at 0 or 100%), so it adapts to
+each quad, its battery sag and payload without a thrust model; it is kept in
+memory per preset (first guess 0.25; the presets hover at 0.16..0.31). On
+the ground, upside down or in turtle mode no key means idle, so arming never
+lifts off by itself. The runner feeds the previous step's climb rate, tilt
+and ground contact to the input manager (`HoverFeedback`).
+
 ## Sensors
 
 ### D22. GPS and barometer

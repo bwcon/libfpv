@@ -210,22 +210,65 @@ void InputManager::mapGamepad(const RawDevice &d, float dt, float out[kChannelCo
 #endif
 }
 
-// Keyboard (degraded): W/S throttle, A/D yaw, arrows pitch/roll, Enter arms,
-// T toggles turtle, ANGLE mode on.
+// Keyboard hover hold (see mapKeyboard).
+constexpr float kHoverSeed = 0.25f;    // first guess for a preset not flown yet (0.16..0.31)
+constexpr float kHoverDamping = 3.0f;  // 1/s, wanted climb deceleration per m/s
+constexpr float kHoverLearn = 6.0f;    // 1/s^2, how fast the hover throttle adapts
+constexpr float kHoverLearnMaxClimb = 2.0f;  // m/s, limits the learning right after W/S
+
+void InputManager::setHoverFeedback(const HoverFeedback &f) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_hover = f;
+}
+
+// Keyboard (degraded): A/D yaw, arrows pitch/roll, Enter arms, T toggles
+// turtle, ANGLE mode on. W/S move the throttle up and down, or, with the
+// hover throttle enabled, it works like an RC helicopter in GTA: no
+// key (or W and S together) hovers, S cuts the throttle, W raises it
+// exponentially up to full. The hover holds the climb rate at zero and
+// learns, per preset, the throttle that does it, so it follows the quad,
+// its battery sag and payload. On the ground, upside down or in turtle mode
+// no key means idle, so arming never lifts off by itself.
 void InputManager::mapKeyboard(float dt, float out[kChannelCount]) {
     auto k = [&](int code) { return m_keys[code]; };
-    float thrRate = 1.2f;
-    if (k('W')) m_kbThrottle += thrRate * dt;
-    if (k('S')) m_kbThrottle -= thrRate * dt;
-    m_kbThrottle = std::clamp(m_kbThrottle, -1.0f, 1.0f);
-    out[kThrottle] = m_kbThrottle;
+    constexpr float g = 9.81f;
+    float &hover = m_hoverThrottle.try_emplace(m_hover.preset, kHoverSeed).first->second;
+    bool hovering = m_kbArmed && !m_kbTurtle && m_hover.airborne && m_hover.upright > 0.3f;
+    bool up = k('W'), down = k('S');
+    if (!m_kbHover) {
+        const float rate = 0.6f;  // per second
+        if (up) m_kbThrottle += rate * dt;
+        if (down) m_kbThrottle -= rate * dt;
+        m_kbThrottle = std::clamp(m_kbThrottle, 0.0f, 1.0f);
+    } else if (up && !down) {
+        // from at least the hover, so W climbs at once (also off the ground)
+        float expo = std::max(0.0f, m_kbThrottleExpo.load());
+        m_kbThrottle = std::min(1.0f, std::max(m_kbThrottle, hover) * std::exp(expo * dt));
+    } else if (down && !up) {
+        m_kbThrottle = 0;
+    } else if (hovering) {
+        // Thrust grows about with the throttle squared, so a relative
+        // throttle change x changes the acceleration by about 2 g x.
+        float climb = m_hover.climbRate;
+        float tilt = 1.0f / std::sqrt(std::max(m_hover.upright, 0.5f));
+        float thr = hover * tilt * (1.0f - kHoverDamping * climb / (2 * g));
+        // no learning while the throttle is pinned (coasting up after W)
+        if (thr > 0.0f && thr < 1.0f) {
+            float learn = std::clamp(climb, -kHoverLearnMaxClimb, kHoverLearnMaxClimb);
+            hover = std::clamp(hover * (1.0f - kHoverLearn * learn / (2 * g) * dt), 0.05f, 0.95f);
+        }
+        m_kbThrottle = std::clamp(thr, 0.0f, 1.0f);
+    } else {
+        m_kbThrottle = 0;
+    }
+    out[kThrottle] = m_kbThrottle * 2.0f - 1.0f;
     out[kYaw] = (k('D') ? 1.0f : 0.0f) - (k('A') ? 1.0f : 0.0f);
     out[kRoll] = (k(FPV_KEY_RIGHT) ? 0.6f : 0.0f) - (k(FPV_KEY_LEFT) ? 0.6f : 0.0f);
     out[kPitch] = (k(FPV_KEY_UP) ? 0.6f : 0.0f) - (k(FPV_KEY_DOWN) ? 0.6f : 0.0f);
     bool armKey = k(FPV_KEY_ENTER);
     if (armKey && !m_kbArmKeyPrev) {
         m_kbArmed = !m_kbArmed;
-        if (m_kbArmed) m_kbThrottle = -1.0f;
+        if (m_kbArmed) m_kbThrottle = 0;
     }
     m_kbArmKeyPrev = armKey;
     bool turtleKey = k('T');

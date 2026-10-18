@@ -141,6 +141,15 @@ void Runner::stepOnce(double wall) {
     float dt = 1.0f / m_cfg.simRateHz;
     float ch[kChannelCount];
     bool radioLost = false;
+    {
+        const FlightSnapshot &s = m_flight.snapshot();
+        HoverFeedback hf;
+        hf.preset = m_flight.preset().fileName;
+        hf.climbRate = s.vel.y;
+        hf.upright = rotate(s.rot, {0, 1, 0}).y;
+        hf.airborne = s.active && !s.onGround;
+        m_input.setHoverFeedback(hf);
+    }
     m_input.update(wall, dt, ch, radioLost);
     auto t0 = std::chrono::steady_clock::now();
     m_flight.step(dt, ch, radioLost);

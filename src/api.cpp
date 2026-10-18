@@ -62,6 +62,8 @@ void loadSettings() {
         s.cameraFov = j.value("cameraFov", s.cameraFov);
         s.cameraFisheye = std::clamp(j.value("cameraFisheye", s.cameraFisheye), 0.0f, 1.0f);
         s.chaseSmoothing = j.value("chaseSmoothing", s.chaseSmoothing);
+        s.keyboardHover = j.value("keyboardHover", s.keyboardHover);
+        s.keyboardThrottleExpo = std::clamp(j.value("keyboardThrottleExpo", s.keyboardThrottleExpo), 0.5f, 10.0f);
 #if defined(LIBFPV_KAMIKAZE)
         s.kamikazeArmingDelay = std::clamp(j.value("kamikazeArmingDelay", s.kamikazeArmingDelay), 0.0f, 600.0f);
         s.kamikazeMinImpactSpeed = std::clamp(j.value("kamikazeMinImpactSpeed", s.kamikazeMinImpactSpeed), 0.1f, 30.0f);
@@ -85,7 +87,9 @@ void saveSettings() {
               {"cameraUptilt", s.cameraUptilt},
               {"cameraFov", s.cameraFov},
               {"cameraFisheye", s.cameraFisheye},
-              {"chaseSmoothing", s.chaseSmoothing}};
+              {"chaseSmoothing", s.chaseSmoothing},
+              {"keyboardHover", s.keyboardHover},
+              {"keyboardThrottleExpo", s.keyboardThrottleExpo}};
 #if defined(LIBFPV_KAMIKAZE)
     j["kamikazeArmingDelay"] = s.kamikazeArmingDelay;
     j["kamikazeMinImpactSpeed"] = s.kamikazeMinImpactSpeed;
@@ -437,6 +441,8 @@ FPV_API fpv_result fpv_global_init(const fpv_global_config *cfgIn) {
     for (auto &e : errors) FPV_LOGW("preset ignored: %s", e.c_str());
     if (L.presets.empty()) L.presets.push_back(builtinDefaultPreset());
     loadSettings();
+    L.input.setKeyboardHover(L.settings.keyboardHover);
+    L.input.setKeyboardThrottleExpo(L.settings.keyboardThrottleExpo);
     L.presetIndex = 0;
     if (!L.settings.preset.empty()) {
         int idx = findPreset(L.settings.preset);
