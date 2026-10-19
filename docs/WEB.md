@@ -189,6 +189,11 @@ nothing else to install for players:
   create an HTML project and tick "This file will be played in the browser".
 - **Netlify, Cloudflare Pages, a plain nginx**: copy the folder.
 
+To have the page start from your own Betaflight setup instead of libfpv's,
+configure with `-DLIBFPV_STANDALONE_BF_CONFIG=<diff all file>` (see
+`assets/configs`). The file is embedded in the page and imported on a
+player's first visit; their later changes are kept.
+
 The host must serve `.wasm` files as `application/wasm` (all of the above
 do) so the browser compiles the module while it downloads. Hosts compress
 the files automatically. To try a build locally:
