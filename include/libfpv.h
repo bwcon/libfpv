@@ -31,6 +31,9 @@
  * Threading: every function is thread-safe (serialised internally) unless
  * stated otherwise. libfpv runs its own simulation thread, so flight and
  * radio input keep their own rate whatever the game's frame rate.
+ * Web builds (Emscripten) have no thread: the same 1 kHz loop runs inside
+ * fpv_drone_tick() and fpv_overlay_render(), so call them every frame from
+ * the browser's main thread (docs/WEB.md).
  * Callbacks are always invoked on the thread that called into libfpv
  * (never on the simulation thread) unless stated otherwise.
  *
@@ -164,7 +167,9 @@ typedef void (*fpv_log_fn)(void *user, fpv_log_level level, const char *message)
 
 typedef enum fpv_timing_mode {
     /* Default. A libfpv thread steps the simulation in real time at
-     * sim_rate_hz and polls the radio at the same rate. */
+     * sim_rate_hz and polls the radio at the same rate. Web builds step it
+     * in real time from fpv_drone_tick() and fpv_overlay_render() instead,
+     * polling the radio once per frame. */
     FPV_TIMING_THREAD = 0,
     /* No thread. The host advances time explicitly with fpv_step().
      * Deterministic; used by tests, replays and lockstep engines. */
@@ -174,7 +179,8 @@ typedef enum fpv_timing_mode {
 enum fpv_init_flags {
     /* Do not open radios/gamepads (SDL). Use fpv_input_set_channels(). */
     FPV_INIT_NO_DEVICE_INPUT = 1u << 0,
-    /* Do not start the Betaflight Configurator WebSocket server. */
+    /* Do not start the Betaflight Configurator WebSocket server. Always set
+     * in web builds: a web page cannot accept connections. */
     FPV_INIT_NO_CONFIGURATOR = 1u << 1,
     /* Keep simulating when the host stops calling fpv_drone_tick(). By default
      * libfpv auto-pauses after `auto_pause_seconds` without a tick, so a game
@@ -189,7 +195,8 @@ enum fpv_init_flags {
 typedef struct fpv_global_config {
     uint32_t struct_size;
     /* UTF-8 path of a writable folder for EEPROM, presets and radio
-     * mappings. Created if missing. Required. */
+     * mappings. Created if missing. Required. Web builds: FPV_WEB_DATA_DIR
+     * (or a folder inside it), which the browser keeps across visits. */
     const char *data_dir;
     fpv_coord_system coords;
     fpv_log_fn log;
@@ -205,6 +212,10 @@ typedef struct fpv_global_config {
 } fpv_global_config;
 
 FPV_API void fpv_global_config_defaults(fpv_global_config *config);
+
+/* Web builds: the folder kept in the browser's IndexedDB, mounted and loaded
+ * before main() runs (Module.libfpvDataDir changes it). */
+#define FPV_WEB_DATA_DIR "/libfpv"
 
 /* Initialises libfpv and Betaflight. Pins the libfpv module in memory so a
  * host unloading the mod cannot unmap code that internal threads still use.
@@ -651,9 +662,10 @@ FPV_API fpv_result fpv_step(float seconds);
  *
  * libfpv reads radios (EdgeTX/OpenTX/ELRS/Crossfire handsets in USB joystick
  * mode, simulator dongles) and gamepads itself, in the background, with no
- * window focus required. The overlay's setup wizard maps them. The host
- * only forwards keyboard events (fpv_input_key), which drive both the
- * overlay and the keyboard fallback.
+ * window focus required (web builds: through the browser's Gamepad API,
+ * which lists a device once a button or stick on it has been moved). The
+ * overlay's setup wizard maps them. The host only forwards keyboard events
+ * (fpv_input_key), which drive both the overlay and the keyboard fallback.
  * ======================================================================== */
 
 typedef enum fpv_input_source {

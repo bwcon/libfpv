@@ -45,6 +45,10 @@ engine or mod loader.
 - **Camera.** Uptilt and FOV are adjustable, and there is a fisheye lens
   (on by default). Analog video noise grows with range and with obstacles in
   the way.
+- **Web builds.** A game with source code available can ship its mod as a
+  web page. The game and libfpv compile to WebAssembly, and players fly from
+  a link with nothing to install. Radio, keys, overlay, OSD, sound and saved
+  settings all work in the browser ([docs/WEB.md](docs/WEB.md)).
 - **Kamikaze builds** (optional, `-DLIBFPV_KAMIKAZE=ON`). The drone can
   carry a warhead with real weight, installed from the overlay or by the
   game, on a bomb arm switch (AUX7) and an explode switch (AUX8). The motors
@@ -107,6 +111,23 @@ with `-B build/win32` instead.
 
 MSVC hosts can make an import library with `lib /def:libfpv.def /machine:x64`
 or load the DLL with `LoadLibrary`.
+
+### Web (WebAssembly)
+
+Browser builds use [Emscripten](https://emscripten.org) (4.0 or newer):
+
+```sh
+source /path/to/emsdk/emsdk_env.sh
+emcmake cmake -S . -B build/web
+cmake --build build/web -j
+node build/web/tests/fpv_tests.js
+```
+
+This makes `libfpv.a` for the game's WebAssembly module, and
+`build/web/web/`, the standalone example as a page (`index.html`,
+`index.js`, `index.wasm`) that any static web host can serve. See
+[docs/WEB.md](docs/WEB.md) for porting a mod and for what differs in a
+browser.
 
 ### Updating
 
@@ -187,6 +208,12 @@ Settings, EEPROMs and the
 selected preset are stored in `./data` (change it with
 `--data <dir>`).
 
+The web build of the same example runs in a browser:
+
+```sh
+python3 -m http.server -d build/web/web 8080   # then open http://localhost:8080
+```
+
 ## Integrating into a game
 
 ```c
@@ -216,21 +243,23 @@ fpv_global_terminate();                       // on unload / exit
   renderer for the OSD and the overlay.
 - `examples/standalone/main.cpp`: a complete integration, with a comment at
   the top listing every hook in order.
+- `docs/WEB.md`: compiling a game and its mod into a web page.
 - `docs/PUBLISHING.md`: releasing a finished mod so players only download
-  one ZIP (automatic builds, the install page, licensing).
+  one ZIP or open one link (automatic builds, the install page, licensing).
 - `docs/DECISIONS.md`: why things are the way they are.
 
 ## Repository layout
 
 ```
 include/      public C API (libfpv.h)
-src/          library: sim/, config/, input/, world/, osd/, overlay/, audio/
+src/          library: sim/, config/, input/, world/, osd/, overlay/, audio/, web/
 assets/       presets and OSD fonts (embedded into the library at build time)
 patches/      patch series applied to the SimITL and Betaflight submodules
 third_party/  SimITL, Betaflight, libwebsockets, fmt, SDL, Dear ImGui, nlohmann/json
 examples/     fpv_minimal and fpv_standalone
 tests/        test suite and real-quad `diff all` fixtures
 cmake/        core build, file embedding, toolchains, symbol export lists
+tools/        patch series helper, WebAssembly symbol localizer
 ```
 
 ## License

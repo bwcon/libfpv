@@ -13,6 +13,10 @@ option(LIBFPV_WITH_OVERLAY "Build the Dear ImGui overlay" ON)
 option(LIBFPV_BUILD_TESTS "Build the test suite" ON)
 option(LIBFPV_BUILD_EXAMPLES "Build the examples" ON)
 option(LIBFPV_KAMIKAZE "Kamikaze FPV: warhead with bomb arm and explode switches (docs/INTEGRATION.md#kamikaze-builds)" OFF)
+if(EMSCRIPTEN)
+  # Browser builds read radios and gamepads through the Gamepad API (docs/WEB.md)
+  set(LIBFPV_WITH_SDL OFF)
+endif()
 
 include(cmake/SimITLCore.cmake)
 include(cmake/EmbedFiles.cmake)
@@ -38,6 +42,7 @@ set(LIBFPV_SOURCES
   src/config/preset.cpp
   src/input/input.cpp
   src/input/sdl_backend.cpp
+  src/input/web_backend.cpp
   src/sim/flight.cpp
   src/sim/runner.cpp
   src/util/fs.cpp
@@ -50,7 +55,12 @@ set(LIBFPV_SOURCES
   ${LIBFPV_GEN_DIR}/embedded_fonts.cpp
 )
 
-add_library(fpv SHARED ${LIBFPV_SOURCES})
+if(EMSCRIPTEN)
+  # linked statically into the game's WebAssembly module
+  add_library(fpv STATIC ${LIBFPV_SOURCES})
+else()
+  add_library(fpv SHARED ${LIBFPV_SOURCES})
+endif()
 add_library(libfpv::fpv ALIAS fpv)
 set_target_properties(fpv PROPERTIES
   OUTPUT_NAME fpv
@@ -74,7 +84,43 @@ target_include_directories(fpv
 
 # Betaflight registers its parameter groups in a linker section that nothing
 # references by name: link every object of the core.
-target_link_libraries(fpv PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,simitl_core>" websockets)
+if(EMSCRIPTEN)
+  # libfpv.a becomes one object holding libfpv and the whole core, so the
+  # game links it like any static library: whatever it calls pulls in every
+  # parameter group, with no --whole-archive in the game's build. Its hidden
+  # symbols are made local, as they are inside the native shared library,
+  # so Betaflight's init() or libfpv's ImGui never meet the game's own.
+  # (the stamp makes a changed core re-archive libfpv)
+  set(_core_stamp ${LIBFPV_GEN_DIR}/core_stamp.c)
+  if(NOT EXISTS ${_core_stamp})
+    file(WRITE ${_core_stamp} "/* touched whenever libsimitl_core.a changes */\n")
+  endif()
+  add_custom_command(OUTPUT ${_core_stamp}
+    COMMAND ${CMAKE_COMMAND} -E touch ${_core_stamp}
+    DEPENDS $<TARGET_FILE:simitl_core>)
+  target_sources(fpv PRIVATE ${_core_stamp})
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  set(_fpv_all ${CMAKE_CURRENT_BINARY_DIR}/libfpv-all.o)
+  add_custom_command(TARGET fpv POST_BUILD
+    # (warnings are fatal: a call through a mismatched signature, like an
+    # implicitly declared function, would trap at run time)
+    COMMAND ${CMAKE_C_COMPILER} -r -Wl,--fatal-warnings -Wl,--whole-archive $<TARGET_FILE:fpv>
+            $<TARGET_FILE:simitl_core> -Wl,--no-whole-archive -o ${_fpv_all}.tmp
+    COMMAND ${Python3_EXECUTABLE} -I ${PROJECT_SOURCE_DIR}/tools/wasm-localize-hidden.py ${_fpv_all}.tmp ${_fpv_all}
+    COMMAND ${CMAKE_COMMAND} -E rm -f $<TARGET_FILE:fpv> ${_fpv_all}.tmp
+    COMMAND ${CMAKE_AR} qc $<TARGET_FILE:fpv> ${_fpv_all}
+    COMMAND ${CMAKE_RANLIB} $<TARGET_FILE:fpv>
+    VERBATIM)
+  # The game's link needs: C++ exceptions as WebAssembly instructions (the
+  # fastest kind; libfpv's JSON parsing catches them), the IndexedDB file
+  # system and libfpv's browser runtime (docs/WEB.md).
+  target_compile_options(fpv PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fwasm-exceptions>)
+  target_link_options(fpv INTERFACE -fwasm-exceptions -lidbfs.js
+    "SHELL:--js-library ${PROJECT_SOURCE_DIR}/src/web/libfpv_web.js")
+  set_target_properties(fpv PROPERTIES POSITION_INDEPENDENT_CODE OFF)
+else()
+  target_link_libraries(fpv PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,simitl_core>" websockets)
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_link_options(fpv PRIVATE

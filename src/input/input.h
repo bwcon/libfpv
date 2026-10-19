@@ -75,7 +75,7 @@ struct RawDevice {
     uint32_t instanceId = 0;
     std::string guid;
     std::string name;
-    bool isGamepad = false;   // recognised by SDL as a gamepad (fixed layout)
+    bool isGamepad = false;   // recognised as a gamepad (fixed layout)
     bool looksLikeRadio = false;
     std::vector<float> axes;  // -1..1
     std::vector<uint8_t> buttons;
@@ -94,6 +94,11 @@ public:
 };
 
 std::unique_ptr<DeviceBackend> createSdlBackend();
+// Browsers: the Gamepad API (radios in USB joystick mode show up there too).
+std::unique_ptr<DeviceBackend> createWebBackend();
+
+// Device names of radio handsets and simulator dongles.
+bool nameLooksLikeRadio(const std::string &name);
 
 // What the keyboard's hover hold needs to know about the drone, taken from
 // the previous simulation step.

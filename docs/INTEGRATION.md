@@ -2,7 +2,8 @@
 
 The full hook sequence is shown in `examples/standalone/main.cpp` (the
 comment at the top lists every call in order). This file holds the details
-that need more than a comment.
+that need more than a comment. For a game compiled to run in a web browser,
+read [WEB.md](WEB.md) as well.
 
 ## Lens distortion
 

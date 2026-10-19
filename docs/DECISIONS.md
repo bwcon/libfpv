@@ -86,6 +86,13 @@ for v1.
 * `0013-battery-draw-sag-duct-thrust.patch`: the motors' no-load current
   is drawn from the pack, the electronics draw on top of the motors,
   optional pack resistance for the sag, and duct thrust (D27).
+* `0014-no-configurator-thread-on-the-web.patch`: in browser builds,
+  `startServices` starts no WebSocket thread (D28).
+* `0015-declare-init-for-reset.patch`: `target.c` calls Betaflight's
+  `init()` from `systemReset` without a declaration, so C made it
+  `int init()`. Native linkers ignore the difference. wasm-ld replaces a
+  call through a mismatched signature with a trap, and every in-process
+  reboot crashed (D28).
 
 ## Simulation
 
@@ -136,6 +143,10 @@ power-on grace (`BOOTGRACE`), and gyro calibration (`CALIB`) takes about
   the vario's derivative assumed the ALTITUDE task runs at its nominal
   100 Hz. In the simulator it runs at about 33 Hz (D22), so altitude lagged
   and the vario read 3× too high. Both now use the measured interval.
+* `0007-wasm-pg-registry.patch`: WebAssembly has no linker scripts. The
+  parameter group registry and reset data use sections named like C
+  identifiers there, so that wasm-ld provides `__start_`/`__stop_` symbols
+  for them (D28).
 
 ### D7. One EEPROM per quad preset
 
@@ -494,6 +505,65 @@ interop. MSVC hosts use `lib /def:libfpv.def /machine:x86`.
 Betaflight's parameter groups register themselves in a linker section that
 no code references by name. `simitl_core` is therefore linked with
 `$<LINK_LIBRARY:WHOLE_ARCHIVE,...>`, so no PG can be dropped by the linker.
+
+### D28. Web builds (Emscripten)
+
+A game with source code available can be compiled to WebAssembly with its
+mod, so that players fly from a link (docs/WEB.md). libfpv builds for it
+with `emcmake cmake`.
+
+* **Static, one object.** The game's module is linked statically (dynamic
+  linking in WebAssembly is slower and needs the game built as a main
+  module). `libfpv.a` holds a single relocatable object (`emcc -r` with the
+  whole core), so a plain link brings every parameter group (D20) and the
+  game's build needs no `--whole-archive`. `tools/wasm-localize-hidden.py`
+  then makes every hidden symbol of that object local, which
+  llvm-objcopy cannot do for wasm. The object is then as sealed as the
+  native shared library: Betaflight's `init`, `delay` or `debug`, Dear
+  ImGui and fmt cannot clash with the game's symbols, and only `fpv_*` is
+  visible. Weak symbols (templates, inline functions) stay global so that
+  COMDAT deduplication works. The partial link treats warnings as errors,
+  because a signature mismatch there becomes a trap at run time (SimITL
+  patch 0015).
+* **No threads.** WebAssembly threads need `SharedArrayBuffer`, which
+  browsers only enable for pages served with COOP/COEP headers. GitHub
+  Pages and itch.io cannot send them. The Gamepad API is only readable on
+  the main thread anyway. `FPV_TIMING_THREAD` therefore keeps its meaning
+  (real time, fixed 1 kHz steps, the 50 ms catch-up cap, auto-pause,
+  interpolation one step in the past) but runs cooperatively:
+  `Runner::advance` is the body of the thread's loop, and the host's
+  per-frame calls run it (`fpv_drone_tick` before its heartbeat, so a gap
+  in ticking still auto-pauses; `fpv_overlay_render`, so the radio wizard
+  sees live sticks without a drone). `Runner::call` already ran jobs
+  inline without a thread. Hosts need no change.
+* **Gamepad API instead of SDL.** `src/input/web_backend.cpp` gives the same
+  `RawDevice`s: devices with the browser's "standard" mapping have the
+  gamepad layout (buttons renumbered to SDL's), the rest are raw axes,
+  and the radio name list is shared with the SDL backend. A game that uses
+  SDL on the web brings its own, so libfpv embedding one would only add
+  size.
+* **No Configurator.** Its WebSocket server cannot exist in a page.
+  libwebsockets is left out, `src/core/serial_ws_web.c` opens Betaflight's
+  UARTs with no transport, and `FPV_INIT_NO_CONFIGURATOR` is forced. The
+  overlay's tab says why and points to the CLI and diff import. Making it
+  work would mean hosting the Configurator in the same page with a
+  transport bridged into the module.
+* **Persistence.** `src/web/libfpv_web.js` mounts `FPV_WEB_DATA_DIR`
+  (`/libfpv`, or `Module.libfpvDataDir`) on IDBFS with `autoPersist`
+  before `main()`, as a run dependency. Every close, rename and unlink
+  there is synced to IndexedDB, which covers libfpv's atomic writes and
+  Betaflight's EEPROM, which is closed after each save (`configLock`).
+* **Exceptions** are WebAssembly instructions (`-fwasm-exceptions`). They
+  are the fast kind, and supported by every browser with WebGL 2.
+  Emscripten's default would abort on a JSON parse error.
+* **Clipboard.** SDL's browser backend cancels the default action of every
+  key pressed with Ctrl, so no `paste` event ever fires. On Ctrl+V the
+  overlay reads `navigator.clipboard` (asynchronous; the browser asks once)
+  and types the text in. ImGui's own paste finds an empty clipboard, so
+  nothing arrives twice.
+
+`fpv_tests` runs on Node (`-sNODERAWFS`). All tests pass; `pinned` checks
+less on the web, where nothing can unload the module.
 
 ## Modes
 

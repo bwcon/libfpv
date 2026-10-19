@@ -11,6 +11,11 @@
 #include "lib.h"
 #include "osd/osd.h"
 #include "util/log.h"
+#include "web/web.h"
+
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#endif
 
 namespace fpv {
 
@@ -150,6 +155,14 @@ void Overlay::ensureContext() {
     io.BackendRendererName = "libfpv-host";
     io.MouseDrawCursor = true;  // games usually hide the OS cursor
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+#if defined(__EMSCRIPTEN__)
+    // Copy goes to the system clipboard. Browsers only read it
+    // asynchronously, so Ctrl+V is handled in key() and ImGui's own paste
+    // finds nothing.
+    ImGuiPlatformIO &pio = ImGui::GetPlatformIO();
+    pio.Platform_SetClipboardTextFn = [](ImGuiContext *, const char *text) { libfpv_web_clipboard_write(text); };
+    pio.Platform_GetClipboardTextFn = [](ImGuiContext *) -> const char * { return ""; };
+#endif
     ImGui::StyleColorsDark();
     ImGuiStyle &st = ImGui::GetStyle();
     st.WindowRounding = 6;
@@ -238,6 +251,10 @@ void Overlay::key(int k, bool down) {
         m_rebindingToggle = false;
         return;
     }
+    if (k == FPV_KEY_LCTRL || k == FPV_KEY_RCTRL) m_ctrl = down;
+#if defined(__EMSCRIPTEN__)
+    if (m_open && down && m_ctrl && k == 'V') libfpv_web_clipboard_read(0);
+#endif
     WITH_CTX;
     ImGuiIO &io = ImGui::GetIO();
     ImGuiKey ik = toImGuiKey(k);
@@ -246,6 +263,11 @@ void Overlay::key(int k, bool down) {
     if (k == FPV_KEY_LSHIFT || k == FPV_KEY_RSHIFT) io.AddKeyEvent(ImGuiMod_Shift, down);
     if (k == FPV_KEY_LALT || k == FPV_KEY_RALT) io.AddKeyEvent(ImGuiMod_Alt, down);
     END_CTX;
+}
+
+void Overlay::paste(const char *utf8, bool toImport) {
+    if (toImport) m_importText = utf8;
+    else text(utf8);
 }
 
 void Overlay::notifyUnmappedRadio(const std::string &guid) {
@@ -476,6 +498,11 @@ void Overlay::tabRadio() {
             "No radio or gamepad detected. Connect your radio with USB and choose \"USB Joystick (HID)\" on the radio "
             "(EdgeTX/OpenTX), or plug in a simulator dongle. Keyboard works as a fallback: W/S throttle, A/D yaw, "
             "arrow keys pitch/roll, Enter arms.");
+#if defined(__EMSCRIPTEN__)
+        ImGui::TextWrapped(
+            "In a web browser, a connected radio or gamepad only shows up here after you move a stick or press a "
+            "button on it.");
+#endif
     }
     for (auto &d : devs) {
         ImGui::PushID(d.guid.c_str());
@@ -533,9 +560,14 @@ void Overlay::tabDrone() {
     ImGui::Text("Motor spacing   %.0f mm diagonal", arm * 2000);
     ImGui::Text("Video           %s", p.vtx.digital ? "digital (HD)" : "analog");
     ImGui::Spacing();
+#if defined(__EMSCRIPTEN__)
+    ImGui::TextWrapped("Each drone keeps its own Betaflight configuration, saved in this browser.");
+    (void)L;
+#else
     ImGui::TextWrapped("Physical parameters live in JSON files you can copy and edit: %s/quad (restart the game to "
                        "reload). Each drone keeps its own Betaflight configuration.",
                        L.presetDir.c_str());
+#endif
 }
 
 void Overlay::tabRates() {
@@ -754,6 +786,10 @@ void Overlay::tabImport() {
     }
     ImGui::SameLine();
     if (ImGui::Button("Clear")) m_importText.clear();
+#if defined(__EMSCRIPTEN__)
+    ImGui::SameLine();
+    if (ImGui::Button("Paste")) libfpv_web_clipboard_read(1);
+#endif
     if (!m_importReport.empty()) {
         ImGui::BeginChild("report", ImVec2(0, ImGui::GetFontSize() * 10), ImGuiChildFlags_Borders);
         ImGui::TextUnformatted(m_importReport.c_str());
@@ -856,7 +892,14 @@ void Overlay::tabConfigurator() {
     info.struct_size = sizeof(info);
     fpv_configurator_get_info(&info);
     if (!info.enabled) {
+#if defined(__EMSCRIPTEN__)
+        ImGui::TextWrapped(
+            "Betaflight Configurator cannot connect to a game running in a web browser: browsers do not let a page "
+            "accept connections. Every setting is still Betaflight's own: use the other tabs, the Betaflight CLI or "
+            "a `diff all` in Import & CLI, or the desktop version of this game for the Configurator.");
+#else
         ImGui::TextWrapped("The Configurator connection is disabled by the game.");
+#endif
         return;
     }
     ImGui::Text("Address: %s", info.url);
@@ -967,3 +1010,12 @@ const fpv_draw_data *Overlay::render(float dt) {
 }
 
 }  // namespace fpv
+
+#if defined(__EMSCRIPTEN__)
+// Clipboard text from libfpv_web_clipboard_read (src/web/libfpv_web.js).
+extern "C" FPV_API EMSCRIPTEN_KEEPALIVE void libfpv_web_on_paste(const char *utf8, int toImport) {
+    fpv::Lib &L = fpv::lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    if (L.initialized && utf8) fpv::overlay().paste(utf8, toImport != 0);
+}
+#endif

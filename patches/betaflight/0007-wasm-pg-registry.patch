@@ -1,0 +1,24 @@
+diff --git a/src/main/pg/pg.h b/src/main/pg/pg.h
+--- a/src/main/pg/pg.h
++++ b/src/main/pg/pg.h
+@@ -72,6 +72,20 @@
+ extern const uint8_t __pg_resetdata_start[] __asm("section$start$__DATA$__pg_resetdata");
+ extern const uint8_t __pg_resetdata_end[] __asm("section$end$__DATA$__pg_resetdata");
+ #define PG_RESETDATA_ATTRIBUTES __attribute__ ((section("__DATA,__pg_resetdata"), used, aligned(2)))
++#elif defined(__wasm__)
++// WebAssembly has no linker scripts; wasm-ld provides __start_/__stop_ for
++// data segments whose names are C identifiers.
++extern const pgRegistry_t __start_pg_registry[];
++extern const pgRegistry_t __stop_pg_registry[];
++#define __pg_registry_start __start_pg_registry
++#define __pg_registry_end __stop_pg_registry
++#define PG_REGISTER_ATTRIBUTES __attribute__ ((section("pg_registry"), used, aligned(4)))
++
++extern const uint8_t __start_pg_resetdata[];
++extern const uint8_t __stop_pg_resetdata[];
++#define __pg_resetdata_start __start_pg_resetdata
++#define __pg_resetdata_end __stop_pg_resetdata
++#define PG_RESETDATA_ATTRIBUTES __attribute__ ((section("pg_resetdata"), used, aligned(2)))
+ #else
+ extern const pgRegistry_t __pg_registry_start[];
+ extern const pgRegistry_t __pg_registry_end[];

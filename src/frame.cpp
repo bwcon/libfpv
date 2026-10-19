@@ -108,6 +108,7 @@ extern "C" FPV_API fpv_result fpv_drone_tick(fpv_drone *d, float frameDt, fpv_fr
         return setError(FPV_ERROR_ABI_MISMATCH, "set frame->struct_size = sizeof(fpv_frame)");
     if (!std::isfinite(frameDt) || frameDt < 0) frameDt = 0;
     frameDt = std::min(frameDt, 0.25f);
+    L.runner.pump();  // browsers; before the heartbeat, so a long gap auto-pauses
     L.runner.heartbeat();
 
     const CoordConverter &cv = L.conv;

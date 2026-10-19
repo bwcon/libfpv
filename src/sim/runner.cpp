@@ -81,13 +81,25 @@ void Runner::configure(const RunnerConfig &cfg) {
 }
 
 void Runner::start() {
-    if (!m_cfg.threaded || m_thread.joinable()) return;
+    if (!m_cfg.threaded || running()) return;
     m_stop = false;
     m_lastHeartbeat = wallSeconds();
+    m_last = wallSeconds();
+    m_acc = 0;
+    if (kCooperativeTiming) {
+        m_cooperative = true;
+        FPV_LOGI("simulation running at %.0f Hz, stepped from the host's frames", m_cfg.simRateHz);
+        return;
+    }
     m_thread = std::thread([this] { threadMain(); });
 }
 
+void Runner::pump() {
+    if (m_cooperative) advance();
+}
+
 void Runner::stop() {
+    m_cooperative = false;
     if (m_thread.joinable()) {
         m_stop = true;
         m_jobCv.notify_all();
@@ -167,32 +179,36 @@ void Runner::stepOnce(double wall) {
     if (m_impacts.size() > 256) m_impacts.erase(m_impacts.begin(), m_impacts.end() - 256);
 }
 
+void Runner::advance() {
+    runJobs();
+    const double period = 1.0 / m_cfg.simRateHz;
+    double now = wallSeconds();
+    double elapsed = now - m_last;
+    m_last = now;
+    if (shouldSimulate()) {
+        double scale = std::clamp(m_timeScale.load(), 0.05f, 4.0f);
+        m_acc += elapsed * scale;
+        // never try to catch up more than 50 ms (host hitch, debugger)
+        m_acc = std::min(m_acc, 0.05);
+        while (m_acc >= period && !m_stop) {
+            m_acc -= period;
+            // each step gets the wall time it represents, for interpolation
+            stepOnce(now - m_acc / scale);
+        }
+    } else {
+        m_acc = 0;
+    }
+}
+
 void Runner::threadMain() {
     m_simThreadId = std::this_thread::get_id();
     PreciseSleeper sleeper;
     const double period = 1.0 / m_cfg.simRateHz;
-    double last = wallSeconds();
-    double acc = 0;
-    double next = last + period;
+    double next = m_last + period;
     FPV_LOGI("simulation thread running at %.0f Hz", m_cfg.simRateHz);
     while (!m_stop) {
-        runJobs();
-        double now = wallSeconds();
-        double elapsed = now - last;
-        last = now;
-        if (shouldSimulate()) {
-            double scale = std::clamp(m_timeScale.load(), 0.05f, 4.0f);
-            acc += elapsed * scale;
-            // never try to catch up more than 50 ms (host hitch, debugger)
-            acc = std::min(acc, 0.05);
-            while (acc >= period && !m_stop) {
-                acc -= period;
-                // each step gets the wall time it represents, for interpolation
-                stepOnce(now - acc / scale);
-            }
-        } else {
-            acc = 0;
-        }
+        advance();
+        double now = m_last;
         next += period;
         if (next < now - 0.05) next = now + period;  // fell far behind: resync
         std::unique_lock<std::mutex> lock(m_jobMutex);

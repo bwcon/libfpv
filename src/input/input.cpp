@@ -3,6 +3,7 @@
 #include "input/input.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 #include "libfpv.h"
@@ -13,6 +14,19 @@
 namespace fpv {
 
 using json = nlohmann::json;
+
+bool nameLooksLikeRadio(const std::string &name) {
+    std::string n = name;
+    for (char &c : n) c = (char)std::tolower((unsigned char)c);
+    static const char *kWords[] = {"edgetx",  "opentx",  "radiomaster", "jumper", "frsky",   "taranis",
+                                   "tbs",     "tango",   "mambo",       "crossfire", "elrs", "expresslrs",
+                                   "boxer",   "zorro",   "tx16",        "tx12",   "pocket",  "betafpv",
+                                   "literadio", "flysky", "fs-i6",      "spektrum", "dongle", "simulator",
+                                   "rc transmitter", "joystick (edgetx)", "radioking", "commando"};
+    for (const char *w : kWords)
+        if (n.find(w) != std::string::npos) return true;
+    return false;
+}
 
 InputManager::InputManager() {
     setIdleChannels(m_host);
@@ -27,7 +41,11 @@ void InputManager::setDataDir(const std::string &dir) {
 }
 
 bool InputManager::startDevices(std::string &error) {
+#if defined(__EMSCRIPTEN__)
+    auto backend = createWebBackend();
+#else
     auto backend = createSdlBackend();
+#endif
     if (!backend) {
         error = "device input not compiled in";
         return false;
