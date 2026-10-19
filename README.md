@@ -54,7 +54,7 @@ engine or mod loader.
   game, on a bomb arm switch (AUX7) and an explode switch (AUX8). The motors
   won't arm with the bomb switch on, and an arming delay can be set. Once
   live, a contact fuse sets it off on any touch. A movable OSD element shows
-  `SAFE`, `STEADY` and the like, the screen shows `SIGNAL LOST` after the
+  `BOMB_SAFE`, `BOMB_ARMED` and the like, the screen shows `SIGNAL LOST` after the
   blast, and the game gets the detonation to play its own explosion,
   cutscene or "signal lost".
 

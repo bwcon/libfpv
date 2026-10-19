@@ -66,7 +66,7 @@ public:
     // Installs or removes the bomb. Without it the bomb switches do nothing;
     // a destroyed drone stays destroyed until repaired.
     void setInstalled(bool on, double simTime);
-    // The state line of the OSD ("SAFE", "ARMING 3", "STEADY"...), "" when
+    // The state line of the OSD ("BOMB_SAFE", "ARMING 3", "BOMB_ARMED"...), "" when
     // there is nothing to show (no bomb, blink off, destroyed).
     void statusText(char *out, size_t size, double simTime, bool fcArmed);
 

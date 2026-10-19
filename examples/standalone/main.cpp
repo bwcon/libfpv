@@ -32,8 +32,8 @@
 // The bomb is not installed by default: F8 > Fly > "Bomb installed" (or
 // the game's own fpv_kamikaze_set_installed) adds it, for every drone.
 // Keys: K bomb arm switch, X explode, C what happens after the explosion
-// (cutscene and respawn / signal lost until R / instant respawn).
-// --after cutscene|signal|instant picks it, --kamikaze-demo flies a scripted
+// (arcade: a 1 s cutscene, then respawn / signal lost until R).
+// --after arcade|signal picks it, --kamikaze-demo flies a scripted
 // strike that checks every warhead rule and exits 0 (pass) or 1 (fail).
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -395,9 +395,9 @@ static void savePpm(const char *path, int w, int h) {
 // --- kamikaze -------------------------------------------------------------------------
 
 // What the game does after the explosion; libfpv supports each of them.
-enum class AfterBoom { Cutscene, Signal, Instant };
+enum class AfterBoom { Arcade, Signal };
 static const char *afterName(AfterBoom a) {
-    return a == AfterBoom::Cutscene ? "cutscene" : a == AfterBoom::Signal ? "signal" : "instant";
+    return a == AfterBoom::Arcade ? "arcade" : "signal";
 }
 
 struct Target {
@@ -505,7 +505,7 @@ struct KamikazeDemo {
             if (st > 15) check(false, "hit something within 15 s"), next();
             break;
         }
-        case 5:  // the game respawns the drone (cutscene, instant), or the pilot asks (signal)
+        case 5:  // the game respawns the drone (arcade), or the pilot asks (signal)
             if (st > 2 && !respawned) wantRespawn = true;  // signal mode: nobody else respawns it
             if (respawned && respawnSeen < 0) respawnSeen = t;
             if ((respawnSeen >= 0 && t - respawnSeen > 0.3) || st > 6) {
@@ -531,7 +531,7 @@ int main(int argc, char **argv) {
     int frames = 0, width = 1280, height = 720, camMode = 0;
     bool autopilot = false, openOverlay = false;
 #if defined(LIBFPV_KAMIKAZE)
-    AfterBoom after = AfterBoom::Cutscene;
+    AfterBoom after = AfterBoom::Arcade;
     bool kamikazeDemo = false;
 #endif
     for (int i = 1; i < argc; i++) {
@@ -548,7 +548,7 @@ int main(int argc, char **argv) {
         else if (a == "--kamikaze-demo") kamikazeDemo = true;
         else if (a == "--after") {
             std::string m = nextArg();
-            after = m == "signal" ? AfterBoom::Signal : m == "instant" ? AfterBoom::Instant : AfterBoom::Cutscene;
+            after = m == "signal" ? AfterBoom::Signal : AfterBoom::Arcade;
         }
 #endif
         else if (a == "--camera") {
@@ -748,7 +748,7 @@ int main(int argc, char **argv) {
                     }
 #if defined(LIBFPV_KAMIKAZE)
                     if (e.key.key == SDLK_C) {
-                        after = (AfterBoom)(((int)after + 1) % 3);
+                        after = (AfterBoom)(((int)after + 1) % 2);
                         SDL_Log("after the explosion: %s", afterName(after));
                     }
 #endif
@@ -812,7 +812,7 @@ int main(int argc, char **argv) {
 
 #if defined(LIBFPV_KAMIKAZE)
         // the warhead went off: explosion, blast damage, then whatever this
-        // game does next (cutscene + respawn, signal lost, or instant respawn)
+        // game does next (arcade: cutscene + respawn, or signal lost)
         fpv_detonation det{};
         det.struct_size = sizeof det;
         while (fpv_kamikaze_poll_detonation(&det)) {
@@ -837,7 +837,7 @@ int main(int argc, char **argv) {
                     SDL_Log("target destroyed (%s)", direct ? "direct hit" : "blast");
                 }
             }
-            respawnAt = after == AfterBoom::Cutscene ? time + 3.0 : after == AfterBoom::Instant ? time + 0.3 : -1;
+            respawnAt = after == AfterBoom::Arcade ? time + 1.0 : -1;
             if (after == AfterBoom::Signal) SDL_Log("SIGNAL LOST - press R for the next drone");
         }
         if ((respawnAt >= 0 && time >= respawnAt) || demo.wantRespawn) {
@@ -889,7 +889,7 @@ int main(int argc, char **argv) {
         bool cutscene = false;
 #if defined(LIBFPV_KAMIKAZE)
         fpv_camera orbit;
-        if (blast.start >= 0 && respawnAt >= 0 && after == AfterBoom::Cutscene) {
+        if (blast.start >= 0 && respawnAt >= 0 && after == AfterBoom::Arcade) {
             // explosion cutscene: orbit the blast until the respawn
             float a = (float)(time - blast.start) * 0.5f;
             orbit = lookCamera(blast.pos + V3{std::sin(a) * 14, 6, std::cos(a) * 14}, blast.pos, 60);
