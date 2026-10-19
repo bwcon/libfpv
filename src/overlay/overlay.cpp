@@ -830,7 +830,7 @@ void Overlay::tabControls() {
     ImGui::BulletText("A / D: yaw (grows while held)");
     ImGui::BulletText("Arrow keys: pitch and roll (self-level mode)");
     ImGui::BulletText("Enter: arm / disarm, B: beeper, T: turtle mode on / off");
-    if (ImGui::Checkbox("Hover throttle (like the RC helicopter in GTA)", &L.settings.keyboardHover)) {
+    if (ImGui::Checkbox("Automatic hover throttle", &L.settings.keyboardHover)) {
         L.input.setKeyboardHover(L.settings.keyboardHover);
         saveSettings();
     }
