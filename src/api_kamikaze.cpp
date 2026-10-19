@@ -123,6 +123,7 @@ FPV_API void fpv_kamikaze_config_defaults(fpv_kamikaze_config *c) {
     c->min_impact_speed = L.initialized ? L.conv.lenToHost(def.kamikazeMinImpactSpeed) : def.kamikazeMinImpactSpeed;
     c->payload_mass = def.kamikazePayloadKg;
     c->payload_drop = def.kamikazePayloadDrop;
+    c->ending_duration = def.kamikazeEndingDuration;
 }
 
 FPV_API fpv_result fpv_kamikaze_set_config(const fpv_kamikaze_config *in) {
@@ -132,7 +133,12 @@ FPV_API fpv_result fpv_kamikaze_set_config(const fpv_kamikaze_config *in) {
     if (!in) return setError(FPV_ERROR_INVALID_ARGUMENT, "config is NULL");
     fpv_kamikaze_config c;
     fpv_kamikaze_config_defaults(&c);
-    memcpy(&c, in, std::min<size_t>(sizeof(c), in->struct_size ? in->struct_size : sizeof(c)));
+    size_t size = std::min<size_t>(sizeof(c), in->struct_size ? in->struct_size : sizeof(c));
+    memcpy(&c, in, size);
+    Settings &s = L.settings;
+    // older hosts do not know it: keep the player's
+    if (size < offsetof(fpv_kamikaze_config, ending_duration) + sizeof(c.ending_duration))
+        c.ending_duration = s.kamikazeEndingDuration;
     if (!std::isfinite(c.arming_delay) || c.arming_delay < 0 || c.arming_delay > 600)
         return setError(FPV_ERROR_INVALID_ARGUMENT, "arming_delay must be 0..600 s");
     float fuse = L.conv.lenToInternal(c.min_impact_speed);
@@ -141,11 +147,13 @@ FPV_API fpv_result fpv_kamikaze_set_config(const fpv_kamikaze_config *in) {
     if (!std::isfinite(c.payload_mass) || c.payload_mass > 50)
         return setError(FPV_ERROR_INVALID_ARGUMENT, "payload_mass must be up to 50 kg (negative = automatic)");
     if (!std::isfinite(c.payload_drop)) return setError(FPV_ERROR_INVALID_ARGUMENT, "payload_drop is not finite");
-    Settings &s = L.settings;
+    if (!std::isfinite(c.ending_duration) || c.ending_duration < 0 || c.ending_duration > 30)
+        return setError(FPV_ERROR_INVALID_ARGUMENT, "ending_duration must be 0..30 s");
     s.kamikazeArmingDelay = c.arming_delay;
     s.kamikazeMinImpactSpeed = std::max(0.1f, fuse);
     s.kamikazePayloadKg = c.payload_mass < 0 ? -1.0f : c.payload_mass;
     s.kamikazePayloadDrop = c.payload_drop < 0 ? -1.0f : std::min(L.conv.lenToInternal(c.payload_drop), 1.0f);
+    s.kamikazeEndingDuration = c.ending_duration;
     s.kamikazeOsd = !(c.flags & FPV_KAMIKAZE_NO_OSD);
     applyKamikazeSettings();
     saveSettings();
@@ -166,6 +174,7 @@ FPV_API fpv_result fpv_kamikaze_get_config(fpv_kamikaze_config *out) {
     c.flags = s.kamikazeOsd ? 0 : FPV_KAMIKAZE_NO_OSD;
     c.payload_mass = s.kamikazePayloadKg;
     c.payload_drop = s.kamikazePayloadDrop < 0 ? -1.0f : L.conv.lenToHost(s.kamikazePayloadDrop);
+    c.ending_duration = s.kamikazeEndingDuration;
     uint32_t size = std::min<uint32_t>(out->struct_size, sizeof(c));
     memcpy(out, &c, size);
     out->struct_size = size;

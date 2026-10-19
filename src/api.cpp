@@ -71,6 +71,7 @@ void loadSettings() {
         s.kamikazeMinImpactSpeed = std::clamp(j.value("kamikazeMinImpactSpeed", s.kamikazeMinImpactSpeed), 0.1f, 30.0f);
         s.kamikazePayloadKg = j.value("kamikazePayloadKg", s.kamikazePayloadKg);
         s.kamikazePayloadDrop = j.value("kamikazePayloadDrop", s.kamikazePayloadDrop);
+        s.kamikazeEndingDuration = std::clamp(j.value("kamikazeEndingDuration", s.kamikazeEndingDuration), 0.0f, 30.0f);
         s.kamikazeOsd = j.value("kamikazeOsd", s.kamikazeOsd);
 #endif
     } catch (const std::exception &e) {
@@ -98,6 +99,7 @@ void saveSettings() {
     j["kamikazeMinImpactSpeed"] = s.kamikazeMinImpactSpeed;
     j["kamikazePayloadKg"] = s.kamikazePayloadKg;
     j["kamikazePayloadDrop"] = s.kamikazePayloadDrop;
+    j["kamikazeEndingDuration"] = s.kamikazeEndingDuration;
     j["kamikazeOsd"] = s.kamikazeOsd;
 #endif
     writeFileAtomic(pathFromUtf8(L.dataDir) / "settings.json", j.dump(2));

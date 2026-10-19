@@ -632,6 +632,13 @@ typedef struct fpv_kamikaze_config {
     /* How far below the frame centre it hangs, host units; -1 (default) =
      * the preset's, or just under the frame. */
     float payload_drop;
+    /* How long the game shows the ending after a detonation (the arcade
+     * cutscene, or the static of signal lost) before what comes next,
+     * seconds, 0..30, default 3. libfpv never times the ending itself: the
+     * game reads this (fpv_kamikaze_get_config) when the warhead goes off.
+     * Players can tune it in the overlay (F8 > Fly). Leave it out
+     * (a smaller struct_size) to keep the player's. */
+    float ending_duration;
 } fpv_kamikaze_config;
 
 /* Fills the defaults (struct_size included). Call it after fpv_global_init

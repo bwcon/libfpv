@@ -189,9 +189,10 @@ the drone does not arm.
 Don't draw the drone model. Pick an ending:
 
 - **Arcade**: switch the game camera to an external shot of the blast
-  for 1 s (the FPV camera now shows only static), then call
+  for the ending duration (the FPV camera now shows only static), then call
   `fpv_drone_repair(drone)` and `fpv_drone_reset(drone, spawn, rot)`.
-- **Signal lost** (realistic): keep showing the FPV view for 1 s. Draw full
+- **Signal lost** (realistic): keep showing the FPV view for the ending
+  duration. Draw full
   static while `FPV_DRONE_DETONATED` is set (with `SIGNAL LOST` over it from
   the OSD), then hand control back to the player (the character on foot,
   in a game that has one), or respawn only when the pilot asks for the next
@@ -200,6 +201,11 @@ Don't draw the drone model. Pick an ending:
   the same as while `FPV_DRONE_OSD_DISABLED` is set
   ([OSD disable switch](#osd-disable-switch)), so the screen shows only
   the static and `SIGNAL LOST`, like a real lost feed.
+
+The ending duration is the player's: 3 s by default, tuned in the overlay
+(F8 > Fly, "Ending") and saved with the other kamikaze settings. Read
+`fpv_kamikaze_get_config(&c).ending_duration` when the warhead goes off,
+rather than a fixed length, so the slider works in every game.
 
 `fpv_drone_repair` always gives a new drone with a new, safe warhead. If the
 pilot's bomb switch is still on, it must be turned off before the new
@@ -214,7 +220,8 @@ scripted strike that checks every rule and exits 1 on failure.
 
 `fpv_kamikaze_set_config` sets the arming delay (default 0, none), the contact fuse threshold
 (`min_impact_speed`, default 0.25 m/s), the payload (`payload_mass` kg and
-`payload_drop` below the frame, -1 = automatic) and `FPV_KAMIKAZE_NO_OSD`.
+`payload_drop` below the frame, -1 = automatic), the ending duration
+(`ending_duration`, default 3 s) and `FPV_KAMIKAZE_NO_OSD`.
 Players edit the same values in the overlay (F8 > Fly), and both are saved
 in `settings.json`, so only set them at startup if the game must override
 the player (a mission with a fixed payload, for example).
