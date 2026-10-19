@@ -813,8 +813,12 @@ over (ANGLE). The centre of mass does not move, because SimITL has no
 offset for it. Changing the payload patches SimITL's live `stateInit`
 instead of re-initialising the physics, so it can change in flight.
 `fpv_kamikaze_config` and the overlay (F8 > Fly) edit the same values
-(payload, arming delay, fuse threshold, OSD), saved in `settings.json`;
-those settings only show with the bomb installed.
+(payload, arming delay, fuse threshold, ending duration, OSD), saved in
+`settings.json`; those settings only show with the bomb installed. The
+ending duration (3 s by default; 1 s was too short to see the blast) is
+only a number libfpv stores for the game: the game times its own
+cutscene or static, so it can still pick any ending, and the player tunes
+one slider for every game.
 
 Tests: `kamikaze_*` in `fpv_tests` (only in kamikaze builds; the other
 tests run there without the bomb installed, since they check a bare quad

@@ -42,6 +42,7 @@ struct Settings {
     // fpv_kamikaze_config, internal units (seconds, m/s, kg, metres)
     float kamikazeArmingDelay = 0.0f, kamikazeMinImpactSpeed = 0.25f;
     float kamikazePayloadKg = -1.0f, kamikazePayloadDrop = -1.0f;  // < 0 = automatic
+    float kamikazeEndingDuration = 3.0f;  // the game's cutscene / static after a detonation, s
     bool kamikazeOsd = true;
 #endif
 };

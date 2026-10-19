@@ -1618,6 +1618,21 @@ void testKamikazeGroundTap() {
     CHECK(drainDetonations() == 0, "a 2 m/s fuse ignores the tap");
     cfg.min_impact_speed = 0.01f;
     CHECK(fpv_kamikaze_set_config(&cfg) == FPV_ERROR_INVALID_ARGUMENT, "fuse below 0.1 m/s refused");
+    // the ending duration (the overlay's "Ending"): stored for the game, kept by older hosts
+    fpv_kamikaze_config_defaults(&cfg);
+    CHECK(cfg.ending_duration == 3.0f, "default ending 3 s (%.1f)", cfg.ending_duration);
+    cfg.ending_duration = 5.0f;
+    CHECK(fpv_kamikaze_set_config(&cfg) == FPV_OK, "set ending: %s", fpv_last_error());
+    fpv_kamikaze_config_defaults(&cfg);
+    cfg.struct_size = offsetof(fpv_kamikaze_config, ending_duration);  // a host built before it
+    CHECK(fpv_kamikaze_set_config(&cfg) == FPV_OK, "set an old config: %s", fpv_last_error());
+    fpv_kamikaze_config got{};
+    got.struct_size = sizeof got;
+    CHECK(fpv_kamikaze_get_config(&got) == FPV_OK && got.ending_duration == 5.0f,
+          "an old host keeps the player's ending (%.1f)", got.ending_duration);
+    cfg.struct_size = sizeof cfg;
+    cfg.ending_duration = 31.0f;
+    CHECK(fpv_kamikaze_set_config(&cfg) == FPV_ERROR_INVALID_ARGUMENT, "ending over 30 s refused");
     fpv_kamikaze_config_defaults(&cfg);
     fpv_kamikaze_set_config(&cfg);
     fpv_drone_reset(s.drone, up, nullptr);

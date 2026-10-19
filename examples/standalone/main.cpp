@@ -32,7 +32,7 @@
 // The bomb is not installed by default: F8 > Fly > "Bomb installed" (or
 // the game's own fpv_kamikaze_set_installed) adds it, for every drone.
 // Keys: K bomb arm switch, X explode, C what happens after the explosion
-// (arcade: a 1 s cutscene, then respawn / signal lost until R).
+// (arcade: a cutscene, 3 s by default (F8 > Fly), then respawn / signal lost until R).
 // --after arcade|signal picks it, --kamikaze-demo flies a scripted
 // strike that checks every warhead rule and exits 0 (pass) or 1 (fail).
 //
@@ -431,6 +431,7 @@ struct KamikazeDemo {
     bool detonated = false, respawned = false, targetHit = false, directHit = false;
     bool wantRespawn = false;  // signal mode: the "player" takes the next drone
     float armingDelay = 0;     // the player's setting (F8 > Fly), none by default
+    float endingDuration = 3;  // the player's setting (F8 > Fly)
     void check(bool ok, const char *what) {
         SDL_Log("[demo] %s %s", ok ? "PASS" : "FAIL", what);
         if (!ok) failures++;
@@ -506,9 +507,10 @@ struct KamikazeDemo {
             break;
         }
         case 5:  // the game respawns the drone (arcade), or the pilot asks (signal)
-            if (st > 2 && !respawned) wantRespawn = true;  // signal mode: nobody else respawns it
+            // signal mode: nobody else respawns it
+            if (st > endingDuration + 1 && !respawned) wantRespawn = true;
             if (respawned && respawnSeen < 0) respawnSeen = t;
-            if ((respawnSeen >= 0 && t - respawnSeen > 0.3) || st > 6) {
+            if ((respawnSeen >= 0 && t - respawnSeen > 0.3) || st > endingDuration + 5) {
                 check(respawned && k.warhead == FPV_WARHEAD_SAFE && !(f.flags & FPV_DRONE_DETONATED),
                       "respawned with a new, safe warhead");
                 return false;
@@ -671,6 +673,7 @@ int main(int argc, char **argv) {
         kc.struct_size = sizeof kc;
         fpv_kamikaze_get_config(&kc);
         demo.armingDelay = kc.arming_delay;
+        demo.endingDuration = kc.ending_duration;
     }
 #endif
 
@@ -837,7 +840,10 @@ int main(int argc, char **argv) {
                     SDL_Log("target destroyed (%s)", direct ? "direct hit" : "blast");
                 }
             }
-            respawnAt = after == AfterBoom::Arcade ? time + 1.0 : -1;
+            fpv_kamikaze_config kc{};
+            kc.struct_size = sizeof kc;
+            fpv_kamikaze_get_config(&kc);  // the player's ending length (F8 > Fly)
+            respawnAt = after == AfterBoom::Arcade ? time + kc.ending_duration : -1;
             if (after == AfterBoom::Signal) SDL_Log("SIGNAL LOST - press R for the next drone");
         }
         if ((respawnAt >= 0 && time >= respawnAt) || demo.wantRespawn) {

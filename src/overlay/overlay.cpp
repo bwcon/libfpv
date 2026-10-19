@@ -366,6 +366,13 @@ void Overlay::tabFly() {
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("The slowest touch that sets the live warhead off. 0.25 = a light tap on the "
                                       "ground; higher needs a real hit.");
+                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+                if (ImGui::SliderFloat("Ending (s)", &st.kamikazeEndingDuration, 0, 10, "%.1f",
+                                       ImGuiSliderFlags_AlwaysClamp))
+                    changed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("After the explosion: how long the game shows the blast (arcade) or the "
+                                      "static (signal lost) before what comes next.");
                 if (ImGui::Checkbox("Warhead state on the OSD", &st.kamikazeOsd)) changed = true;
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Its place: \"Bomb status\" in the OSD tab (\"Custom message 1\" in the "
