@@ -162,7 +162,7 @@ not per drone: a new, respawned or repaired drone carries it too. It is
 not saved, so every launch of the game starts without it.
 
 The motors only arm with the bomb switch off. Take off, flip it, and the
-warhead is live (OSD `STEADY`; with an arming delay set, `ARMING 3` first).
+warhead is live (OSD `BOMB_ARMED`; with an arming delay set, `ARMING 3` first).
 Any touch then sets it off, even a light tap on the ground, and so does the
 explode switch. With the bomb switch off nothing explodes. The warhead
 weighs something (by default 60 % of the quad), so a loaded drone climbs
@@ -188,15 +188,14 @@ the OSD shows only `SIGNAL LOST` (even with the OSD disable switch on), and
 the drone does not arm.
 Don't draw the drone model. Pick an ending:
 
-- **Instant respawn** (arcade): right after the explosion, call
-  `fpv_drone_repair(drone)` and then `fpv_drone_reset(drone, spawn, rot)`.
-- **Cutscene**: switch the game camera to an external shot of the blast
-  for a few seconds (the FPV camera now shows only static), then repair
-  and reset as above.
-- **Signal lost** (realistic): keep showing the FPV view. Draw full static
-  while `FPV_DRONE_DETONATED` is set (with `SIGNAL LOST` over it from the OSD), and
-  respawn only when the pilot asks for the next drone, or when the game
-  hands it out (a limited number of drones, a launch position nearer the
+- **Arcade**: switch the game camera to an external shot of the blast
+  for 1 s (the FPV camera now shows only static), then call
+  `fpv_drone_repair(drone)` and `fpv_drone_reset(drone, spawn, rot)`.
+- **Signal lost** (realistic): keep showing the FPV view for 1 s. Draw full
+  static while `FPV_DRONE_DETONATED` is set (with `SIGNAL LOST` over it from
+  the OSD), then hand control back to the player (the character on foot,
+  in a game that has one), or respawn only when the pilot asks for the next
+  drone, or when the game hands it out (a limited number of drones, a launch position nearer the
   front). Consider also hiding all of the game's own UI over the static,
   the same as while `FPV_DRONE_OSD_DISABLED` is set
   ([OSD disable switch](#osd-disable-switch)), so the screen shows only
@@ -206,8 +205,9 @@ Don't draw the drone model. Pick an ending:
 pilot's bomb switch is still on, it must be turned off before the new
 warhead can arm, so a respawn never starts with a live bomb.
 
-The standalone example does all three: C switches between them, and
-`fpv_standalone --kamikaze-demo [--after cutscene|signal|instant]` flies a
+The standalone example does both: C switches between them (with no one
+on foot to hand back to, its signal lost waits for R), and
+`fpv_standalone --kamikaze-demo [--after arcade|signal]` flies a
 scripted strike that checks every rule and exits 1 on failure.
 
 ### Tuning

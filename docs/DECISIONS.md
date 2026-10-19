@@ -779,11 +779,11 @@ builds"). Detonations are queued (`fpv_kamikaze_poll_detonation`, up to
 16) rather than put in `fpv_frame`, so frames keep their layout and a
 host polling less often loses nothing.
 
-**OSD.** The warhead state is a Betaflight OSD element: `SAFE`,
-`BOMB SW ON` (blinking, the motors are blocked), `ARMING 3`, `STEADY`
-(live) and `NOT ARMED` (explode switch on a safe bomb). These are the words
-seen on strike-drone footage; the exact wording of real firing boards is
-not public, so libfpv follows the convention rather than a specific board.
+**OSD.** The warhead state is a Betaflight OSD element: `BOMB_SAFE`,
+`BOMB SW ON` (blinking, the motors are blocked), `ARMING 3`, `BOMB_ARMED`
+(live) and `NOT ARMED` (explode switch on a safe bomb). The exact wording
+of real firing boards is not public. `BOMB_SAFE` and `BOMB_ARMED` were
+`SAFE` and `STEADY` at first.
 At first libfpv wrote the text into `frame.osd` over Betaflight's grid,
 which put it above everything, the post-flight stats included, and fixed
 on row 3. It now takes Betaflight's "Custom message 1" (`OSD_CUSTOM_MSG0`,

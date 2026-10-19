@@ -516,9 +516,9 @@ FPV_API fpv_result fpv_gps_set_home(const float position[3]);
  *     motors with it off, then turn it on in flight. After a refused arm,
  *     the arm switch must be cycled, like Betaflight's ARMSWITCH safety.
  *   - Bomb arm switch on with the motors armed makes the warhead live
- *     (FPV_WARHEAD_ARMED, OSD "STEADY"), after the arming delay if one is
+ *     (FPV_WARHEAD_ARMED, OSD "BOMB_ARMED"), after the arming delay if one is
  *     set (none by default; FPV_WARHEAD_ARMING, OSD "ARMING 3"). Off at any
- *     time safes it ("SAFE"). The OSD line is Betaflight's "Custom message
+ *     time safes it ("BOMB_SAFE"). The OSD line is Betaflight's "Custom message
  *     1" element: players move or hide it in the overlay (F8 > OSD) or the
  *     Betaflight Configurator, and other elements can draw over it.
  *   - Only a live warhead explodes: on any touch (a contact fuse: every

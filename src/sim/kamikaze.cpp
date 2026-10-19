@@ -65,13 +65,13 @@ void Warhead::statusText(char *out, size_t size, double simTime, bool fcArmed) {
     } else if (simTime < w.refusedUntil) {
         if (blink) text = "NOT ARMED";
     } else if (w.state == WarheadState::Safe) {
-        if (!w.bombSwitch || (fcArmed && !w.needsCycle)) text = "SAFE";
+        if (!w.bombSwitch || (fcArmed && !w.needsCycle)) text = "BOMB_SAFE";
         else if (blink) text = "BOMB SW ON";
     } else if (w.state == WarheadState::Arming) {
         std::snprintf(arming, sizeof arming, "ARMING %d", (int)std::ceil(w.armingRemaining));
         text = arming;
     } else if (w.state == WarheadState::Armed) {
-        text = "STEADY";
+        text = "BOMB_ARMED";
     }
     // centred in the width of the longest word, so it stays put as it changes
     const int kWidth = 10;

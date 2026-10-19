@@ -1436,7 +1436,7 @@ void testKamikazeArmingBlock() {
     s.run(1.0f);  // past Betaflight's boot logo
     skipStats(s);  // an earlier test may have flown
     CHECK(warhead(s.drone).warhead == FPV_WARHEAD_SAFE, "new drone: warhead safe");
-    CHECK(osdHas(s.f, "SAFE"), "OSD shows SAFE");
+    CHECK(osdHas(s.f, "BOMB_SAFE"), "OSD shows BOMB_SAFE");
     s.rc.ch[kBomb] = 1;
     s.run(0.3f);
     s.arm();
@@ -1457,7 +1457,7 @@ void testKamikazeArmingBlock() {
     s.destroy();
 }
 
-// In flight: bomb arm switch -> ARMING countdown -> live ("STEADY"); the
+// In flight: bomb arm switch -> ARMING countdown -> live ("BOMB_ARMED"); the
 // warhead stays live when the motors disarm, and the fall detonates it.
 void testKamikazeImpact() {
     Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
@@ -1487,7 +1487,7 @@ void testKamikazeImpact() {
     s.rc.ch[kBomb] = 1;
     s.run(2.5f);
     CHECK(warhead(s.drone).warhead == FPV_WARHEAD_ARMED, "live after the delay (%d)", warhead(s.drone).warhead);
-    CHECK(osdHas(s.f, "STEADY"), "OSD shows STEADY");
+    CHECK(osdHas(s.f, "BOMB_ARMED"), "OSD shows BOMB_ARMED");
     CHECK(drainDetonations() == 0, "nothing exploded in the air");
     float height = h.up(s.f.position);
     CHECK(height > 2, "high enough for the fall, %.1f m", height);
@@ -1564,7 +1564,7 @@ void testKamikazeExplodeSwitch() {
     CHECK(drainDetonations(&d) == 1 && d.cause == FPV_DETONATION_SWITCH, "explode switch detonates (cause %d)", d.cause);
     CHECK(h.up(d.position) > 1, "in the air, %.1f m", h.up(d.position));
     CHECK(boom, "OSD shows SIGNAL LOST");
-    CHECK(!osdHas(s.f, "STEADY"), "rest of the OSD gone");
+    CHECK(!osdHas(s.f, "BOMB_ARMED"), "rest of the OSD gone");
 
     // forced host detonation of a safe warhead
     fpv_drone_repair(s.drone);
@@ -1648,7 +1648,7 @@ void testKamikazeInstall() {
     drainDetonations();
     fpv_kamikaze_state k = warhead(s.drone);
     CHECK(!(k.flags & FPV_KAMIKAZE_INSTALLED) && k.payload_mass == 0, "no bomb, no payload (%.3f kg)", k.payload_mass);
-    CHECK(!osdHas(s.f, "SAFE") && !osdHas(s.f, "CUSTOM"), "no bomb OSD");
+    CHECK(!osdHas(s.f, "BOMB_SAFE") && !osdHas(s.f, "CUSTOM"), "no bomb OSD");
     s.rc.ch[kBomb] = 1;
     s.run(0.2f);
     takeOff(s, 0.4f);
@@ -1658,7 +1658,7 @@ void testKamikazeInstall() {
     k = warhead(s.drone);
     CHECK(k.warhead == FPV_WARHEAD_SAFE && !(k.flags & FPV_KAMIKAZE_BOMB_SWITCH), "switches ignored (%d, %x)", k.warhead,
           k.flags);
-    CHECK(!osdHas(s.f, "NOT ARMED") && !osdHas(s.f, "STEADY"), "nothing on the OSD");
+    CHECK(!osdHas(s.f, "NOT ARMED") && !osdHas(s.f, "BOMB_ARMED"), "nothing on the OSD");
     CHECK(fpv_kamikaze_detonate(s.drone, 1) == FPV_ERROR_NOT_FOUND, "nothing to detonate");
     CHECK(drainDetonations() == 0, "nothing exploded");
     s.rc.ch[kExplode] = -1;
@@ -1674,16 +1674,16 @@ void testKamikazeInstall() {
     s.rc.ch[kBomb] = 1;
     s.run(0.5f);
     CHECK(warhead(s.drone).warhead == FPV_WARHEAD_ARMED, "live at once (%d)", warhead(s.drone).warhead);
-    CHECK(osdHas(s.f, "STEADY"), "OSD shows STEADY");
+    CHECK(osdHas(s.f, "BOMB_ARMED"), "OSD shows BOMB_ARMED");
     // the OSD line is the custom message 1 element: it moves, and the OSD
     // disable switch hides it
     cli("set osd_custom_msg0_pos = 2434\nsave");  // column 2, row 12
     s.run(0.5f);
     std::string row12((const char *)&s.f.osd[12 * FPV_OSD_COLS], FPV_OSD_COLS);
-    CHECK(row12.find("STEADY") != std::string::npos, "moved to row 12: \"%s\"", row12.c_str());
+    CHECK(row12.find("BOMB_ARMED") != std::string::npos, "moved to row 12: \"%s\"", row12.c_str());
     s.rc.ch[9] = 1;
     s.run(0.5f);
-    CHECK(!osdHas(s.f, "STEADY"), "hidden by the OSD disable switch");
+    CHECK(!osdHas(s.f, "BOMB_ARMED"), "hidden by the OSD disable switch");
     s.rc.ch[9] = -1;
     // removed: safe and light again
     fpv_kamikaze_set_installed(0);
@@ -1701,7 +1701,7 @@ void testKamikazeInstall() {
     skipStats(s2);  // the first drone flew: Betaflight shows its stats
     k = warhead(s2.drone);
     CHECK((k.flags & FPV_KAMIKAZE_INSTALLED) && k.payload_mass > 0, "a new drone carries it too");
-    CHECK(osdHas(s2.f, "SAFE"), "OSD shows SAFE");
+    CHECK(osdHas(s2.f, "BOMB_SAFE"), "OSD shows BOMB_SAFE");
     s2.destroy();
 }
 
