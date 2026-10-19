@@ -1,0 +1,58 @@
+# Builds examples/standalone for the web on every push to main and deploys
+# it to https://libfpv.hammerill.com (docs/WEB.md). The VPS accepts the
+# deploy key only for rrsync into the site's folder.
+name: Web
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-deploy
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    environment:
+      name: web
+      url: https://libfpv.hammerill.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true    # not recursive: SimITL's nested ones are SSH
+
+      - name: Emscripten
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git ~/emsdk
+          ~/emsdk/emsdk install 6.0.12
+          ~/emsdk/emsdk activate 6.0.12
+
+      - name: Build
+        run: |
+          source ~/emsdk/emsdk_env.sh
+          emcmake cmake -S . -B build/web
+          cmake --build build/web -j"$(nproc)"
+
+      - name: Test
+        run: |
+          source ~/emsdk/emsdk_env.sh
+          node build/web/tests/fpv_tests.js
+
+      - name: Deploy
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cp LICENSE build/web/web/libfpv.LICENSE.txt
+          # rrsync on the VPS maps / to the site's folder
+          rsync -rtvz --delete-after --delay-updates \
+            -e "ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes" \
+            build/web/web/ deploy@hammerill.com:/
