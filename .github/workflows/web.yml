@@ -36,7 +36,8 @@ jobs:
         run: |
           source ~/emsdk/emsdk_env.sh
           emcmake cmake -S . -B build/web \
-            -DLIBFPV_STANDALONE_BF_CONFIG="$PWD/assets/configs/hammerill.diff.txt"
+            -DLIBFPV_STANDALONE_BF_CONFIG="$PWD/assets/configs/hammerill.diff.txt" \
+            -DLIBFPV_KAMIKAZE=ON
           cmake --build build/web -j"$(nproc)"
 
       - name: Test
