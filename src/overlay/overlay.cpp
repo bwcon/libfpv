@@ -403,9 +403,13 @@ void Overlay::tabFly() {
     }
     if (!L.hostActions.empty()) {
         sectionTitle("Game");
+        // wrapped to the window width, however many the game adds
+        const ImGuiStyle &style = ImGui::GetStyle();
+        float right = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
         for (size_t i = 0; i < L.hostActions.size(); i++) {
             const Lib::HostAction &a = L.hostActions[i];
-            if (i) ImGui::SameLine();
+            float w = ImGui::CalcTextSize(a.label.c_str()).x + style.FramePadding.x * 2;
+            if (i && ImGui::GetItemRectMax().x + style.ItemSpacing.x + w <= right) ImGui::SameLine();
             ImGui::PushID((int)a.id);
             if (ImGui::Button(a.label.c_str())) L.clickedActions.push_back(a.id);
             ImGui::PopID();
