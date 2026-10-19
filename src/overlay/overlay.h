@@ -28,6 +28,9 @@ public:
     void mouseWheel(float dx, float dy);
     void key(int key, bool down);
     void text(const char *utf8);
+    // Clipboard text read by the browser (web builds): into the Import tab,
+    // or typed into the focused field.
+    void paste(const char *utf8, bool toImport);
     // True while the Controls tab waits for a key to bind.
     bool capturingKey() const;
 
@@ -77,6 +80,7 @@ private:
     int m_osdSelected = 0;
     int m_rateAxis = 0;
     bool m_rebindingToggle = false;
+    bool m_ctrl = false;
     std::string m_status;
 };
 

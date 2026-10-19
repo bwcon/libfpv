@@ -169,6 +169,81 @@ Notes:
   you trust libfpv's `main`, or pin libfpv to a tag with the checkout's
   `ref:` and bump it on purpose.
 
+## Web releases
+
+A game with its source available can also be published as a web page
+([WEB.md](WEB.md)): then the one link *is* the game. Players open it and fly,
+with nothing to download or extract and no game folder to find. The page
+is static files, so GitHub Pages can host it for free from the same
+repository, rebuilt on every push like the ZIP:
+
+```yaml
+name: Web
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write                # publish to GitHub Pages
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: mod }
+      - uses: actions/checkout@v4
+        with:
+          repository: hammerill/libfpv
+          path: libfpv
+          submodules: true    # not recursive: SimITL's nested ones are SSH
+      - name: Emscripten
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git
+          emsdk/emsdk install 6.0.12 && emsdk/emsdk activate 6.0.12
+      - name: Build libfpv
+        run: |
+          source emsdk/emsdk_env.sh
+          emcmake cmake -S libfpv -B libfpv/build-web -DLIBFPV_BUILD_TESTS=OFF -DLIBFPV_BUILD_EXAMPLES=OFF
+          cmake --build libfpv/build-web -j"$(nproc)"
+      - name: Build the mod
+        run: |
+          source emsdk/emsdk_env.sh
+          emcmake cmake -S mod -B mod/build-web -DLIBFPV_DIR="$GITHUB_WORKSPACE/libfpv"  # or emmake make ...
+          cmake --build mod/build-web -j"$(nproc)"
+      - name: Package
+        run: |
+          mkdir site
+          cp mod/build-web/<index.html, .js, .wasm, game data> site/
+          cp libfpv/LICENSE site/libfpv.LICENSE.txt
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: site }
+      - id: deploy
+        uses: actions/deploy-pages@v4
+```
+
+Turn Pages on once in the repository's Settings > Pages ("Source: GitHub
+Actions"). The page is then at `https://<you>.github.io/<mod>/`.
+
+- **Game data.** If the game needs files the player owns (a ROM, the
+  original game's assets), the page can't ship them. It has to ask the
+  player for them (a file picker that writes them into the module's file
+  system) before the game starts. Ship only what you may distribute.
+- **What players need to know** fits on the page itself: the controls, "move
+  a stick on your radio so the browser sees it", and that settings are
+  saved in this browser (WEB.md, "Radios and gamepads" and "Limits").
+- **Licensing** is the same as for the ZIP (below): put the license on the
+  site, and link the source repository and the exact libfpv commit from the
+  page.
+
 ## Licensing
 
 libfpv is GPL-3.0-or-later because it embeds Betaflight. Shipping

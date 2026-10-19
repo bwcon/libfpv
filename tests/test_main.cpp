@@ -1042,7 +1042,9 @@ void testDiffImport(const std::string &corpusDir) {
 }
 
 void testPinned() {
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+    // linked statically into the WebAssembly module: nothing can unload it
+#elif defined(_WIN32)
     HMODULE h = nullptr;
     CHECK(GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, (LPCWSTR)(void *)&fpv_global_init, &h), "module");
     // FreeLibrary on a pinned module is a no-op; it must stay loaded.

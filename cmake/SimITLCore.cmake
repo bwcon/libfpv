@@ -57,6 +57,8 @@ libfpv_apply_patches(${SIMITL_DIR} ${PROJECT_SOURCE_DIR}/patches/simitl)
 libfpv_apply_patches(${BF_DIR} ${PROJECT_SOURCE_DIR}/patches/betaflight)
 
 # --- libwebsockets (static, no TLS, no test apps) ----------------------------
+# Not in browser builds: a web page cannot run the Configurator's server.
+if(NOT EMSCRIPTEN)
 set(LWS_WITH_MINIMAL_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LWS_WITHOUT_TESTAPPS ON CACHE BOOL "" FORCE)
 set(LWS_WITHOUT_TEST_SERVER ON CACHE BOOL "" FORCE)
@@ -76,6 +78,7 @@ endif()
 add_subdirectory(${LWS_DIR} ${CMAKE_BINARY_DIR}/third_party/libwebsockets EXCLUDE_FROM_ALL)
 set_property(TARGET websockets PROPERTY POSITION_INDEPENDENT_CODE ON)
 set_property(TARGET websockets PROPERTY C_VISIBILITY_PRESET hidden)
+endif()
 
 # --- Betaflight + SimITL extensions ------------------------------------------
 set(BF_MAIN_SOURCES
@@ -138,11 +141,15 @@ list(FILTER BFEXT_SOURCES EXCLUDE REGEX "string_light\\.c$")
 list(APPEND BFEXT_SOURCES
   "${PROJECT_SOURCE_DIR}/src/core/bf_compat.c"
   "${BFEXT_DIR}/src/main/drivers/pwm_output_fake.c"
-  "${BFEXT_DIR}/src/main/drivers/serial_ws.c"
   "${BFEXT_DIR}/src/main/drivers/sound_beeper.c"
-  "${BF_DIR}/lib/main/dyad/dyad.c"
   "${BF_DIR}/lib/main/google/olc/olc.c"
 )
+if(EMSCRIPTEN)
+  # UARTs without a server (src/core/serial_ws_web.c)
+  list(APPEND BFEXT_SOURCES "${PROJECT_SOURCE_DIR}/src/core/serial_ws_web.c")
+else()
+  list(APPEND BFEXT_SOURCES "${BFEXT_DIR}/src/main/drivers/serial_ws.c" "${BF_DIR}/lib/main/dyad/dyad.c")
+endif()
 
 set(SIMITL_CPP_SOURCES
   ${SIMITL_DIR}/src/main.cpp
@@ -179,9 +186,10 @@ target_compile_options(simitl_core PRIVATE
   $<$<COMPILE_LANGUAGE:C>:-w>)
 if(CMAKE_C_COMPILER_ID MATCHES "Clang")
   # Betaflight/SimITL C code relies on implicit declarations (target.c calls
-  # init()), which Clang 16+ rejects; GCC only warns.
+  # init()), which Clang 16+ rejects, and on mismatched pointer types
+  # (cms_menu_blackbox.c), which newer Clang rejects; GCC only warns.
   target_compile_options(simitl_core PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:-Wno-error=implicit-function-declaration>)
+    $<$<COMPILE_LANGUAGE:C>:-Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types>)
 endif()
 if(MINGW)
   # Betaflight's structs use GCC bitfield layout; SimITL's C++ reads some of
@@ -193,8 +201,13 @@ set_target_properties(simitl_core PROPERTIES
   C_VISIBILITY_PRESET hidden
   CXX_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN ON)
-target_link_libraries(simitl_core PRIVATE websockets)
-target_include_directories(simitl_core PRIVATE ${LWS_DIR}/include ${CMAKE_BINARY_DIR}/third_party/libwebsockets/include)
+if(EMSCRIPTEN)
+  set_target_properties(simitl_core PROPERTIES POSITION_INDEPENDENT_CODE OFF)
+  target_compile_options(simitl_core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fwasm-exceptions>)
+else()
+  target_link_libraries(simitl_core PRIVATE websockets)
+  target_include_directories(simitl_core PRIVATE ${LWS_DIR}/include ${CMAKE_BINARY_DIR}/third_party/libwebsockets/include)
+endif()
 
 # Betaflight's parameter-group registry lives in a dedicated linker section.
 # ELF and PE need the SITL linker script to emit the start/end symbols;

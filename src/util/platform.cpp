@@ -12,7 +12,7 @@
 #    define WIN32_LEAN_AND_MEAN
 #  endif
 #  include <windows.h>
-#else
+#elif !defined(__EMSCRIPTEN__)
 #  include <dlfcn.h>
 #endif
 
@@ -22,7 +22,9 @@ static std::atomic<bool> g_pinned{false};
 
 bool pinLibraryInMemory() {
     if (g_pinned) return true;
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+    // linked statically into the page's module: nothing can unload it
+#elif defined(_WIN32)
     HMODULE h = nullptr;
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
                             (LPCWSTR)(void *)&pinLibraryInMemory, &h)) {

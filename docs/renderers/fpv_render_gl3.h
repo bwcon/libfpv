@@ -1,6 +1,6 @@
 /*
  * fpv_render_gl3.h - draws libfpv overlay/OSD draw data with OpenGL 3.3 core
- * (or OpenGL ES 3.0 with FPV_GL3_GLES). Single header:
+ * (or OpenGL ES 3.0 and WebGL 2 with FPV_GL3_GLES). Single header:
  *
  *   #include <your GL loader>            // glad, GLEW, gl3w, SDL_opengl...
  *   #define FPV_RENDER_GL3_IMPLEMENTATION
@@ -49,6 +49,15 @@ static unsigned int fpv_gl3__shader(unsigned int type, const char *src) {
     return s;
 }
 
+/* Vertex layout, with the buffer starting `base` vertices in. */
+static void fpv_gl3__attribs(size_t base) {
+    size_t b = base * sizeof(fpv_draw_vertex);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(fpv_draw_vertex), (void *)(b + offsetof(fpv_draw_vertex, pos)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(fpv_draw_vertex), (void *)(b + offsetof(fpv_draw_vertex, uv)));
+    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(fpv_draw_vertex),
+                          (void *)(b + offsetof(fpv_draw_vertex, color)));
+}
+
 int fpv_gl3_init(fpv_gl3 *r) {
     memset(r, 0, sizeof(*r));
     const char *vs =
@@ -79,9 +88,7 @@ int fpv_gl3_init(fpv_gl3 *r) {
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(fpv_draw_vertex), (void *)offsetof(fpv_draw_vertex, pos));
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(fpv_draw_vertex), (void *)offsetof(fpv_draw_vertex, uv));
-    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(fpv_draw_vertex), (void *)offsetof(fpv_draw_vertex, color));
+    fpv_gl3__attribs(0);
     glBindVertexArray(0);
     return 1;
 }
@@ -140,6 +147,9 @@ void fpv_gl3_render(fpv_gl3 *r, const fpv_draw_data *dd, int fbw, int fbh) {
     glBindVertexArray(r->vao);
     glBindBuffer(GL_ARRAY_BUFFER, r->vbo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, r->ebo);
+#ifdef FPV_GL3_GLES
+    uint32_t base = 0; /* vertex offset the layout points at */
+#endif
     for (uint32_t l = 0; l < dd->list_count; l++) {
         const fpv_draw_list *list = &dd->lists[l];
         glBufferData(GL_ARRAY_BUFFER, (long)(list->vertex_count * sizeof(fpv_draw_vertex)), list->vertices, GL_STREAM_DRAW);
@@ -151,10 +161,20 @@ void fpv_gl3_render(fpv_gl3 *r, const fpv_draw_data *dd, int fbw, int fbh) {
             if (x2 <= x1 || y2 <= y1) continue;
             glScissor(x1, fbh - y2, x2 - x1, y2 - y1); /* GL scissor origin is bottom-left */
             glBindTexture(GL_TEXTURE_2D, fpv_gl3__texture(r, cmd->texture_id));
+#ifdef FPV_GL3_GLES
+            /* ES 3.0 and WebGL 2 have no base vertex: move the vertex layout instead */
+            if (cmd->vertex_offset != base) fpv_gl3__attribs(base = cmd->vertex_offset);
+            glDrawElements(GL_TRIANGLES, (int)cmd->index_count, GL_UNSIGNED_INT,
+                           (void *)(size_t)(cmd->index_offset * sizeof(uint32_t)));
+#else
             glDrawElementsBaseVertex(GL_TRIANGLES, (int)cmd->index_count, GL_UNSIGNED_INT,
                                      (void *)(size_t)(cmd->index_offset * sizeof(uint32_t)), (int)cmd->vertex_offset);
+#endif
         }
     }
+#ifdef FPV_GL3_GLES
+    if (base) fpv_gl3__attribs(0);
+#endif
     /* restore state */
     glUseProgram((unsigned)last_program);
     glBindVertexArray((unsigned)last_vao);

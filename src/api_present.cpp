@@ -209,6 +209,7 @@ FPV_API const fpv_draw_data *fpv_overlay_render(float dt) {
     Lib &L = lib();
     std::lock_guard<std::recursive_mutex> lock(L.mutex);
     if (!L.initialized) return nullptr;
+    L.runner.pump();  // browsers: the radio wizard reads live sticks with no drone
     return overlay().render(dt);
 }
 

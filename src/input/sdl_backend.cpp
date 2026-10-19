@@ -12,7 +12,6 @@
 #include "input/input.h"
 
 #include <algorithm>
-#include <cctype>
 #include <map>
 
 #include "util/log.h"
@@ -26,19 +25,6 @@ namespace fpv {
 #if defined(LIBFPV_WITH_SDL)
 
 namespace {
-
-bool nameLooksLikeRadio(const std::string &name) {
-    std::string n = name;
-    for (char &c : n) c = (char)std::tolower((unsigned char)c);
-    static const char *kWords[] = {"edgetx",  "opentx",  "radiomaster", "jumper", "frsky",   "taranis",
-                                   "tbs",     "tango",   "mambo",       "crossfire", "elrs", "expresslrs",
-                                   "boxer",   "zorro",   "tx16",        "tx12",   "pocket",  "betafpv",
-                                   "literadio", "flysky", "fs-i6",      "spektrum", "dongle", "simulator",
-                                   "rc transmitter", "joystick (edgetx)", "radioking", "commando"};
-    for (const char *w : kWords)
-        if (n.find(w) != std::string::npos) return true;
-    return false;
-}
 
 class SdlBackend : public DeviceBackend {
 public:

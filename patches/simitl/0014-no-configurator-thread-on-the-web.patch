@@ -1,0 +1,14 @@
+diff --git a/src/sim/sim.cpp b/src/sim/sim.cpp
+--- a/src/sim/sim.cpp
++++ b/src/sim/sim.cpp
+@@ -120,6 +120,10 @@
+ 
+   void Sim::startServices(){
+     running = true;
++#if defined(__EMSCRIPTEN__)
++    // browsers cannot accept connections: no configurator server, no thread
++    return;
++#endif
+     if(!wsThread.joinable()){
+       // re-creates the websocket contexts of ports closed by stop()
+       BF::restartSerial();

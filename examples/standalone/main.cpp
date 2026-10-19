@@ -22,6 +22,9 @@
 // Verification flags: --autopilot (scripted flight), --screenshot out.ppm
 // --frames N (save the N-th frame and exit), --overlay (open it), --camera.
 //
+// Web builds (Emscripten) run the same game in a browser page: WebGL 2,
+// the page's audio, the browser's Gamepad API for radios (docs/WEB.md).
+//
 // Kamikaze builds (-DLIBFPV_KAMIKAZE=ON) add the warhead hooks:
 //      fpv_kamikaze_poll_detonation          every frame: explosion, blast damage
 //      fpv_drone_repair + fpv_drone_reset    the next drone, when the game decides
@@ -39,11 +42,18 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <vector>
 
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#include <GLES3/gl3.h>
+#define FPV_GL3_GLES  // WebGL 2
+#else
 #define GL_MIN_IMPLEMENTATION
 #include "gl_min.h"
+#endif
 #define FPV_RENDER_GL3_IMPLEMENTATION
 #include "fpv_render_gl3.h"
 #include "libfpv.h"
@@ -248,10 +258,17 @@ static void buildDrone(Mesh &body, Mesh &prop, const fpv_frame &f) {
 
 // --- shaders -------------------------------------------------------------------------
 
+#if defined(__EMSCRIPTEN__)
+static const char *kGlslVersion = "#version 300 es\nprecision highp float;\n";
+#else
+static const char *kGlslVersion = "#version 330 core\n";
+#endif
+
 static GLuint program(const char *vs, const char *fs) {
     auto sh = [](GLenum t, const char *src) {
         GLuint s = glCreateShader(t);
-        glShaderSource(s, 1, &src, nullptr);
+        const char *srcs[2] = {kGlslVersion, src};
+        glShaderSource(s, 2, srcs, nullptr);
         glCompileShader(s);
         GLint ok;
         glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
@@ -269,8 +286,7 @@ static GLuint program(const char *vs, const char *fs) {
     return p;
 }
 
-static const char *kSceneVs = R"(#version 330 core
-layout(location=0) in vec3 pos; layout(location=1) in vec3 nrm; layout(location=2) in vec3 col;
+static const char *kSceneVs = R"(layout(location=0) in vec3 pos; layout(location=1) in vec3 nrm; layout(location=2) in vec3 col;
 uniform mat4 viewProj; uniform mat4 model;
 out vec3 v_nrm; out vec3 v_col; out vec3 v_world;
 void main() {
@@ -278,8 +294,7 @@ void main() {
   v_world = w.xyz; v_nrm = mat3(model) * nrm; v_col = col;
   gl_Position = viewProj * w;
 })";
-static const char *kSceneFs = R"(#version 330 core
-in vec3 v_nrm; in vec3 v_col; in vec3 v_world; uniform vec3 eye; uniform vec3 tint; uniform float emissive; out vec4 o;
+static const char *kSceneFs = R"(in vec3 v_nrm; in vec3 v_col; in vec3 v_world; uniform vec3 eye; uniform vec3 tint; uniform float emissive; out vec4 o;
 void main() {
   vec3 n = normalize(v_nrm);
   float l = 0.35 + 0.65 * abs(dot(n, normalize(vec3(0.4, 1.0, 0.3))));
@@ -293,11 +308,9 @@ void main() {
 })";
 // Post-process: Brown-Conrady lens distortion and analog video noise, as in
 // docs/INTEGRATION.md#lens-distortion.
-static const char *kPostVs = R"(#version 330 core
-out vec2 uv;
+static const char *kPostVs = R"(out vec2 uv;
 void main() { vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); uv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); })";
-static const char *kPostFs = R"(#version 330 core
-in vec2 uv; uniform sampler2D scene; uniform vec2 k; uniform float zoom; uniform float aspect;
+static const char *kPostFs = R"(in vec2 uv; uniform sampler2D scene; uniform vec2 k; uniform float zoom; uniform float aspect;
 uniform float noise; uniform float breakup; uniform float time; uniform float analog; uniform float flash;
 uniform float lost; out vec4 o;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -365,6 +378,7 @@ static void SDLCALL audioCb(void *, SDL_AudioStream *stream, int additional, int
     SDL_PutAudioStreamData(stream, buf.data(), frames * 2 * (int)sizeof(float));
 }
 
+#if !defined(__EMSCRIPTEN__)
 static void savePpm(const char *path, int w, int h) {
     std::vector<unsigned char> px((size_t)w * h * 3);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
@@ -375,6 +389,7 @@ static void savePpm(const char *path, int w, int h) {
     for (int y = h - 1; y >= 0; y--) std::fwrite(&px[(size_t)y * w * 3], 1, (size_t)w * 3, f);
     std::fclose(f);
 }
+#endif
 
 #if defined(LIBFPV_KAMIKAZE)
 // --- kamikaze -------------------------------------------------------------------------
@@ -508,7 +523,11 @@ struct KamikazeDemo {
 // --- main -------------------------------------------------------------------------------
 
 int main(int argc, char **argv) {
+#if defined(__EMSCRIPTEN__)
+    std::string dataDir = FPV_WEB_DATA_DIR, screenshot;  // kept by the browser
+#else
     std::string dataDir = "data", screenshot;
+#endif
     int frames = 0, width = 1280, height = 720, camMode = 0;
     bool autopilot = false, openOverlay = false;
 #if defined(LIBFPV_KAMIKAZE)
@@ -547,21 +566,36 @@ int main(int argc, char **argv) {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
+#if defined(__EMSCRIPTEN__)
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_WindowFlags winFlags = SDL_WINDOW_FILL_DOCUMENT;  // the canvas fills the page
+#else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_WindowFlags winFlags = SDL_WINDOW_RESIZABLE;
+#endif
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-    SDL_Window *win = SDL_CreateWindow("libfpv standalone", width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    SDL_Window *win = SDL_CreateWindow("libfpv standalone", width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_HIGH_PIXEL_DENSITY | winFlags);
     if (!win) {
         std::fprintf(stderr, "window: %s\n", SDL_GetError());
         return 1;
     }
     SDL_GLContext gl = SDL_GL_CreateContext(win);
+#if defined(__EMSCRIPTEN__)
+    if (!gl) {
+        std::fprintf(stderr, "WebGL 2: %s\n", SDL_GetError());
+        return 1;
+    }
+#else
     if (!gl || !gl_min_load((void *(*)(const char *))SDL_GL_GetProcAddress)) {
         std::fprintf(stderr, "OpenGL 3.3: %s\n", SDL_GetError());
         return 1;
     }
     SDL_GL_SetSwapInterval(screenshot.empty() ? 1 : 0);
+#endif
     SDL_StartTextInput(win);
 
     // 1. libfpv
@@ -667,7 +701,8 @@ int main(int argc, char **argv) {
     double time = 0;
     bool running = true;
     int frameNo = 0;
-    while (running) {
+    // one frame of the game (a browser calls it once per display refresh)
+    auto gameFrame = [&] {
         // 5. input
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -686,7 +721,9 @@ int main(int argc, char **argv) {
                 }
                 if (k != FPV_KEY_NONE && !e.key.repeat) fpv_input_key(k, down);
                 if (down && !fpv_overlay_wants_input()) {  // the game's own keys
-                    if (e.key.key == SDLK_ESCAPE) running = false;
+#if !defined(__EMSCRIPTEN__)
+                    if (e.key.key == SDLK_ESCAPE) running = false;  // a web page has nothing to quit
+#endif
                     if (e.key.key == SDLK_V) camMode = (camMode + 1) % 3;
                     if (e.key.key == SDLK_R) {
                         fpv_drone_repair(drone);  // kamikaze builds: also a new warhead
@@ -947,14 +984,27 @@ int main(int argc, char **argv) {
         fpv_gl3_render(&ui, fpv_overlay_render(dt), fbw, fbh);
 
         frameNo++;
+#if !defined(__EMSCRIPTEN__)
         if (!screenshot.empty() && frameNo >= frames) {
             savePpm(screenshot.c_str(), fbw, fbh);
             SDL_Log("saved %s (sim %.2f s, %s, height %.1f m, %.0f km/h)", screenshot.c_str(), frame.sim_time,
                     (frame.flags & FPV_DRONE_ARMED) ? "armed" : "disarmed", frame.position[1], frame.speed_kmh);
             running = false;
         }
+#endif
         SDL_GL_SwapWindow(win);
-    }
+    };
+#if defined(__EMSCRIPTEN__)
+    // The browser drives the frames; main() never returns, so its locals stay.
+    static std::function<void()> s_frame;
+    s_frame = [&] {
+        gameFrame();
+        if (!running) emscripten_cancel_main_loop();
+    };
+    emscripten_set_main_loop([] { s_frame(); }, 0, true);
+#else
+    while (running) gameFrame();
+#endif
 
     // 7. shutdown
     if (audio) SDL_DestroyAudioStream(audio);

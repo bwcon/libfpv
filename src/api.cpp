@@ -18,6 +18,7 @@
 #include "util/fs.h"
 #include "util/log.h"
 #include "util/platform.h"
+#include "web/web.h"
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -433,8 +434,22 @@ FPV_API fpv_result fpv_global_init(const fpv_global_config *cfgIn) {
         return setError(FPV_ERROR_INVALID_ARGUMENT, "coords: right/up/forward must name three different axes and units_per_meter > 0");
     if (cfg.sim_rate_hz <= 0) cfg.sim_rate_hz = 1000.0f;
     if (cfg.configurator_port <= 0) cfg.configurator_port = 5761;
+#if defined(__EMSCRIPTEN__)
+    cfg.flags |= FPV_INIT_NO_CONFIGURATOR;  // a web page cannot accept connections
+#endif
 
     logSetSink((LogSink)cfg.log, cfg.log_user, (LogLevel)std::clamp((int)cfg.log_level, 0, 3));
+#if defined(__EMSCRIPTEN__)
+    {
+        char *kept = libfpv_web_data_dir();
+        std::string dir = cfg.data_dir, keptDir = kept;
+        free(kept);
+        if (!keptDir.empty() && dir != keptDir && dir.rfind(keptDir + "/", 0) != 0)
+            FPV_LOGW("data_dir \"%s\" is not inside \"%s\", the folder this browser keeps: settings will be lost "
+                     "on reload (pass FPV_WEB_DATA_DIR, or set Module.libfpvDataDir)",
+                     cfg.data_dir, keptDir.c_str());
+    }
+#endif
 
     // The data dir pointer is only valid during this call.
     L.dataDir = cfg.data_dir;
