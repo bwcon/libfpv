@@ -224,9 +224,9 @@ void InputManager::setHoverFeedback(const HoverFeedback &f) {
 
 // Keyboard (degraded): A/D yaw (from a small rate, growing exponentially to
 // full while held), arrows pitch/roll, Enter arms, T toggles turtle, ANGLE
-// mode on. W/S move the throttle up and down, or, with the
-// hover throttle enabled, it works like an RC helicopter in GTA: no
-// key (or W and S together) hovers, S cuts the throttle, W raises it
+// mode on. W/S move the throttle up and down, or, with the automatic
+// hover throttle enabled, no key (or W and S together) hovers, S cuts
+// the throttle, and W raises it
 // exponentially up to full. The hover holds the climb rate at zero and
 // learns, per preset, the throttle that does it, so it follows the quad,
 // its battery sag and payload. On the ground, upside down or in turtle mode

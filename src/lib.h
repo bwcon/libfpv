@@ -35,7 +35,7 @@ struct Settings {
     float cameraUptilt = -1, cameraFov = -1;
     float cameraFisheye = 0.5f;  // lens strength 0..1, 0 = off (the preset's own k1/k2)
     bool chaseSmoothing = true;
-    bool keyboardHover = false;  // GTA-style keyboard throttle, see InputManager
+    bool keyboardHover = false;  // automatic hover throttle, see InputManager
     float keyboardThrottleExpo = kDefaultKeyboardThrottleExpo;  // 1/s, see InputManager
     float keyboardYawExpo = kDefaultKeyboardYawExpo;            // 1/s, see InputManager
 #if defined(LIBFPV_KAMIKAZE)

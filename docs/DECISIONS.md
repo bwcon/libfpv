@@ -571,9 +571,9 @@ removed it. A `diff all` import may now move modes to AUX2..AUX6.
 
 Opt-in (F8 > Controls, `keyboardHover` in settings.json), because it only
 applies to the keyboard fallback and should never surprise a radio pilot.
-The throttle works like the RC helicopter in GTA: no key (or W and S
-together) hovers, S cuts the throttle, W multiplies it by e^(expo * dt) from
-at least the hover up to 100% (`keyboardThrottleExpo`, 1/s, default 3).
+No key (or W and S together) hovers, S cuts the throttle, and W multiplies
+it by e^(expo * dt) from at least the hover up to 100%
+(`keyboardThrottleExpo`, 1/s, default 3).
 The hover is a climb-rate hold: throttle = hover / sqrt(cos tilt) *
 (1 - 3 * climb / 2g), since thrust grows about with the throttle squared.
 `hover` is learned while holding (an integrator on the climb rate, clamped

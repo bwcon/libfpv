@@ -129,7 +129,7 @@ public:
     void clearHostChannels();
     void key(int key, bool down);
     void setKeyboardEnabled(bool enabled) { m_keyboardEnabled = enabled; }
-    // GTA-style hover throttle (see mapKeyboard); off = W/S move the throttle.
+    // Automatic hover throttle (see mapKeyboard); off = W/S move the throttle.
     void setKeyboardHover(bool on) { m_kbHover = on; }
     // How fast W raises the throttle: it grows by e^(expo * seconds held).
     void setKeyboardThrottleExpo(float expo) { m_kbThrottleExpo = expo; }
