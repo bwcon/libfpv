@@ -2,11 +2,11 @@
 
 # Turn any game into an FPV simulator
 
-![SM64 FPV](./docs/img/sm64-fpv.gif)
+<p><img src="docs/img/sm64-fpv.gif" alt="SM64 FPV" width=512></p>
 
 *(example with [sm64ex-fpv](https://github.com/hammerill/sm64ex-fpv))*
 
-![GTA IV FPV](./docs/img/gtaiv-fpv.gif)
+<p><img src="docs/img/gtaiv-fpv.gif" alt="GTA IV FPV" width=512></p>
 
 *(another one with [gtaiv-fpv](https://github.com/hammerill/gtaiv-fpv))*
 
