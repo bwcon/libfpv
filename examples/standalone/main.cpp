@@ -606,27 +606,23 @@ int main(int argc, char **argv) {
     cfg.data_dir = dataDir.c_str();
     cfg.coords = fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1.0f);  // OpenGL: X right, Y up, -Z forward
     cfg.log = logCb;
-    if (fpv_global_init(&cfg) != FPV_OK) {
-        std::fprintf(stderr, "libfpv: %s\n", fpv_last_error());
-        return 1;
-    }
 #if defined(FPV_STANDALONE_BF_CONFIG)
-    // the build's Betaflight config, once per data dir; later edits are kept
-    std::string marker = dataDir + "/standalone_bf_config";
-    if (FILE *m = std::fopen(marker.c_str(), "rb")) {
-        std::fclose(m);
-    } else if (FILE *f = std::fopen(FPV_STANDALONE_BF_CONFIG, "rb")) {
+    // the build's Betaflight config: every new drone configuration (and a
+    // reset one) starts from it; existing ones and later edits are kept
+    if (FILE *f = std::fopen(FPV_STANDALONE_BF_CONFIG, "rb")) {
         std::string diff;
         char buf[4096];
         for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) diff.append(buf, n);
         std::fclose(f);
-        if (fpv_import_betaflight_diff(diff.c_str(), nullptr) == FPV_OK) {
-            if (FILE *w = std::fopen(marker.c_str(), "wb")) std::fclose(w);
-        } else {
-            std::fprintf(stderr, "Betaflight config: %s\n", fpv_last_error());
-        }
+        fpv_set_default_betaflight_diff(diff.c_str());
+    } else {
+        std::fprintf(stderr, "Betaflight config: cannot read %s\n", FPV_STANDALONE_BF_CONFIG);
     }
 #endif
+    if (fpv_global_init(&cfg) != FPV_OK) {
+        std::fprintf(stderr, "libfpv: %s\n", fpv_last_error());
+        return 1;
+    }
 
     // 2. world
     Mesh level;
