@@ -158,6 +158,7 @@ public:
     bool getMapping(const std::string &guid, DeviceMapping &out);
     void setMapping(const DeviceMapping &m);  // persists to data dir
     void forgetMapping(const std::string &guid);
+    void forgetAllMappings();
     // While the wizard is reading raw sticks, flight input is held at idle.
     void setWizardActive(bool active) { m_wizardActive = active; }
 

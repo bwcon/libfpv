@@ -118,6 +118,13 @@ void saveSettings();
 const DronePreset &currentPreset();
 fpv_result selectPreset(const std::string &nameOrFile, bool applyToFlight);
 std::string eepromPathFor(const DronePreset &p);
+// Erases the current quad's Betaflight EEPROM and restores its shipped preset
+// files, so it flies on libfpv's own configuration again. Disarm first.
+fpv_result resetCurrentPreset();
+// Puts every libfpv setting back as on first launch: settings, radio
+// mappings, every quad's EEPROM and the shipped preset files (players' own
+// presets are kept). Disarm first.
+fpv_result resetEverything();
 
 #if defined(LIBFPV_KAMIKAZE)
 // Pushes the kamikaze settings to the warhead and the flight model.

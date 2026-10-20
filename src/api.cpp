@@ -281,9 +281,119 @@ fpv_result selectPreset(const std::string &key, bool applyToFlight) {
     return FPV_OK;
 }
 
+// Rewrites the shipped files a quad is made of (its JSON, Betaflight tune and
+// components) from the copies compiled into libfpv. Returns false for a
+// player's own quad, which libfpv has no copy of.
+static bool restoreShippedPreset(const std::string &fileName) {
+    Lib &L = lib();
+    fs::path root = pathFromUtf8(L.presetDir);
+    auto embedded = [](const std::string &path) -> const EmbeddedFile * {
+        for (size_t i = 0; i < kEmbeddedPresetsCount; i++)
+            if (path == kEmbeddedPresets[i].path) return &kEmbeddedPresets[i];
+        return nullptr;
+    };
+    auto restore = [&](const EmbeddedFile &f) {
+        fs::path p = root / pathFromUtf8(f.path);
+        std::error_code ec;
+        fs::create_directories(p.parent_path(), ec);
+        if (!writeFileAtomic(p, std::string((const char *)f.data, f.size)))
+            FPV_LOGW("cannot restore %s", pathToUtf8(p).c_str());
+    };
+    const EmbeddedFile *quad = embedded("quad/" + fileName + ".json");
+    if (!quad) return false;
+    restore(*quad);
+    if (const EmbeddedFile *diff = embedded("quad/" + fileName + ".diff.txt")) restore(*diff);
+    json q = json::parse(quad->data, quad->data + quad->size, nullptr, false);
+    // components are referenced by their "name" field or file stem
+    for (const char *kind : {"motor", "propeller", "battery", "vtx"}) {
+        if (!q.is_object() || !q.contains(kind) || !q[kind].is_string()) continue;
+        std::string name = q[kind].get<std::string>(), dir = std::string(kind) + "/";
+        for (size_t i = 0; i < kEmbeddedPresetsCount; i++) {
+            const EmbeddedFile &f = kEmbeddedPresets[i];
+            std::string path = f.path;
+            if (path.rfind(dir, 0) != 0) continue;
+            json c = json::parse(f.data, f.data + f.size, nullptr, false);
+            std::string stem = pathToUtf8(pathFromUtf8(path).stem());
+            if (stem == name || (c.is_object() && c.value("name", "") == name)) restore(f);
+        }
+    }
+    return true;
+}
+
+// Re-reads the preset folder, keeping `fileName` selected if it still exists.
+static void reloadPresets(const std::string &fileName) {
+    Lib &L = lib();
+    std::vector<std::string> errors;
+    std::vector<DronePreset> presets = loadPresetDirectory(L.presetDir, errors);
+    for (auto &e : errors) FPV_LOGW("preset ignored: %s", e.c_str());
+    if (presets.empty()) presets.push_back(builtinDefaultPreset());
+    L.presets = std::move(presets);
+    int idx = findPreset(fileName);
+    L.presetIndex = idx >= 0 ? idx : 0;
+    L.settings.preset = currentPreset().fileName;
+}
+
+// Erases EEPROM files (with their upgrade markers) and flies the current
+// preset on a fresh one with libfpv's first-run setup. `all` erases every
+// quad's, otherwise only the current one's.
+static void recreateEeprom(bool all) {
+    Lib &L = lib();
+    const DronePreset p = currentPreset();
+    L.runner.call([&] {
+        // keep nothing pending that would be written back to the old file
+        if (bfb_config_dirty()) bfb_write_eeprom();
+        std::error_code ec;
+        if (all) {
+            std::vector<fs::path> files;
+            for (auto &e : fs::directory_iterator(pathFromUtf8(L.eepromDir), ec)) files.push_back(e.path());
+            for (auto &f : files) fs::remove(f, ec);
+        } else {
+            std::string path = eepromPathFor(p);
+            fs::remove(pathFromUtf8(path), ec);
+            fs::remove(upgradeMarker(path), ec);
+        }
+        g_activeEeprom.clear();
+        activateEepromFor(p);
+        L.flight.applyPreset(p);
+    });
+}
+
+fpv_result resetCurrentPreset() {
+    std::string fileName = currentPreset().fileName;
+    if (restoreShippedPreset(fileName)) reloadPresets(fileName);
+    recreateEeprom(false);
+    FPV_LOGI("reset \"%s\" to libfpv's configuration", currentPreset().name.c_str());
+    return FPV_OK;
+}
+
+static bool materializePresets(std::string &error, bool force = false);
+
+fpv_result resetEverything() {
+    Lib &L = lib();
+    // the overlay must stay reachable with the key the game chose
+    int toggleKey = L.settings.overlayToggleKey;
+    L.settings = Settings{};
+    L.settings.overlayToggleKey = toggleKey;
+    L.input.setKeyboardHover(L.settings.keyboardHover);
+    L.input.setKeyboardThrottleExpo(L.settings.keyboardThrottleExpo);
+    L.input.setKeyboardYawExpo(L.settings.keyboardYawExpo);
+    L.input.forgetAllMappings();
+
+    std::string err;
+    if (!materializePresets(err, true)) FPV_LOGW("presets: %s", err.c_str());
+    reloadPresets("freestyler-5");  // the first-launch drone
+    saveSettings();
+    recreateEeprom(true);
+#if defined(LIBFPV_KAMIKAZE)
+    applyKamikazeSettings();
+#endif
+    FPV_LOGI("reset every libfpv setting and drone to its defaults");
+    return FPV_OK;
+}
+
 // --- data directory --------------------------------------------------------
 
-static bool materializePresets(std::string &error) {
+static bool materializePresets(std::string &error, bool force) {
     Lib &L = lib();
     std::error_code ec;
     fs::path root = pathFromUtf8(L.presetDir);
@@ -292,7 +402,7 @@ static bool materializePresets(std::string &error) {
     // version is newer; players' own files are never touched.
     std::string stamp;
     readTextFile(root / ".libfpv-version", stamp);
-    bool upgrade = stamp != LIBFPV_VERSION_STRING;
+    bool upgrade = force || stamp != LIBFPV_VERSION_STRING;
     for (size_t i = 0; i < kEmbeddedPresetsCount; i++) {
         const EmbeddedFile &f = kEmbeddedPresets[i];
         fs::path p = root / pathFromUtf8(f.path);

@@ -163,6 +163,12 @@ void InputManager::forgetMapping(const std::string &guid) {
     saveMappings();
 }
 
+void InputManager::forgetAllMappings() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_mappings.clear();
+    saveMappings();
+}
+
 // --- mapping ---------------------------------------------------------------
 
 static float applyCalibration(const ChannelBinding &b, float raw) {
