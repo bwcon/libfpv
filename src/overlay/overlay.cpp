@@ -579,6 +579,43 @@ void Overlay::tabDrone() {
                        "reload). Each drone keeps its own Betaflight configuration.",
                        L.presetDir.c_str());
 #endif
+
+    sectionTitle("Reset");
+    // confirmation popups; `what` returns the status line
+    auto confirm = [&](const char *button, const char *title, const char *text, fpv_result (*what)(),
+                       const char *done) {
+        if (ImGui::Button(button)) {
+            if (armed) m_status = "Disarm before resetting.";
+            else ImGui::OpenPopup(title);
+        }
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30);
+            ImGui::TextWrapped("%s", text);
+            ImGui::PopTextWrapPos();
+            ImGui::Spacing();
+            if (ImGui::Button("Reset")) {
+                what();
+                m_bf.invalidate();
+                m_status = done;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+    };
+    std::string droneText = "Erase the Betaflight configuration (EEPROM) of \"" + p.name +
+                            "\": rates, tuning, OSD, modes and everything changed in the CLI or the Configurator. "
+                            "It comes back as libfpv ships it, and so do its preset files. This cannot be undone.";
+    confirm("Reset drone ROM", "Reset drone ROM?", droneText.c_str(), &resetCurrentPreset,
+            "Drone reset to libfpv's configuration.");
+    ImGui::SameLine();
+    confirm("Reset everything", "Reset everything?",
+            "Put every libfpv setting back as on the first launch: the Betaflight configuration of every drone, "
+            "the shipped drone presets, radio setups, camera, sound, controls and the selected drone. Drone files "
+            "you added yourself are kept. This cannot be undone.",
+            &resetEverything, "Everything reset to libfpv's defaults.");
 }
 
 void Overlay::tabRates() {
