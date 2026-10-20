@@ -155,14 +155,23 @@ static const char *const kEepromUpgrades[] = {"turtle-2", "air-osd-3"
 static const char *const kEepromUpgrade = kEepromUpgrades[std::size(kEepromUpgrades) - 1];
 static fs::path upgradeMarker(const std::string &eeprom) { return pathFromUtf8(eeprom + ".upgrade"); }
 
-// libfpv's first-run configuration plus the preset's own tune, applied to
-// the active EEPROM. Runs on the simulation thread.
+// libfpv's first-run configuration plus the preset's own tune and the
+// game's default diff, applied to the active EEPROM. Runs on the simulation
+// thread.
 static void applyFirstRunConfig(const DronePreset &p) {
     std::string script = betaflightFirstRunScript();
     if (!p.betaflightDiff.empty()) {
         DiffImport imp = buildDiffImport(p.betaflightDiff);
         // the preset tune replaces Betaflight defaults; keep libfpv's OSD/modes
         script = imp.script + betaflightFirstRunScript();
+    }
+    if (!lib().defaultDiff.empty()) {
+        // the game's setup goes on top: without the import's own reset to
+        // defaults, which would drop the preset tune
+        std::string game = buildDiffImport(lib().defaultDiff).script;
+        const std::string reset = "defaults nosave\n";
+        if (game.rfind(reset, 0) == 0) game.erase(0, reset.size());
+        script += game;
     }
     script += "save noreboot\n";
     char *out = nullptr;
@@ -975,6 +984,12 @@ FPV_API fpv_result fpv_import_betaflight_diff(const char *diff, char **outReport
     FPV_LOGI("imported Betaflight diff: %zu applied, %zu skipped", imp.applied.size(), imp.skipped.size());
     if (outReport) *outReport = dupString(report);
     return rc == BFB_CLI_OK ? FPV_OK : setError(FPV_ERROR_INTERNAL, "CLI session failed");
+}
+
+FPV_API void fpv_set_default_betaflight_diff(const char *diff) {
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    L.defaultDiff = diff ? diff : "";
 }
 
 FPV_API uint32_t fpv_preset_count(void) {

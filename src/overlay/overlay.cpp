@@ -607,7 +607,7 @@ void Overlay::tabDrone() {
     };
     std::string droneText = "Erase the Betaflight configuration (EEPROM) of \"" + p.name +
                             "\": rates, tuning, OSD, modes and everything changed in the CLI or the Configurator. "
-                            "It comes back as libfpv ships it, and so do its preset files. This cannot be undone.";
+                            "It comes back as this game ships it, and so do its preset files. This cannot be undone.";
     confirm("Reset drone ROM", "Reset drone ROM?", droneText.c_str(), &resetCurrentPreset,
             "Drone reset to libfpv's configuration.");
     ImGui::SameLine();

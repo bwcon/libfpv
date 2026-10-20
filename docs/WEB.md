@@ -191,8 +191,9 @@ nothing else to install for players:
 
 To have the page start from your own Betaflight setup instead of libfpv's,
 configure with `-DLIBFPV_STANDALONE_BF_CONFIG=<diff all file>` (see
-`assets/configs`). The file is embedded in the page and imported on a
-player's first visit; their later changes are kept.
+`assets/configs`). The file is embedded in the page and every drone's
+configuration starts from it (`fpv_set_default_betaflight_diff`), also
+after a reset in F8 > Drone; players' later changes are kept.
 
 The host must serve `.wasm` files as `application/wasm` (all of the above
 do) so the browser compiles the module while it downloads. Hosts compress

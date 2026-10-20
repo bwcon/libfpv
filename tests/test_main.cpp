@@ -343,6 +343,44 @@ void testEepromUpgrade() {
     CHECK(features.find("GPS") != std::string::npos, "GPS feature restored: %s", features.c_str());
 }
 
+// The game's default diff goes on top of a new EEPROM, keeping the preset's
+// own tune; existing EEPROMs are left alone.
+void testDefaultDiff() {
+    namespace fs = std::filesystem;
+    auto cli = [](const char *cmd) {
+        char *o = nullptr;
+        fpv_cli_exec(cmd, &o);
+        std::string r = o ? o : "";
+        fpv_free(o);
+        return r;
+    };
+    auto activate = [](const char *preset) {
+        Session s;
+        float p[3] = {0, 0, 0};
+        s.spawn(p, preset);
+        s.run(0.05f);
+        s.destroy();
+    };
+    const char *tuned = "betafpv-air65-ii", *other = "freestyler-5";
+    activate(other);
+    fs::path eeprom = fs::path(g_dataDir) / "eeprom";
+    fs::remove(eeprom / (std::string(tuned) + ".eeprom"));
+    fs::remove(eeprom / (std::string(tuned) + ".eeprom.upgrade"));
+    fpv_set_default_betaflight_diff("# diff all\ndefaults nosave\nset craft_name = GAMECFG\nrateprofile 0\n"
+                                    "set roll_srate = 53\nsave\n");
+    activate(tuned);
+    CHECK(cli("get craft_name").find("= GAMECFG") != std::string::npos, "default diff applied to a new EEPROM");
+    CHECK(cli("get roll_srate").find("roll_srate = 53") != std::string::npos, "default diff rates applied");
+    CHECK(cli("get gyro_lpf2_static_hz").find("= 600") != std::string::npos, "preset tune kept under the default diff");
+    CHECK(cli("aux").find("aux 0 0 0 1700 2100") != std::string::npos, "ARM still on AUX1");
+    activate(other);
+    CHECK(cli("get craft_name").find("GAMECFG") == std::string::npos, "existing EEPROM left alone");
+    fpv_set_default_betaflight_diff(nullptr);
+    // later tests fly this quad on libfpv's own configuration
+    fs::remove(eeprom / (std::string(tuned) + ".eeprom"));
+    fs::remove(eeprom / (std::string(tuned) + ".eeprom.upgrade"));
+}
+
 void testSecondDroneRejected() {
     Session a;
     float p[3] = {0, 0, 0};
@@ -1782,6 +1820,7 @@ int main(int argc, char **argv) {
         {"arm_disarm", testArmDisarm},
         {"turtle", testTurtle},
         {"eeprom_upgrade", testEepromUpgrade},
+        {"default_diff", testDefaultDiff},
         {"second_drone_rejected", testSecondDroneRejected},
         {"hover", testHover},
         {"keyboard_hover", testKeyboardHover},

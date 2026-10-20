@@ -840,6 +840,14 @@ FPV_API fpv_result fpv_cli_exec(const char *commands, char **out_output);
  * why. */
 FPV_API fpv_result fpv_import_betaflight_diff(const char *diff_text, char **out_report);
 
+/* The game's own `diff all` (cleaned up like fpv_import_betaflight_diff),
+ * applied on top of libfpv's setup and a preset's tune whenever libfpv
+ * creates a drone's Betaflight configuration: the first flight of each
+ * drone, and after the player resets it in the overlay (F8 > Drone).
+ * Existing configurations are left alone. Call it before fpv_global_init
+ * to cover the drone that init creates; NULL or "" clears it. */
+FPV_API void fpv_set_default_betaflight_diff(const char *diff_text);
+
 /* Physical presets (frame, motor, prop, battery, camera). */
 FPV_API uint32_t fpv_preset_count(void);
 FPV_API const char *fpv_preset_name(uint32_t index);

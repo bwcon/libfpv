@@ -61,6 +61,7 @@ struct Lib {
     Runner runner{flight, input};
 
     std::vector<DronePreset> presets;
+    std::string defaultDiff;  // fpv_set_default_betaflight_diff, applied to new EEPROMs
     int presetIndex = 0;
     Settings settings;
 
