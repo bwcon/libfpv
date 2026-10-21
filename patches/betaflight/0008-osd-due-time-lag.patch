@@ -1,0 +1,28 @@
+diff --git a/src/main/osd/osd.c b/src/main/osd/osd.c
+--- a/src/main/osd/osd.c
++++ b/src/main/osd/osd.c
+@@ -1361,7 +1361,9 @@
+ 
+     //TODO: fix for multiple init calls
+     if(cmpTimeUs(currentTimeUs, osdUpdateDueUs) < -1000000){
+-      osdUpdateDueUs = 0;
++      // Not 0: once the uptime passes 2^31 us, 0 reads as a time in the
++      // future too and the OSD would restart (show its splash) every check.
++      osdUpdateDueUs = currentTimeUs;
+       osdState = OSD_STATE_INIT;
+     }
+ 
+@@ -1376,6 +1378,13 @@
+                 //while (cmpTimeUs(osdUpdateDueUs, currentTimeUs) < 0) {
+                     osdUpdateDueUs += OSD_UPDATE_INTERVAL_US;
+                 //}
++                // A redraw takes several intervals, so the due time falls
++                // further behind with every one. Keep it within a second:
++                // 2^31 us (36 min) behind, it reads as a time in the future
++                // and the check above restarts the OSD.
++                if (cmpTimeUs(currentTimeUs, osdUpdateDueUs) > 1000000) {
++                    osdUpdateDueUs = currentTimeUs;
++                }
+             } else {
+                 osdUpdateDueUs = currentTimeUs + OSD_UPDATE_INTERVAL_US;
+             }
