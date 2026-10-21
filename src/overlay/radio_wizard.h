@@ -32,14 +32,9 @@ public:
 #endif
         Done
     };
-    // the last switch step; every switch after the arm switch is optional
-#if defined(LIBFPV_KAMIKAZE)
-    static constexpr Step kLastSwitch = Step::ExplodeSwitch;
-#else
-    static constexpr Step kLastSwitch = Step::OsdSwitch;
-#endif
-
-    void start(const RawDevice &dev);
+    // `bombSwitches`: offer the bomb arm and explode switches (kamikaze builds
+    // with the bomb installed); ignored in other builds.
+    void start(const RawDevice &dev, bool bombSwitches = false);
     void cancel() { m_active = false; }
     bool active() const { return m_active; }
     Step step() const { return m_step; }
@@ -54,7 +49,7 @@ public:
 
     const char *title() const;
     const char *instruction() const;
-    bool canSkip() const { return m_step >= Step::AngleSwitch && m_step <= kLastSwitch; }
+    bool canSkip() const { return m_step >= Step::AngleSwitch && m_step <= lastSwitch(); }
     // Live detection feedback for the UI.
     bool detected() const { return m_candidate >= 0; }
     std::string detectedLabel() const;  // e.g. "stick 3, reversed"
@@ -74,8 +69,11 @@ private:
     int sharedWith(int axis) const;  // first AUX channel on this axis, or -1
     bool buttonUsed(int button) const;
     int channelForStep(Step s) const;
+    // the last switch step; every switch after the arm switch is optional
+    Step lastSwitch() const;
 
     bool m_active = false;
+    bool m_bombSwitches = false;
     Step m_step = Step::PickDevice;
     DeviceMapping m_mapping;
     std::vector<float> m_rest;
