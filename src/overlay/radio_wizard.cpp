@@ -11,8 +11,9 @@ namespace {
 constexpr float kMoveThreshold = 0.35f;  // raw units (-1..1) a stick must move to count
 }
 
-void RadioWizard::start(const RawDevice &dev) {
+void RadioWizard::start(const RawDevice &dev, bool bombSwitches) {
     m_active = true;
+    m_bombSwitches = bombSwitches;
     m_step = Step::Rest;
     m_mapping = DeviceMapping{};
     m_mapping.guid = dev.guid;
@@ -42,6 +43,13 @@ int RadioWizard::channelForStep(Step s) const {
 #endif
     default: return -1;
     }
+}
+
+RadioWizard::Step RadioWizard::lastSwitch() const {
+#if defined(LIBFPV_KAMIKAZE)
+    if (m_bombSwitches) return Step::ExplodeSwitch;
+#endif
+    return Step::OsdSwitch;
 }
 
 bool RadioWizard::axisUsed(int axis) const {
@@ -210,10 +218,10 @@ bool RadioWizard::next(std::string &hint) {
     case Step::TurtleSwitch: m_step = Step::AirModeSwitch; break;
     case Step::AirModeSwitch: m_step = Step::OsdSwitch; break;
     default:
-        if (m_step == kLastSwitch) {
+        if (m_step == lastSwitch()) {
             m_step = Step::Done;
             m_mapping.complete = true;
-        } else if (m_step > Step::ArmSwitch && m_step < kLastSwitch) {
+        } else if (m_step > Step::ArmSwitch && m_step < lastSwitch()) {
             m_step = (Step)((int)m_step + 1);
         }
         break;
@@ -225,7 +233,7 @@ void RadioWizard::skip() {
     if (!canSkip()) return;
     m_mapping.channels[channelForStep(m_step)] = ChannelBinding{};
     m_candidate = -1;
-    if (m_step == kLastSwitch) {
+    if (m_step == lastSwitch()) {
         m_step = Step::Done;
         m_mapping.complete = true;
     } else {
@@ -235,7 +243,7 @@ void RadioWizard::skip() {
 
 void RadioWizard::back() {
     if (m_step <= Step::Rest) return;
-    m_step = (Step)((int)m_step - 1);
+    m_step = m_step == Step::Done ? lastSwitch() : (Step)((int)m_step - 1);
     int ch = channelForStep(m_step);
     if (ch >= 0) m_mapping.channels[ch] = ChannelBinding{};
     m_candidate = -1;
@@ -325,6 +333,9 @@ std::string RadioWizard::detectedLabel() const {
     return label + (m_candidateValue > rest ? "" : ", reversed");
 }
 
-float RadioWizard::progress() const { return (float)m_step / (float)Step::Done; }
+float RadioWizard::progress() const {
+    if (m_step == Step::Done) return 1;
+    return (float)m_step / (float)((int)lastSwitch() + 1);
+}
 
 }  // namespace fpv

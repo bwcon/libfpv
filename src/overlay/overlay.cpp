@@ -89,6 +89,15 @@ const char *keyName(int k) {
     return buf;
 }
 
+// The radio wizard offers the bomb arm and explode switches only with the bomb installed.
+bool wizardBombSwitches() {
+#if defined(LIBFPV_KAMIKAZE)
+    return fpv_kamikaze_is_installed() != 0;
+#else
+    return false;
+#endif
+}
+
 // Plain-language reasons for Betaflight's arming-disable flags.
 const char *armingHelp(const char *flag) {
     struct H {
@@ -474,7 +483,7 @@ void Overlay::tabRadio() {
             ImGui::SameLine();
             if (ImGui::Button("Start over")) {
                 L.input.forgetMapping(m_wizard.guid());
-                m_wizard.start(*dev);
+                m_wizard.start(*dev, wizardBombSwitches());
                 m_wizardSaved = false;
                 L.input.setWizardActive(true);
             }
@@ -525,7 +534,7 @@ void Overlay::tabRadio() {
         else if (d.isGamepad) ImGui::TextDisabled("(gamepad: default layout, degraded)");
         else ImGui::TextColored(ImVec4(1, 0.8f, 0.3f, 1), "(not set up)");
         if (ImGui::Button(mapped ? "Set up again" : "Set up")) {
-            m_wizard.start(d);
+            m_wizard.start(d, wizardBombSwitches());
             m_wizardHint.clear();
             m_wizardSaved = false;
             L.input.setWizardActive(true);

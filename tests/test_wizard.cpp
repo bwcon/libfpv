@@ -51,7 +51,7 @@ bool step(RadioWizard &w, FakeRadio &r) {
 void testSharedThreePositionSwitch() {
     FakeRadio r;
     RadioWizard w;
-    w.start(r.d);
+    w.start(r.d, true);
     CHECK(step(w, r), "rest");
     r.d.axes[2] = 1;
     CHECK(step(w, r), "throttle");
@@ -146,11 +146,12 @@ void testMiddleOnly() {
 
 }  // namespace
 
-// The optional switches can all be skipped.
-void testSkipOptionalSwitches() {
+// The optional switches can all be skipped. The bomb switches are only
+// offered with the bomb installed.
+void testSkipOptionalSwitches(bool bomb) {
     FakeRadio r;
     RadioWizard w;
-    w.start(r.d);
+    w.start(r.d, bomb);
     step(w, r);
     for (int a : {2, 3, 1, 0}) {
         r.d.axes[a] = 1;
@@ -172,18 +173,27 @@ void testSkipOptionalSwitches() {
         skipped++;
     }
 #if defined(LIBFPV_KAMIKAZE)
-    CHECK(skipped == 7, "angle, beeper, turtle, air mode, OSD, bomb arm and explode are optional (%d skipped)", skipped);
-#else
-    CHECK(skipped == 5, "angle, beeper, turtle, air mode and OSD are optional (%d skipped)", skipped);
+    if (bomb)
+        CHECK(skipped == 7, "angle, beeper, turtle, air mode, OSD, bomb arm and explode are optional (%d skipped)",
+              skipped);
+    else
 #endif
+        CHECK(skipped == 5, "angle, beeper, turtle, air mode and OSD are optional (%d skipped)", skipped);
     CHECK(w.step() == RadioWizard::Step::Done && w.mapping().complete, "done after skipping");
     for (int c = kAux2; c < kChannelCount; c++)
         CHECK(w.mapping().channels[c].axis < 0 && w.mapping().channels[c].button < 0, "AUX%d unbound", c - kAux1 + 1);
+    if (!bomb) {
+        w.back();
+        CHECK(w.step() == RadioWizard::Step::OsdSwitch, "back from done without the bomb returns to OSD");
+    }
 }
 
 int main() {
     testSharedThreePositionSwitch();
-    testSkipOptionalSwitches();
+    testSkipOptionalSwitches(false);
+#if defined(LIBFPV_KAMIKAZE)
+    testSkipOptionalSwitches(true);
+#endif
     testMiddleOnly();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
