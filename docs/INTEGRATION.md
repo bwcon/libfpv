@@ -380,6 +380,13 @@ hit. What worked in GTA IV:
   has focus. **Take the first reading of each key as the baseline, not as a
   press.** On the developer's PC, F8 read as held down system-wide, and the
   overlay opened by itself at startup.
+- Forward letters and digits by physical position (scancodes), not by the
+  label the layout puts on them: `'W'` is the key right of Tab. Keycodes
+  (`SDLK_*`, Windows `VK_*`/`GetAsyncKeyState('W')`) follow the layout, so
+  on AZERTY throttle up and yaw left moved to the keys labelled W and A,
+  away from S and D. On Windows, poll
+  `MapVirtualKeyW(0x11 /* W scan code */, MAPVK_VSC_TO_VK)` (or read the
+  scan code from `WM_KEYDOWN`) instead of the letter's VK.
 - While `fpv_overlay_wants_input()` is non-zero, take player control away
   from the game (also on foot) and give the keys (Esc, Tab, Backspace,
   Space, arrows) to the overlay. The overlay draws its own cursor. Feed it
