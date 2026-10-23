@@ -395,7 +395,11 @@ hit. What worked in GTA IV:
   drawn through the game was also pushed off screen by the fisheye. Put
   game-specific commands in the overlay with
   `fpv_overlay_set_action(id, label)` and `fpv_overlay_poll_action()`
-  (GTA IV adds "Move Niko here (N)" in F8 > Fly).
+  (GTA IV adds "Move Niko here (Y)" in F8 > Fly).
+- If the game can end a flight with the player moved to the drone (GTA IV:
+  Move Niko here; Super Mario 64: Mario under the recalled drone), put it
+  on **Y**, so the same key does it in every libfpv game. Like the game's
+  other own keys, it can follow the label (the key marked Y on any layout).
 - The radio mapping (`radio_mappings.json`) is per data folder. A player
   who already set up the radio for another libfpv game can copy that file
   into the new game's data folder.
