@@ -109,6 +109,10 @@ struct HoverFeedback {
     bool airborne = false;  // a drone exists and nothing touches the ground
 };
 
+// Automatic hover throttle for the keyboard (see mapKeyboard). Auto turns it
+// on while no radio is detected, mapped or not.
+enum class KeyboardHover { Auto = 0, On = 1, Off = 2 };
+
 // Keyboard throttle and yaw exponent defaults (1/s), see mapKeyboard.
 constexpr float kDefaultKeyboardThrottleExpo = 3.0f;
 constexpr float kDefaultKeyboardYawExpo = 4.0f;
@@ -117,6 +121,7 @@ struct InputStatus {
     InputSource source = InputSource::None;
     std::string deviceName;
     bool needsSetup = false;
+    bool radioDetected = false;  // a mapped or unmapped radio is connected
     int deviceCount = 0;
 };
 
@@ -135,7 +140,7 @@ public:
     void key(int key, bool down);
     void setKeyboardEnabled(bool enabled) { m_keyboardEnabled = enabled; }
     // Automatic hover throttle (see mapKeyboard); off = W/S move the throttle.
-    void setKeyboardHover(bool on) { m_kbHover = on; }
+    void setKeyboardHover(KeyboardHover mode) { m_kbHover = mode; }
     // How fast W raises the throttle: it grows by e^(expo * seconds held).
     void setKeyboardThrottleExpo(float expo) { m_kbThrottleExpo = expo; }
     // How fast A/D raise the yaw, the same way from a small start.
@@ -167,7 +172,7 @@ private:
     void saveMappings();
     bool mapRadio(const RawDevice &d, const DeviceMapping &m, float out[kChannelCount]);
     void mapGamepad(const RawDevice &d, float dt, float out[kChannelCount]);
-    void mapKeyboard(float dt, float out[kChannelCount]);
+    void mapKeyboard(float dt, bool radioDetected, float out[kChannelCount]);
 
     std::mutex m_mutex;
     std::string m_dataDir;
@@ -180,7 +185,7 @@ private:
     std::array<bool, 512> m_keys{};
     std::atomic<bool> m_keyboardEnabled{true};
     std::atomic<bool> m_wizardActive{false};
-    std::atomic<bool> m_kbHover{false};
+    std::atomic<KeyboardHover> m_kbHover{KeyboardHover::Auto};
     std::atomic<float> m_kbThrottleExpo{kDefaultKeyboardThrottleExpo};
     std::atomic<float> m_kbYawExpo{kDefaultKeyboardYawExpo};
 
