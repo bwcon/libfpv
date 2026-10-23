@@ -852,14 +852,6 @@ int main(int argc, char **argv) {
             fpv_drone_reset(drone, dd.position, dd.rotation);
             demo.respawned = true;
         }
-        {
-            static const char *wh[] = {"SAFE", "ARMING", "ARMED", "DETONATED"};
-            char title[160];
-            snprintf(title, sizeof title, "libfpv standalone - warhead %s%s - after: %s (C) - K bomb, X explode",
-                     wh[ks.warhead], (ks.flags & FPV_KAMIKAZE_BLOCKS_ARMING) ? " (blocks arming)" : "",
-                     afterName(after));
-            SDL_SetWindowTitle(win, title);
-        }
 #endif
 
         int fbw, fbh;
