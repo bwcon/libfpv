@@ -639,8 +639,10 @@ removed it. A `diff all` import may now move modes to AUX2..AUX6.
 
 ### D26. Keyboard hover throttle
 
-Opt-in (F8 > Controls, `keyboardHover` in settings.json), because it only
-applies to the keyboard fallback and should never surprise a radio pilot.
+Auto, on or off (F8 > Controls, `keyboardHover` in settings.json, "auto"
+by default; the old `true` reads as "on"). Auto turns it on while no radio
+is detected, mapped or not, like the forced ANGLE mode of the fallbacks, so
+a keyboard-only player gets it at once and it never surprises a radio pilot.
 No key (or W and S together) hovers, S cuts the throttle, and W multiplies
 it by e^(expo * dt) from at least the hover up to 100%
 (`keyboardThrottleExpo`, 1/s, default 3).

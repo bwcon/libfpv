@@ -63,7 +63,14 @@ void loadSettings() {
         s.cameraFov = j.value("cameraFov", s.cameraFov);
         s.cameraFisheye = std::clamp(j.value("cameraFisheye", s.cameraFisheye), 0.0f, 1.0f);
         s.chaseSmoothing = j.value("chaseSmoothing", s.chaseSmoothing);
-        s.keyboardHover = j.value("keyboardHover", s.keyboardHover);
+        // "auto", "on" or "off"; older versions stored a bool (off by default)
+        auto hover = j.find("keyboardHover");
+        if (hover != j.end() && hover->is_string()) {
+            std::string v = hover->get<std::string>();
+            s.keyboardHover = v == "on" ? KeyboardHover::On : v == "off" ? KeyboardHover::Off : KeyboardHover::Auto;
+        } else if (hover != j.end() && hover->is_boolean() && hover->get<bool>()) {
+            s.keyboardHover = KeyboardHover::On;
+        }
         s.keyboardThrottleExpo = std::clamp(j.value("keyboardThrottleExpo", s.keyboardThrottleExpo), 0.5f, 10.0f);
         s.keyboardYawExpo = std::clamp(j.value("keyboardYawExpo", s.keyboardYawExpo), 0.5f, 20.0f);
 #if defined(LIBFPV_KAMIKAZE)
@@ -91,7 +98,9 @@ void saveSettings() {
               {"cameraFov", s.cameraFov},
               {"cameraFisheye", s.cameraFisheye},
               {"chaseSmoothing", s.chaseSmoothing},
-              {"keyboardHover", s.keyboardHover},
+              {"keyboardHover", s.keyboardHover == KeyboardHover::On    ? "on"
+                                : s.keyboardHover == KeyboardHover::Off ? "off"
+                                                                        : "auto"},
               {"keyboardThrottleExpo", s.keyboardThrottleExpo},
               {"keyboardYawExpo", s.keyboardYawExpo}};
 #if defined(LIBFPV_KAMIKAZE)

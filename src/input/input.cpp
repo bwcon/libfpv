@@ -249,19 +249,21 @@ void InputManager::setHoverFeedback(const HoverFeedback &f) {
 // Keyboard (degraded): A/D yaw (from a small rate, growing exponentially to
 // full while held), arrows pitch/roll, Enter arms, T toggles turtle, ANGLE
 // mode on. W/S move the throttle up and down, or, with the automatic
-// hover throttle enabled, no key (or W and S together) hovers, S cuts
-// the throttle, and W raises it
+// hover throttle on (in auto: while no radio is detected), no key (or W
+// and S together) hovers, S cuts the throttle, and W raises it
 // exponentially up to full. The hover holds the climb rate at zero and
 // learns, per preset, the throttle that does it, so it follows the quad,
 // its battery sag and payload. On the ground, upside down or in turtle mode
 // no key means idle, so arming never lifts off by itself.
-void InputManager::mapKeyboard(float dt, float out[kChannelCount]) {
+void InputManager::mapKeyboard(float dt, bool radioDetected, float out[kChannelCount]) {
     auto k = [&](int code) { return m_keys[code]; };
     constexpr float g = 9.81f;
     float &hover = m_hoverThrottle.try_emplace(m_hover.preset, kHoverSeed).first->second;
     bool hovering = m_kbArmed && !m_kbTurtle && m_hover.airborne && m_hover.upright > 0.3f;
     bool up = k('W'), down = k('S');
-    if (!m_kbHover) {
+    KeyboardHover mode = m_kbHover;
+    bool hoverOn = mode == KeyboardHover::On || (mode == KeyboardHover::Auto && !radioDetected);
+    if (!hoverOn) {
         const float rate = 0.6f;  // per second
         if (up) m_kbThrottle += rate * dt;
         if (down) m_kbThrottle -= rate * dt;
@@ -349,6 +351,7 @@ void InputManager::update(double wallTime, float dt, float out[kChannelCount], b
             for (auto &mm : m_mappings) {
                 if (mm.guid == d.guid && mm.complete) m = &mm;
             }
+            if (m || d.looksLikeRadio) st.radioDetected = true;
             if (m && !radio) {
                 radio = &d;
                 radioMap = m;
@@ -377,7 +380,7 @@ void InputManager::update(double wallTime, float dt, float out[kChannelCount], b
                 st.source = InputSource::Gamepad;
                 st.deviceName = pad->name;
             } else if (m_keyboardEnabled) {
-                mapKeyboard(dt, ch);
+                mapKeyboard(dt, st.radioDetected, ch);
                 st.source = InputSource::Keyboard;
                 st.deviceName = "keyboard";
             }

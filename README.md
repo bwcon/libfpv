@@ -196,7 +196,8 @@ cmake -S . -B build/asan -DCMAKE_BUILD_TYPE=Debug \
 Without a radio, use the keyboard: Enter arms, W/S move the throttle, A/D
 is yaw (starting slow and rising exponentially to full while held, how fast
 is set in F8 > Controls) and the arrow keys pitch and roll (self-level).
-With "Automatic hover throttle" enabled in F8 > Controls, W climbs (the
+With "Automatic hover throttle" on (F8 > Controls; by default it is on
+while no radio is connected), W climbs (the
 throttle rises exponentially to full; its speed is set there too), S cuts
 the throttle, and no key (or both) hovers at a throttle learned in flight
 for each drone. T toggles turtle mode: to

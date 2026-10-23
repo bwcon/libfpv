@@ -916,18 +916,26 @@ void Overlay::tabControls() {
         m_rebindingToggle = true;
     }
     sectionTitle("Keyboard (degraded fallback)");
-    if (L.settings.keyboardHover)
+    bool radio = L.input.status().radioDetected;
+    bool hoverOn = L.settings.keyboardHover == KeyboardHover::On ||
+                   (L.settings.keyboardHover == KeyboardHover::Auto && !radio);
+    if (hoverOn)
         ImGui::BulletText("W: climb, S: cut throttle, neither (or both): hover");
     else
         ImGui::BulletText("W / S: throttle up / down");
     ImGui::BulletText("A / D: yaw (grows while held)");
     ImGui::BulletText("Arrow keys: pitch and roll (self-level mode)");
     ImGui::BulletText("Enter: arm / disarm, B: beeper, T: turtle mode on / off");
-    if (ImGui::Checkbox("Automatic hover throttle", &L.settings.keyboardHover)) {
+    const char *hoverModes[] = {"Auto", "On", "Off"};
+    int hoverMode = (int)L.settings.keyboardHover;
+    if (ImGui::Combo("Automatic hover throttle", &hoverMode, hoverModes, 3)) {
+        L.settings.keyboardHover = (KeyboardHover)hoverMode;
         L.input.setKeyboardHover(L.settings.keyboardHover);
         saveSettings();
     }
-    if (L.settings.keyboardHover) {
+    if (L.settings.keyboardHover == KeyboardHover::Auto)
+        ImGui::TextDisabled(radio ? "Auto: off, a radio is connected." : "Auto: on while no radio is connected.");
+    if (hoverOn) {
         if (ImGui::SliderFloat("W throttle exponent", &L.settings.keyboardThrottleExpo, 0.5f, 10.0f, "%.1f"))
             L.input.setKeyboardThrottleExpo(L.settings.keyboardThrottleExpo);
         if (ImGui::IsItemDeactivatedAfterEdit()) saveSettings();
