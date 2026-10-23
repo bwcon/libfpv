@@ -701,7 +701,12 @@ FPV_API void fpv_input_set_channels(const float *channels, uint32_t count);
 FPV_API void fpv_input_clear_channels(void);
 
 /* Keys, as forwarded by the host. Letters/digits use their ASCII uppercase
- * code ('A', '0'); the rest use these values. */
+ * code ('A', '0'); the rest use these values. Letters and digits name a
+ * physical key position on a US QWERTY keyboard, not the label on the key:
+ * forward scancodes (SDL_Scancode, KeyboardEvent.code, Windows scan codes
+ * rather than virtual-key codes), so the
+ * keyboard sticks stay under the left hand on AZERTY, QWERTZ or Dvorak.
+ * Typed text goes through fpv_overlay_text, which follows the layout. */
 typedef enum fpv_key {
     FPV_KEY_NONE = 0,
     FPV_KEY_TAB = 9, FPV_KEY_ENTER = 13, FPV_KEY_ESCAPE = 27, FPV_KEY_SPACE = 32,
