@@ -54,6 +54,11 @@ private:
     void tabCamera();
     void tabControls();
     void tabConfigurator();
+#if defined(LIBFPV_KAMIKAZE)
+    void tabKamikaze();
+    void warheadStatus();
+#endif
+    void wizardUi(const std::vector<RawDevice> &devs);
     void channelBars(const float *ch);
     const fpv_draw_data *convert();
 
@@ -71,8 +76,12 @@ private:
     RadioWizard m_wizard;
     std::string m_wizardHint;
     bool m_wizardSaved = false;
+#if defined(LIBFPV_KAMIKAZE)
+    DeviceMapping m_previousMapping;  // before a full setup: its bomb switches are kept
+#endif
     std::vector<std::string> m_promptedRadios;
-    int m_requestTab = -1;
+    using TabFn = void (Overlay::*)();
+    TabFn m_requestTab = nullptr;  // the tab to bring to the front
     bool m_showRawAxes = false;
 
     std::string m_importText, m_importReport;

@@ -155,7 +155,7 @@ DECISIONS D24. In short:
 
 The bomb is not installed by default: until it is, the drone flies like in
 any other build (no extra weight, no warhead OSD, the bomb switches do
-nothing). The player installs it in the overlay (F8 > Fly > "Bomb
+nothing). The player installs it in the overlay (F8 > Kamikaze > "Bomb
 installed"), or the game calls `fpv_kamikaze_set_installed(1)` (a
 kamikaze mission, a drone picked up). It stays installed for the session,
 not per drone: a new, respawned or repaired drone carries it too. It is
@@ -167,6 +167,15 @@ Any touch then sets it off, even a light tap on the ground, and so does the
 explode switch. With the bomb switch off nothing explodes. The warhead
 weighs something (by default 60 % of the quad), so a loaded drone climbs
 and turns slower.
+
+All kamikaze settings are in the overlay's own tab, F8 > Kamikaze (only in
+kamikaze builds): the bomb, the arming delay, the impact fuse, the payload,
+the warhead OSD line, the ending (below) and a **Bomb switches** setup.
+That one works like the radio setup in F8 > Radio but binds only AUX7 and
+AUX8, on a radio that is set up already, and merges them into
+`radio_mappings.json` without touching the other bindings. The main radio
+setup never asks for the bomb switches (a new full setup keeps the bomb
+switches that still fit). Keyboard and gamepad keep their fixed keys.
 
 ### What the game does
 
@@ -185,44 +194,79 @@ while (fpv_kamikaze_poll_detonation(&d)) {
 While destroyed (`frame.flags & FPV_DRONE_DETONATED`), the wreck sits frozen
 where it exploded, the props are broken, `frame.video` reports no signal,
 the OSD shows only `SIGNAL LOST` (even with the OSD disable switch on), and
-the drone does not arm.
-Don't draw the drone model. Pick an ending:
+the drone does not arm. Don't draw the drone model.
 
-- **Arcade**: switch the game camera to an external shot of the blast
-  for the ending duration (the FPV camera now shows only static), then call
-  `fpv_drone_repair(drone)` and `fpv_drone_reset(drone, spawn, rot)`.
-- **Signal lost** (realistic): keep showing the FPV view for the ending
-  duration. Draw full
-  static while `FPV_DRONE_DETONATED` is set (with `SIGNAL LOST` over it from
-  the OSD), then hand control back to the player (the character on foot,
-  in a game that has one), or respawn only when the pilot asks for the next
-  drone, or when the game hands it out (a limited number of drones, a launch position nearer the
-  front). Consider also hiding all of the game's own UI over the static,
-  the same as while `FPV_DRONE_OSD_DISABLED` is set
-  ([OSD disable switch](#osd-disable-switch)), so the screen shows only
-  the static and `SIGNAL LOST`, like a real lost feed.
+Then comes the **ending**, which the player chooses in F8 > Kamikaze (saved
+in `settings.json`). Read it from `fpv_kamikaze_get_config(&c)` at the
+moment `fpv_kamikaze_poll_detonation` returns the detonation:
 
-The ending duration is the player's: 3 s by default, tuned in the overlay
-(F8 > Fly, "Ending") and saved with the other kamikaze settings. Read
-`fpv_kamikaze_get_config(&c).ending_duration` when the warhead goes off,
-rather than a fixed length, so the slider works in every game.
+1. **View** (`c.ending_view`), what the screen shows:
+   - `FPV_KAMIKAZE_VIEW_SIGNAL_LOST` (default): the FPV view, with full
+     static while `FPV_DRONE_DETONATED` is set and `SIGNAL LOST` over it
+     from the OSD, like a real lost feed. Consider hiding the game's own UI
+     too, as while `FPV_DRONE_OSD_DISABLED` is set
+     ([OSD disable switch](#osd-disable-switch)), so the screen shows only
+     the static and `SIGNAL LOST`.
+   - `FPV_KAMIKAZE_VIEW_CUTSCENE`: the game camera shows the explosion from
+     another angle (an external shot of the blast).
+2. **Duration** (`c.ending_duration`, 0..30 s, default 3): how long the view
+   shows. 0 skips the view for Respawn and Recall: they happen right after
+   the blast.
+3. **Then** (`c.ending_then`), what the game does when the time is up:
+   - `FPV_KAMIKAZE_THEN_RESPAWN` (default): `fpv_drone_repair(drone)` and
+     `fpv_drone_reset(drone, spawn, rot)`, the next drone at the spawn.
+   - `FPV_KAMIKAZE_THEN_RECALL`: end the flight, put the drone away, and
+     give control back to the pilot (the character on foot, in a game that
+     has one).
+   - `FPV_KAMIKAZE_THEN_NOTHING`: keep the view on screen until the player
+     acts. The view shows and stays whatever the duration, also with 0 s.
+
+**The player's own commands work at once during the view**, timed or held:
+their respawn, recall, and "Move <pilot> here" (Y, see [Input](#input))
+cancel the timer and replace step 3. Never make the player wait for the
+ending to finish.
+
+libfpv never times the ending: the game does, with its own clock, so the
+view pauses with the game (a pause menu stops the countdown). Keep the
+values the game read at the detonation; the player may change the setting
+during the view, which only counts for the next one.
+
+**Declare what the game can do**, once at startup after `fpv_global_init`:
+
+```c
+fpv_kamikaze_set_ending_support(
+    (1u << FPV_KAMIKAZE_VIEW_SIGNAL_LOST) | (1u << FPV_KAMIKAZE_VIEW_CUTSCENE),
+    (1u << FPV_KAMIKAZE_THEN_RESPAWN) | (1u << FPV_KAMIKAZE_THEN_RECALL) | (1u << FPV_KAMIKAZE_THEN_NOTHING),
+    FPV_KAMIKAZE_VIEW_SIGNAL_LOST, FPV_KAMIKAZE_THEN_RESPAWN);  /* the game's defaults */
+```
+
+The overlay then only offers those choices, and a saved choice the game
+can't do reads back as the game's default (the saved choice itself is
+kept, so it comes back where it is supported). A supported saved choice
+always wins over the default. Not calling it means everything is
+supported, with the defaults signal lost, 3 s, respawn. Signal lost and
+Nothing need nothing from the game, so libfpv always allows them. A game
+without a character to hand control back to leaves out Recall.
 
 `fpv_drone_repair` always gives a new drone with a new, safe warhead. If the
 pilot's bomb switch is still on, it must be turned off before the new
 warhead can arm, so a respawn never starts with a live bomb.
 
-The standalone example does both: C switches between them (with no one
-on foot to hand back to, its signal lost waits for R), and
-`fpv_standalone --kamikaze-demo [--after arcade|signal]` flies a
-scripted strike that checks every rule and exits 1 on failure.
+The standalone example supports both views and then Respawn or Nothing
+(the default: it has no pilot to recall to); R respawns at any time, also
+during the view. `fpv_standalone [--view signal|cutscene] [--duration S]
+[--then respawn|nothing]` sets the ending as the overlay would, and
+`fpv_standalone --kamikaze-demo` flies a scripted strike that checks every
+rule and the ending options (no view, a held view, an early respawn that
+cancels the timer), and exits 1 on failure.
 
 ### Tuning
 
 `fpv_kamikaze_set_config` sets the arming delay (default 0, none), the contact fuse threshold
 (`min_impact_speed`, default 0.25 m/s), the payload (`payload_mass` kg and
-`payload_drop` below the frame, -1 = automatic), the ending duration
-(`ending_duration`, default 3 s) and `FPV_KAMIKAZE_NO_OSD`.
-Players edit the same values in the overlay (F8 > Fly), and both are saved
+`payload_drop` below the frame, -1 = automatic), the ending
+(`ending_view`, `ending_duration`, `ending_then`) and `FPV_KAMIKAZE_NO_OSD`.
+Players edit the same values in the overlay (F8 > Kamikaze), and both are saved
 in `settings.json`, so only set them at startup if the game must override
 the player (a mission with a fixed payload, for example).
 `fpv_kamikaze_get_state` reports the warhead state and the payload and
@@ -248,6 +292,12 @@ These notes come from integrating libfpv into GTA IV
 a closed, 32-bit D3D9 engine with no source). They apply to most game mods.
 Engine-specific details (addresses, natives) are in that repository's
 `MODLOG.md`. The case study at the end summarises them.
+
+A game repository's `MODLOG.md` is a historical log: it records what was
+tried and learned at the time, and it may be outdated. When it disagrees
+with this document or `libfpv.h`, this document and the header win. Use
+mod logs only as a reference for engine specifics (addresses, natives,
+engine quirks), not for how to use libfpv.
 
 ### Building and loading
 
@@ -424,6 +474,15 @@ hit. What worked in GTA IV:
   every 10 m. It is taken out of its car if needed. Within 40 m of home, or
   at the end of the flight, put the character back (and back into its
   car). Load the area first.
+- **The pilot stays visible at the piloting spot.** This is a requirement
+  for integrations. When the game moves the character (or another world
+  anchor) along with the drone for streaming or AI, as above, it must
+  leave a stand-in of the pilot where the flight started, ideally in an
+  FPV piloting pose (standing, holding a radio transmitter), so that
+  turning the drone back home shows the pilot there, as in real FPV.
+  Super Mario 64 does this (Mario stays visible where he stands) and so
+  does GTA San Andreas; GTA IV does not yet (the hidden character leaves
+  nobody at home).
 - "Return the character to where the drone is" (move here): ray down from
   the drone, load the area, put the character 1 m above the ground facing
   the drone's heading, and put the game camera behind it.

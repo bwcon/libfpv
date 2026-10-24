@@ -814,16 +814,60 @@ points; a sphere hanging below them made the drone balance on it and tip
 over (ANGLE). The centre of mass does not move, because SimITL has no
 offset for it. Changing the payload patches SimITL's live `stateInit`
 instead of re-initialising the physics, so it can change in flight.
-`fpv_kamikaze_config` and the overlay (F8 > Fly) edit the same values
-(payload, arming delay, fuse threshold, ending duration, OSD), saved in
-`settings.json`; those settings only show with the bomb installed. The
+`fpv_kamikaze_config` and the overlay (F8 > Fly at first, F8 > Kamikaze
+since D29) edit the same values (payload, arming delay, fuse threshold,
+ending, OSD), saved in `settings.json`. The
 ending duration (3 s by default; 1 s was too short to see the blast) is
 only a number libfpv stores for the game: the game times its own
 cutscene or static, so it can still pick any ending, and the player tunes
-one slider for every game.
+one slider for every game. D29 turned it into three options.
 
 Tests: `kamikaze_*` in `fpv_tests` (only in kamikaze builds; the other
 tests run there without the bomb installed, since they check a bare quad
-and Betaflight's own OSD), the wizard test with both switches,
+and Betaflight's own OSD), the wizard test with both switches (their own
+setup since D29),
 and `fpv_standalone --kamikaze-demo`, which flies a scripted strike in the
 real app and exits 1 if any rule fails.
+
+### D29. The ending: view, duration, then (and the Kamikaze tab)
+
+Games first offered two endings of their own, "arcade" (a cutscene, then
+respawn) and "signal lost" (static until the pilot acts), with libfpv's
+`ending_duration` as the only shared setting, and gtasa-fpv put a button
+for the choice in F8 > Fly. Every game then had its own words and
+defaults for the same thing. The ending is now three player options in
+`fpv_kamikaze_config`: the **view** (`SIGNAL_LOST` or `CUTSCENE`), its
+**duration** (0..30 s, 0 = no view before Respawn or Recall) and **then**
+(`RESPAWN`, `RECALL` or `NOTHING`, which holds the view until the player
+acts, also with 0 s). The player's own respawn, recall and "Move <pilot>
+here" work at once during the view and replace "then": waiting out a
+timer to take the next drone felt broken.
+
+libfpv still only stores the choice; the game times the ending with its
+own clock, so it pauses with the game and libfpv needs no ending state.
+Not every game can do every ending (the standalone example has no pilot
+to recall to), so `fpv_kamikaze_set_ending_support` declares the masks
+and the game's defaults. A saved choice the game can't do reads back as
+its default but is kept in `settings.json`, so it never overwrites the
+player's choice; a supported saved choice always wins. A player who never
+chose has nothing saved (`kamikazeEndingView`/`Then` absent, by name when
+present), so each game's own default applies. Signal lost and Nothing need
+nothing from the game and are always allowed. The new fields come after
+`ending_duration`, so an older host (a smaller `struct_size`) keeps the
+player's choice, as with the duration.
+
+All kamikaze settings moved from F8 > Fly to a "Kamikaze" tab (compiled
+only in kamikaze builds). The bomb switches left the main radio setup:
+it asked for them only with the bomb installed, so a player who set up
+the radio first and installed the bomb later had to redo the whole radio.
+The tab has its own setup for AUX7 and AUX8 on a radio that is set up
+already (`RadioWizard::startBombSwitches`). It avoids the positions the
+other switches use and merges only those two channels into
+`radio_mappings.json`. A new full setup keeps the bomb switches unless
+their axis position or button is now taken (`mergeBombSwitches`).
+
+Tests: `kamikaze_ending` in `fpv_tests` (defaults, old `struct_size`,
+range checks, `settings.json` across a restart, support masks and
+fallback), the bomb switches' setup and merge in `fpv_wizard_tests`, and
+`fpv_standalone --kamikaze-demo`, which after the strike checks no view,
+a held view, an early respawn cancelling the timer and 0 s with Nothing.

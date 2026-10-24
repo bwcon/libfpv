@@ -55,8 +55,9 @@ engine or mod loader.
   won't arm with the bomb switch on, and an arming delay can be set. Once
   live, a contact fuse sets it off on any touch. A movable OSD element shows
   `BOMB_SAFE`, `BOMB_ARMED` and the like, the screen shows `SIGNAL LOST` after the
-  blast, and the game gets the detonation to play its own explosion,
-  cutscene or "signal lost".
+  blast, and the game gets the detonation to play its own explosion, then
+  the ending the player picks in the overlay's Kamikaze tab (signal lost or
+  a cutscene, for how long, then respawn, recall or nothing).
 
 ## Building
 
@@ -203,8 +204,10 @@ the throttle, and no key (or both) hovers at a throttle learned in flight
 for each drone. T toggles turtle mode: to
 flip a crashed drone back over, turn it on, arm, hold an arrow key until
 it lands upright, then turn turtle off to fly away. In a kamikaze build, K
-is the bomb arm switch, X explodes and C picks what the game does after the
-explosion; `--kamikaze-demo` flies a scripted strike that checks every rule.
+is the bomb arm switch, X explodes and R also skips the ending; the ending
+is set in F8 > Kamikaze or with `--view signal|cutscene`, `--duration S`
+and `--then respawn|nothing`, and `--kamikaze-demo` flies a scripted strike
+that checks every rule and the ending options.
 Settings, EEPROMs and the
 selected preset are stored in `./data` (change it with
 `--data <dir>`).

@@ -89,15 +89,6 @@ const char *keyName(int k) {
     return buf;
 }
 
-// The radio wizard offers the bomb arm and explode switches only with the bomb installed.
-bool wizardBombSwitches() {
-#if defined(LIBFPV_KAMIKAZE)
-    return fpv_kamikaze_is_installed() != 0;
-#else
-    return false;
-#endif
-}
-
 // Plain-language reasons for Betaflight's arming-disable flags.
 const char *armingHelp(const char *flag) {
     struct H {
@@ -287,7 +278,7 @@ void Overlay::notifyUnmappedRadio(const std::string &guid) {
     if (std::find(m_promptedRadios.begin(), m_promptedRadios.end(), guid) != m_promptedRadios.end()) return;
     m_promptedRadios.push_back(guid);
     setOpen(true);
-    m_requestTab = 1;  // Radio
+    m_requestTab = &Overlay::tabRadio;
 }
 
 // --- tabs ------------------------------------------------------------------------
@@ -331,71 +322,7 @@ void Overlay::tabFly() {
         }
         if (f.flags & FPV_DRONE_FAILSAFE) ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "FAILSAFE");
 #if defined(LIBFPV_KAMIKAZE)
-        {
-            bool installed = fpv_kamikaze_is_installed() != 0;
-            if (ImGui::Checkbox("Bomb installed", &installed)) fpv_kamikaze_set_installed(installed);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Carry the warhead: its weight, its OSD line and the bomb arm (AUX7) and explode "
-                                  "(AUX8) switches. Kept for this session, also on respawned drones.");
-            fpv_kamikaze_state ks{};
-            ks.struct_size = sizeof ks;
-            if (fpv_kamikaze_get_state(&L.drone, &ks) == FPV_OK && (installed || ks.warhead == FPV_WARHEAD_DETONATED)) {
-                static const char *names[] = {"SAFE", "ARMING", "ARMED (live)", "DETONATED"};
-                ImVec4 col = ks.warhead == FPV_WARHEAD_SAFE ? ImVec4(0.5f, 1, 0.5f, 1) : ImVec4(1, 0.4f, 0.3f, 1);
-                ImGui::TextColored(col, "Warhead: %s", names[ks.warhead]);
-                if (ks.warhead == FPV_WARHEAD_ARMING) {
-                    ImGui::SameLine();
-                    ImGui::Text("(%.1f s)", ks.arming_remaining);
-                }
-                if (ks.warhead == FPV_WARHEAD_DETONATED) {
-                    ImGui::SameLine();
-                    ImGui::TextUnformatted("- press Repair for a new drone");
-                }
-            }
-            if (installed) {
-                // the payload is real weight; the player can tune it
-                Settings &st = L.settings;
-                ImGui::Text("Payload %.0f g, all-up weight %.0f g", ks.payload_mass * 1000, ks.total_mass * 1000);
-                bool changed = false;
-                bool autoMass = st.kamikazePayloadKg < 0;
-                if (ImGui::Checkbox("Automatic payload (the quad's preset)", &autoMass)) {
-                    st.kamikazePayloadKg = autoMass ? -1.0f : ks.payload_mass;
-                    changed = true;
-                }
-                if (!autoMass) {
-                    float g = st.kamikazePayloadKg * 1000;
-                    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
-                    if (ImGui::SliderFloat("Payload (g)", &g, 0, 3000, "%.0f")) {
-                        st.kamikazePayloadKg = g / 1000;
-                        changed = true;
-                    }
-                }
-                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
-                if (ImGui::SliderFloat("Arming delay (s)", &st.kamikazeArmingDelay, 0, 10, "%.1f")) changed = true;
-                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
-                if (ImGui::SliderFloat("Impact fuse (m/s)", &st.kamikazeMinImpactSpeed, 0.1f, 30.0f, "%.2f",
-                                       ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
-                    changed = true;
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("The slowest touch that sets the live warhead off. 0.25 = a light tap on the "
-                                      "ground; higher needs a real hit.");
-                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
-                if (ImGui::SliderFloat("Ending (s)", &st.kamikazeEndingDuration, 0, 10, "%.1f",
-                                       ImGuiSliderFlags_AlwaysClamp))
-                    changed = true;
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("After the explosion: how long the game shows the blast (arcade) or the "
-                                      "static (signal lost) before what comes next.");
-                if (ImGui::Checkbox("Warhead state on the OSD", &st.kamikazeOsd)) changed = true;
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Its place: \"Bomb status\" in the OSD tab (\"Custom message 1\" in the "
-                                      "Betaflight Configurator).");
-                if (changed) {
-                    applyKamikazeSettings();
-                    saveSettings();
-                }
-            }
-        }
+        warheadStatus();  // with the bomb (or its wreck); settings: the Kamikaze tab
 #endif
         if (f.flags & FPV_DRONE_CRASHED)
             ImGui::TextColored(ImVec4(1, 0.6f, 0.2f, 1), "Crashed (broken props or burned motor): press Repair.");
@@ -442,78 +369,115 @@ void Overlay::tabFly() {
     if (st.needsSetup) {
         ImGui::TextColored(ImVec4(1, 0.8f, 0.3f, 1), "A radio is connected but not set up.");
         ImGui::SameLine();
-        if (ImGui::SmallButton("Set it up")) m_requestTab = 1;
+        if (ImGui::SmallButton("Set it up")) m_requestTab = &Overlay::tabRadio;
     }
     ImGui::TextDisabled("Overlay: %s", keyName(L.settings.overlayToggleKey));
+}
+
+// The setup wizard in progress (the full one in the Radio tab, the bomb
+// switches in the Kamikaze tab).
+void Overlay::wizardUi(const std::vector<RawDevice> &devs) {
+    Lib &L = lib();
+    const RawDevice *dev = nullptr;
+    for (auto &d : devs)
+        if (d.guid == m_wizard.guid()) dev = &d;
+    if (!dev) {
+        ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "The radio was disconnected. Plug it back in to continue.");
+        if (ImGui::Button("Cancel setup")) {
+            m_wizard.cancel();
+            L.input.setWizardActive(false);
+        }
+        return;
+    }
+    m_wizard.update(*dev);
+    ImGui::ProgressBar(m_wizard.progress(), ImVec2(-1, 0), "");
+    ImGui::TextColored(ImVec4(0.55f, 0.8f, 1, 1), "%s", m_wizard.title());
+    ImGui::TextWrapped("%s", m_wizard.instruction());
+    ImGui::Spacing();
+    if (m_wizard.step() != RadioWizard::Step::Done && m_wizard.step() != RadioWizard::Step::Rest &&
+        m_wizard.step() != RadioWizard::Step::Calibrate) {
+        if (m_wizard.detected())
+            ImGui::TextColored(ImVec4(0.5f, 1, 0.5f, 1), "Detected%s%s", m_showRawAxes ? ": " : "",
+                               m_showRawAxes ? m_wizard.detectedLabel().c_str() : "");
+        else
+            ImGui::TextDisabled("Waiting for movement...");
+    }
+    if (m_wizard.step() == RadioWizard::Step::Done) {
+        if (!m_wizardSaved) {
+            // persisted once; flight input switches to the mapped radio
+            DeviceMapping m = m_wizard.mapping();
+#if defined(LIBFPV_KAMIKAZE)
+            if (m_wizard.bombSwitchesOnly()) {
+                // only AUX7 / AUX8 change, whatever else is set up now
+                DeviceMapping cur;
+                if (L.input.getMapping(m.guid, cur)) {
+                    RadioWizard::mergeBombSwitches(cur, m, false);
+                    m = cur;
+                }
+            } else {
+                // a new full setup keeps the bomb switches that still fit
+                RadioWizard::mergeBombSwitches(m, m_previousMapping, true);
+            }
+#endif
+            L.input.setMapping(m);
+            L.input.setWizardActive(false);
+            m_wizardSaved = true;
+        }
+        channelBars(L.lastFrame.channels);
+        if (ImGui::Button("Finish")) m_wizard.cancel();
+        ImGui::SameLine();
+        if (ImGui::Button("Start over")) {
+#if defined(LIBFPV_KAMIKAZE)
+            if (m_wizard.bombSwitchesOnly()) {
+                DeviceMapping cur;
+                L.input.getMapping(dev->guid, cur);
+                m_wizard.startBombSwitches(*dev, cur);
+            } else
+#endif
+            {
+                L.input.forgetMapping(m_wizard.guid());
+                m_wizard.start(*dev);
+            }
+            m_wizardSaved = false;
+            L.input.setWizardActive(true);
+        }
+    } else {
+        if (ImGui::Button("Back")) m_wizard.back();
+        ImGui::SameLine();
+        if (ImGui::Button("Next")) m_wizard.next(m_wizardHint);
+        if (m_wizard.canSkip()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Skip")) m_wizard.skip();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) {
+            m_wizard.cancel();
+            L.input.setWizardActive(false);
+        }
+        if (!m_wizardHint.empty()) ImGui::TextColored(ImVec4(1, 0.8f, 0.3f, 1), "%s", m_wizardHint.c_str());
+    }
+    ImGui::Checkbox("Show raw axes", &m_showRawAxes);
+    if (m_showRawAxes) {
+        for (size_t i = 0; i < dev->axes.size(); i++) {
+            char lbl[16];
+            snprintf(lbl, sizeof lbl, "axis %zu", i + 1);
+            ImGui::ProgressBar((dev->axes[i] + 1) * 0.5f, ImVec2(ImGui::GetFontSize() * 10, 0), lbl);
+        }
+    }
 }
 
 void Overlay::tabRadio() {
     Lib &L = lib();
     std::vector<RawDevice> devs = L.input.devicesSnapshot();
     if (m_wizard.active()) {
-        const RawDevice *dev = nullptr;
-        for (auto &d : devs)
-            if (d.guid == m_wizard.guid()) dev = &d;
-        if (!dev) {
-            ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "The radio was disconnected. Plug it back in to continue.");
-            if (ImGui::Button("Cancel setup")) {
-                m_wizard.cancel();
-                L.input.setWizardActive(false);
-            }
+#if defined(LIBFPV_KAMIKAZE)
+        if (m_wizard.bombSwitchesOnly()) {
+            ImGui::TextWrapped("The bomb switches are being set up in the Kamikaze tab.");
+            if (ImGui::SmallButton("Go there")) m_requestTab = &Overlay::tabKamikaze;
             return;
         }
-        m_wizard.update(*dev);
-        ImGui::ProgressBar(m_wizard.progress(), ImVec2(-1, 0), "");
-        ImGui::TextColored(ImVec4(0.55f, 0.8f, 1, 1), "%s", m_wizard.title());
-        ImGui::TextWrapped("%s", m_wizard.instruction());
-        ImGui::Spacing();
-        if (m_wizard.step() != RadioWizard::Step::Done && m_wizard.step() != RadioWizard::Step::Rest &&
-            m_wizard.step() != RadioWizard::Step::Calibrate) {
-            if (m_wizard.detected())
-                ImGui::TextColored(ImVec4(0.5f, 1, 0.5f, 1), "Detected%s%s", m_showRawAxes ? ": " : "",
-                                   m_showRawAxes ? m_wizard.detectedLabel().c_str() : "");
-            else
-                ImGui::TextDisabled("Waiting for movement...");
-        }
-        if (m_wizard.step() == RadioWizard::Step::Done) {
-            if (!m_wizardSaved) {
-                // persisted once; flight input switches to the mapped radio
-                L.input.setMapping(m_wizard.mapping());
-                L.input.setWizardActive(false);
-                m_wizardSaved = true;
-            }
-            channelBars(L.lastFrame.channels);
-            if (ImGui::Button("Finish")) m_wizard.cancel();
-            ImGui::SameLine();
-            if (ImGui::Button("Start over")) {
-                L.input.forgetMapping(m_wizard.guid());
-                m_wizard.start(*dev, wizardBombSwitches());
-                m_wizardSaved = false;
-                L.input.setWizardActive(true);
-            }
-        } else {
-            if (ImGui::Button("Back")) m_wizard.back();
-            ImGui::SameLine();
-            if (ImGui::Button("Next")) m_wizard.next(m_wizardHint);
-            if (m_wizard.canSkip()) {
-                ImGui::SameLine();
-                if (ImGui::Button("Skip")) m_wizard.skip();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel")) {
-                m_wizard.cancel();
-                L.input.setWizardActive(false);
-            }
-            if (!m_wizardHint.empty()) ImGui::TextColored(ImVec4(1, 0.8f, 0.3f, 1), "%s", m_wizardHint.c_str());
-        }
-        ImGui::Checkbox("Show raw axes", &m_showRawAxes);
-        if (m_showRawAxes) {
-            for (size_t i = 0; i < dev->axes.size(); i++) {
-                char lbl[16];
-                snprintf(lbl, sizeof lbl, "axis %zu", i + 1);
-                ImGui::ProgressBar((dev->axes[i] + 1) * 0.5f, ImVec2(ImGui::GetFontSize() * 10, 0), lbl);
-            }
-        }
+#endif
+        wizardUi(devs);
         return;
     }
 
@@ -538,7 +502,12 @@ void Overlay::tabRadio() {
         else if (d.isGamepad) ImGui::TextDisabled("(gamepad: default layout, degraded)");
         else ImGui::TextColored(ImVec4(1, 0.8f, 0.3f, 1), "(not set up)");
         if (ImGui::Button(mapped ? "Set up again" : "Set up")) {
-            m_wizard.start(d, wizardBombSwitches());
+#if defined(LIBFPV_KAMIKAZE)
+            // the bomb switches have their own setup (Kamikaze tab): keep them
+            m_previousMapping = DeviceMapping{};
+            L.input.getMapping(d.guid, m_previousMapping);
+#endif
+            m_wizard.start(d);
             m_wizardHint.clear();
             m_wizardSaved = false;
             L.input.setWizardActive(true);
@@ -553,6 +522,185 @@ void Overlay::tabRadio() {
     sectionTitle("Channels Betaflight receives");
     channelBars(L.lastFrame.channels);
 }
+
+#if defined(LIBFPV_KAMIKAZE)
+// The warhead's state, while the bomb is installed or the drone destroyed.
+void Overlay::warheadStatus() {
+    Lib &L = lib();
+    fpv_kamikaze_state ks{};
+    ks.struct_size = sizeof ks;
+    if (!L.droneExists || fpv_kamikaze_get_state(&L.drone, &ks) != FPV_OK) return;
+    if (!(ks.flags & FPV_KAMIKAZE_INSTALLED) && ks.warhead != FPV_WARHEAD_DETONATED) return;
+    static const char *names[] = {"SAFE", "ARMING", "ARMED (live)", "DETONATED"};
+    ImVec4 col = ks.warhead == FPV_WARHEAD_SAFE ? ImVec4(0.5f, 1, 0.5f, 1) : ImVec4(1, 0.4f, 0.3f, 1);
+    ImGui::TextColored(col, "Warhead: %s", names[ks.warhead]);
+    if (ks.warhead == FPV_WARHEAD_ARMING) {
+        ImGui::SameLine();
+        ImGui::Text("(%.1f s)", ks.arming_remaining);
+    }
+    if (ks.warhead == FPV_WARHEAD_DETONATED) {
+        ImGui::SameLine();
+        ImGui::TextUnformatted("- press Repair (Fly tab) for a new drone");
+    }
+}
+
+namespace {
+
+std::string bindingText(const ChannelBinding &b) {
+    if (b.button >= 0) return "button " + std::to_string(b.button + 1);
+    if (b.axis >= 0) return "axis " + std::to_string(b.axis + 1);
+    return "not set";
+}
+
+}  // namespace
+
+void Overlay::tabKamikaze() {
+    Lib &L = lib();
+    Settings &st = L.settings;
+    bool installed = fpv_kamikaze_is_installed() != 0;
+    if (ImGui::Checkbox("Bomb installed", &installed)) fpv_kamikaze_set_installed(installed);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Carry the warhead: its weight, its OSD line and the bomb arm (AUX7) and explode (AUX8) "
+                          "switches. Kept for this session, also on respawned drones.");
+    warheadStatus();
+    bool changed = false;
+    const float w = ImGui::GetFontSize() * 14;
+
+    sectionTitle("Warhead");
+    fpv_kamikaze_state ks{};
+    ks.struct_size = sizeof ks;
+    if (installed && L.droneExists && fpv_kamikaze_get_state(&L.drone, &ks) == FPV_OK)
+        ImGui::Text("Payload %.0f g, all-up weight %.0f g", ks.payload_mass * 1000, ks.total_mass * 1000);
+    // the payload is real weight; the player can tune it
+    bool autoMass = st.kamikazePayloadKg < 0;
+    if (ImGui::Checkbox("Automatic payload (the quad's preset)", &autoMass)) {
+        st.kamikazePayloadKg = autoMass ? -1.0f : (ks.payload_mass > 0 ? ks.payload_mass : 0.3f);
+        changed = true;
+    }
+    if (!autoMass) {
+        float g = st.kamikazePayloadKg * 1000;
+        ImGui::SetNextItemWidth(w);
+        if (ImGui::SliderFloat("Payload (g)", &g, 0, 3000, "%.0f")) {
+            st.kamikazePayloadKg = g / 1000;
+            changed = true;
+        }
+    }
+    ImGui::SetNextItemWidth(w);
+    if (ImGui::SliderFloat("Arming delay (s)", &st.kamikazeArmingDelay, 0, 10, "%.1f")) changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("From the bomb arm switch (motors armed) to a live warhead. 0 = live at once.");
+    ImGui::SetNextItemWidth(w);
+    if (ImGui::SliderFloat("Impact fuse (m/s)", &st.kamikazeMinImpactSpeed, 0.1f, 30.0f, "%.2f",
+                           ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
+        changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The slowest touch that sets the live warhead off. 0.25 = a light tap on the ground; higher "
+                          "needs a real hit.");
+    if (ImGui::Checkbox("Warhead state on the OSD", &st.kamikazeOsd)) changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Its place: \"Bomb status\" in the OSD tab (\"Custom message 1\" in the Betaflight "
+                          "Configurator).");
+
+    // the three steps of the ending, as far as the game can do them
+    sectionTitle("After the explosion");
+    static const char *views[] = {"Signal lost (static)", "Cutscene (the blast seen by the game camera)"};
+    static const char *thens[] = {"Respawn the drone", "Recall: end the flight, back to the pilot",
+                                  "Nothing: keep the view until you act"};
+    uint32_t view = kamikazeEndingView(), then = kamikazeEndingThen();
+    // 0 s skips the view, unless nothing follows: then it is held
+    bool skipView = st.kamikazeEndingDuration <= 0 && then != FPV_KAMIKAZE_THEN_NOTHING;
+    ImGui::TextUnformatted("1. View");
+    ImGui::Indent();
+    ImGui::BeginDisabled(skipView);
+    for (uint32_t i = 0; i < 2; i++) {
+        if (!(L.kamikazeViewMask & (1u << i))) continue;
+        if (ImGui::RadioButton(views[i], view == i) && view != i) {
+            st.kamikazeEndingView = (int)i;
+            changed = true;
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::Unindent();
+    ImGui::TextUnformatted("2.");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(w);
+    if (ImGui::SliderFloat("View duration (s)", &st.kamikazeEndingDuration, 0, 30, "%.1f",
+                           ImGuiSliderFlags_AlwaysClamp))
+        changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How long the game shows the view before step 3. 0 = straight to step 3 (with \"Nothing\", "
+                          "the view still shows and stays).");
+    if (then == FPV_KAMIKAZE_THEN_NOTHING)
+        ImGui::TextDisabled("With \"Nothing\" the view stays until you act, whatever the duration.");
+    else if (skipView)
+        ImGui::TextDisabled("0 s: the view is skipped, step 3 comes right after the blast.");
+    ImGui::TextUnformatted("3. Then");
+    ImGui::Indent();
+    for (uint32_t i = 0; i < 3; i++) {
+        if (!(L.kamikazeThenMask & (1u << i))) continue;
+        if (ImGui::RadioButton(thens[i], then == i) && then != i) {
+            st.kamikazeEndingThen = (int)i;
+            changed = true;
+        }
+    }
+    ImGui::Unindent();
+    ImGui::TextWrapped("While the view shows, respawning, recalling the drone or moving the pilot to it yourself works "
+                       "at once and replaces step 3.");
+    if (changed) {
+        applyKamikazeSettings();
+        saveSettings();
+    }
+
+    sectionTitle("Bomb switches (radio)");
+    ImGui::TextWrapped("Bomb arm (AUX7) and explode (AUX8) on your radio. This only sets up these two switches; the "
+                       "rest of the radio setup (Radio tab) stays as it is.");
+    std::vector<RawDevice> devs = L.input.devicesSnapshot();
+    if (m_wizard.active()) {
+        if (m_wizard.bombSwitchesOnly()) {
+            wizardUi(devs);
+        } else {
+            ImGui::TextWrapped("A radio is being set up in the Radio tab.");
+            if (ImGui::SmallButton("Go there")) m_requestTab = &Overlay::tabRadio;
+        }
+        return;
+    }
+    if (devs.empty()) ImGui::TextDisabled("No radio connected.");
+    for (auto &d : devs) {
+        ImGui::PushID(d.guid.c_str());
+        DeviceMapping m;
+        bool mapped = L.input.getMapping(d.guid, m) && m.complete;
+        ImGui::TextUnformatted(d.name.c_str());
+        if (mapped) {
+            ImGui::Text("Bomb arm: %s, explode: %s", bindingText(m.channels[kAux7]).c_str(),
+                        bindingText(m.channels[kAux8]).c_str());
+            if (ImGui::Button("Set up bomb switches")) {
+                m_wizard.startBombSwitches(d, m);
+                m_wizardHint.clear();
+                m_wizardSaved = false;
+                L.input.setWizardActive(true);
+            }
+            if (m.channels[kAux7].axis >= 0 || m.channels[kAux7].button >= 0 || m.channels[kAux8].axis >= 0 ||
+                m.channels[kAux8].button >= 0) {
+                ImGui::SameLine();
+                if (ImGui::Button("Clear")) {
+                    RadioWizard::mergeBombSwitches(m, DeviceMapping{}, false);
+                    L.input.setMapping(m);
+                }
+            }
+        } else {
+            ImGui::TextDisabled(d.isGamepad ? "Gamepad default layout: X / Square bomb arm, right shoulder explode."
+                                            : "Not set up yet: set it up in the Radio tab first.");
+            if (!d.isGamepad) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Radio tab")) m_requestTab = &Overlay::tabRadio;
+            }
+        }
+        ImGui::PopID();
+        ImGui::Separator();
+    }
+    ImGui::TextDisabled("Keyboard: K bomb arm switch on / off, X (held) explode.");
+}
+#endif
 
 void Overlay::tabDrone() {
     Lib &L = lib();
@@ -997,20 +1145,32 @@ void Overlay::buildUi() {
     bool open = true;
     if (ImGui::Begin("libfpv - FPV drone", &open, ImGuiWindowFlags_NoCollapse)) {
         if (ImGui::BeginTabBar("tabs")) {
-            static const char *names[] = {"Fly", "Radio", "Drone", "Rates", "Tuning", "OSD", "Import & CLI",
-                                          "Camera & sound", "Controls", "Configurator"};
-            void (Overlay::*fns[])() = {&Overlay::tabFly,    &Overlay::tabRadio,  &Overlay::tabDrone,
-                                        &Overlay::tabRates,  &Overlay::tabTuning, &Overlay::tabOsd,
-                                        &Overlay::tabImport, &Overlay::tabCamera, &Overlay::tabControls,
-                                        &Overlay::tabConfigurator};
-            for (int i = 0; i < 10; i++) {
-                ImGuiTabItemFlags fl = (m_requestTab == i) ? ImGuiTabItemFlags_SetSelected : 0;
-                if (ImGui::BeginTabItem(names[i], nullptr, fl)) {
-                    (this->*fns[i])();
+            struct Tab {
+                const char *name;
+                void (Overlay::*fn)();
+            } static const tabs[] = {{"Fly", &Overlay::tabFly},
+                                     {"Radio", &Overlay::tabRadio},
+#if defined(LIBFPV_KAMIKAZE)
+                                     {"Kamikaze", &Overlay::tabKamikaze},
+#endif
+                                     {"Drone", &Overlay::tabDrone},
+                                     {"Rates", &Overlay::tabRates},
+                                     {"Tuning", &Overlay::tabTuning},
+                                     {"OSD", &Overlay::tabOsd},
+                                     {"Import & CLI", &Overlay::tabImport},
+                                     {"Camera & sound", &Overlay::tabCamera},
+                                     {"Controls", &Overlay::tabControls},
+                                     {"Configurator", &Overlay::tabConfigurator}};
+            // a tab may ask for another one while it draws: kept for the next frame
+            TabFn request = m_requestTab;
+            m_requestTab = nullptr;
+            for (const Tab &t : tabs) {
+                ImGuiTabItemFlags fl = request == t.fn ? ImGuiTabItemFlags_SetSelected : 0;
+                if (ImGui::BeginTabItem(t.name, nullptr, fl)) {
+                    (this->*t.fn)();
                     ImGui::EndTabItem();
                 }
             }
-            m_requestTab = -1;
             ImGui::EndTabBar();
         }
         if (m_bf.busy())
