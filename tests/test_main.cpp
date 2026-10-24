@@ -1409,6 +1409,11 @@ void testOsdAudioOverlay() {
     fpv_input_key(FPV_KEY_F8, 1);
     fpv_input_key(FPV_KEY_F8, 0);
     CHECK(!fpv_overlay_is_open(), "F8 closes the overlay");
+    fpv_overlay_set_open(1);
+    fpv_overlay_render(0.016f);
+    fpv_input_key(FPV_KEY_ESCAPE, 1);
+    fpv_input_key(FPV_KEY_ESCAPE, 0);
+    CHECK(!fpv_overlay_is_open(), "Esc closes the overlay");
     s.destroy();
 }
 
