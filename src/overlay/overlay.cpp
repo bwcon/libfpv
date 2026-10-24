@@ -266,12 +266,16 @@ void Overlay::key(int k, bool down) {
 #endif
     WITH_CTX;
     ImGuiIO &io = ImGui::GetIO();
+    // Esc closes the overlay, unless a popup or a text field takes it first
+    bool close = m_open && down && k == FPV_KEY_ESCAPE && !io.WantTextInput &&
+                 !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
     ImGuiKey ik = toImGuiKey(k);
     if (ik != ImGuiKey_None) io.AddKeyEvent(ik, down);
     if (k == FPV_KEY_LCTRL || k == FPV_KEY_RCTRL) io.AddKeyEvent(ImGuiMod_Ctrl, down);
     if (k == FPV_KEY_LSHIFT || k == FPV_KEY_RSHIFT) io.AddKeyEvent(ImGuiMod_Shift, down);
     if (k == FPV_KEY_LALT || k == FPV_KEY_RALT) io.AddKeyEvent(ImGuiMod_Alt, down);
     END_CTX;
+    if (close) setOpen(false);
 }
 
 void Overlay::paste(const char *utf8, bool toImport) {
@@ -908,7 +912,7 @@ void Overlay::tabCamera() {
 
 void Overlay::tabControls() {
     Lib &L = lib();
-    ImGui::Text("Open/close this overlay: %s", keyName(L.settings.overlayToggleKey));
+    ImGui::Text("Open/close this overlay: %s (Esc closes it too)", keyName(L.settings.overlayToggleKey));
     ImGui::SameLine();
     if (m_rebindingToggle) {
         ImGui::TextColored(ImVec4(1, 0.8f, 0.3f, 1), "press a key (Esc cancels)");

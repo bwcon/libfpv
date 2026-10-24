@@ -187,7 +187,7 @@ cmake -S . -B build/asan -DCMAKE_BUILD_TYPE=Debug \
 
 | Key | Action |
 |---|---|
-| F8 | libfpv overlay (preset, radio setup, rates, camera, Betaflight CLI) |
+| F8 | libfpv overlay (preset, radio setup, rates, camera, Betaflight CLI); Esc closes it |
 | V | Camera: FPV / chase / line of sight |
 | R | Repair and respawn |
 | F11 or Alt+Enter | Fullscreen |

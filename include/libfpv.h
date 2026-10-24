@@ -778,7 +778,9 @@ FPV_API void fpv_overlay_set_open(int open);
 FPV_API int fpv_overlay_is_open(void);
 FPV_API int fpv_overlay_wants_input(void);
 /* Key that toggles the overlay (default FPV_KEY_F8). Players can rebind it
- * in the overlay; the host does not need to handle it. */
+ * in the overlay; the host does not need to handle it. FPV_KEY_ESCAPE also
+ * closes the overlay (after any open popup or text field): if Esc opens the
+ * game's own pause menu, hide it from the game while fpv_overlay_is_open(). */
 FPV_API void fpv_overlay_set_toggle_key(int key);
 
 /* width/height in the coordinates mouse positions use (window points), and
