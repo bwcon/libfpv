@@ -79,6 +79,16 @@ void loadSettings() {
         s.kamikazePayloadKg = j.value("kamikazePayloadKg", s.kamikazePayloadKg);
         s.kamikazePayloadDrop = j.value("kamikazePayloadDrop", s.kamikazePayloadDrop);
         s.kamikazeEndingDuration = std::clamp(j.value("kamikazeEndingDuration", s.kamikazeEndingDuration), 0.0f, 30.0f);
+        // by name; absent or unknown = the host's default
+        std::string view = j.value("kamikazeEndingView", std::string());
+        s.kamikazeEndingView = view == "signal_lost" ? FPV_KAMIKAZE_VIEW_SIGNAL_LOST
+                               : view == "cutscene"  ? FPV_KAMIKAZE_VIEW_CUTSCENE
+                                                     : -1;
+        std::string then = j.value("kamikazeEndingThen", std::string());
+        s.kamikazeEndingThen = then == "respawn"   ? FPV_KAMIKAZE_THEN_RESPAWN
+                               : then == "recall"  ? FPV_KAMIKAZE_THEN_RECALL
+                               : then == "nothing" ? FPV_KAMIKAZE_THEN_NOTHING
+                                                   : -1;
         s.kamikazeOsd = j.value("kamikazeOsd", s.kamikazeOsd);
 #endif
     } catch (const std::exception &e) {
@@ -109,6 +119,10 @@ void saveSettings() {
     j["kamikazePayloadKg"] = s.kamikazePayloadKg;
     j["kamikazePayloadDrop"] = s.kamikazePayloadDrop;
     j["kamikazeEndingDuration"] = s.kamikazeEndingDuration;
+    static const char *const views[] = {"signal_lost", "cutscene"};
+    static const char *const thens[] = {"respawn", "recall", "nothing"};
+    if (s.kamikazeEndingView >= 0 && s.kamikazeEndingView < 2) j["kamikazeEndingView"] = views[s.kamikazeEndingView];
+    if (s.kamikazeEndingThen >= 0 && s.kamikazeEndingThen < 3) j["kamikazeEndingThen"] = thens[s.kamikazeEndingThen];
     j["kamikazeOsd"] = s.kamikazeOsd;
 #endif
     writeFileAtomic(pathFromUtf8(L.dataDir) / "settings.json", j.dump(2));

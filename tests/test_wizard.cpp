@@ -28,7 +28,8 @@ int g_failures = 0, g_checks = 0;
 // Axes: 0 roll, 1 pitch, 2 throttle, 3 yaw, 4 arm (2-pos), 5 angle (2-pos),
 // 6 beeper + turtle (3-pos: -1 off, 0 beeper, +1 turtle),
 // 7 air mode + OSD disable (3-pos: -1 off, 0 air mode, +1 OSD off),
-// kamikaze builds: 8 bomb arm (2-pos), button 0 explode (momentary).
+// kamikaze builds: 8 bomb arm (2-pos), button 0 explode (momentary), set up
+// in their own wizard (startBombSwitches).
 struct FakeRadio {
     RawDevice d;
     FakeRadio() {
@@ -51,7 +52,7 @@ bool step(RadioWizard &w, FakeRadio &r) {
 void testSharedThreePositionSwitch() {
     FakeRadio r;
     RadioWizard w;
-    w.start(r.d, true);
+    w.start(r.d);
     CHECK(step(w, r), "rest");
     r.d.axes[2] = 1;
     CHECK(step(w, r), "throttle");
@@ -93,15 +94,8 @@ void testSharedThreePositionSwitch() {
     CHECK(!w.detected(), "air mode's position is not offered for OSD");
     r.d.axes[7] = 1;  // all the way up: OSD disable
     CHECK(step(w, r), "OSD disable");
-#if defined(LIBFPV_KAMIKAZE)
-    CHECK(w.step() == RadioWizard::Step::BombArmSwitch, "bomb arm step after OSD disable");
-    r.d.axes[8] = 1;
-    CHECK(step(w, r), "bomb arm");
-    r.d.buttons[0] = 1;  // momentary explode button, held while pressing Next
-    CHECK(step(w, r), "explode");
-    r.d.buttons[0] = 0;
-#endif
-    CHECK(w.step() == RadioWizard::Step::Done, "wizard done");
+    // the full setup never asks for the bomb switches
+    CHECK(w.step() == RadioWizard::Step::Done, "wizard done after OSD disable");
 
     const DeviceMapping &m = w.mapping();
     CHECK(m.channels[kAux3].axis == 6 && m.channels[kAux4].axis == 6, "beeper and turtle share axis 6: %d %d",
@@ -125,9 +119,49 @@ void testSharedThreePositionSwitch() {
     CHECK(switchPosition(m, kAux1, 1) == 1 && switchPosition(m, kAux1, -1) == -1, "arm switch");
     CHECK(switchPosition(m, kAux2, 0.8f) == 1 && switchPosition(m, kAux2, -0.8f) == -1, "angle switch");
 #if defined(LIBFPV_KAMIKAZE)
-    CHECK(m.channels[kAux7].axis == 8 && switchPosition(m, kAux7, 1) == 1 && switchPosition(m, kAux7, -1) == -1,
-          "bomb arm switch on axis 8 (axis %d)", m.channels[kAux7].axis);
-    CHECK(m.channels[kAux8].button == 0, "explode on button 1 (button %d)", m.channels[kAux8].button);
+    CHECK(m.channels[kAux7].axis < 0 && m.channels[kAux8].button < 0, "no bomb switches in the full setup");
+
+    // the bomb switches' own setup, on top of that mapping
+    r.d.axes = {0, 0, -1, 0, -1, -1, -1, -1, -1};
+    RadioWizard b;
+    b.startBombSwitches(r.d, m);
+    CHECK(b.bombSwitchesOnly() && b.step() == RadioWizard::Step::Rest, "bomb setup starts at rest");
+    CHECK(step(b, r), "rest");
+    CHECK(b.step() == RadioWizard::Step::BombArmSwitch, "straight to the bomb arm switch");
+    r.d.axes[6] = 1;  // the turtle position: taken
+    b.update(r.d);
+    CHECK(!b.detected(), "a position the radio setup uses is not offered");
+    r.d.axes[6] = -1;
+    r.d.axes[8] = 1;
+    CHECK(step(b, r), "bomb arm");
+    r.d.buttons[0] = 1;  // momentary explode button, held while pressing Next
+    CHECK(step(b, r), "explode");
+    r.d.buttons[0] = 0;
+    CHECK(b.step() == RadioWizard::Step::Done, "bomb setup done");
+    DeviceMapping merged = m;
+    RadioWizard::mergeBombSwitches(merged, b.mapping(), false);
+    CHECK(merged.channels[kAux7].axis == 8 && switchPosition(merged, kAux7, 1) == 1 &&
+              switchPosition(merged, kAux7, -1) == -1,
+          "bomb arm switch on axis 8 (axis %d)", merged.channels[kAux7].axis);
+    CHECK(merged.channels[kAux8].button == 0, "explode on button 1 (button %d)", merged.channels[kAux8].button);
+    bool same = merged.complete == m.complete;
+    for (int c = 0; c < kAux7; c++)
+        same = same && merged.channels[c].axis == m.channels[c].axis &&
+               merged.channels[c].button == m.channels[c].button && merged.channels[c].min == m.channels[c].min &&
+               merged.channels[c].max == m.channels[c].max && merged.channels[c].inverted == m.channels[c].inverted;
+    CHECK(same, "the rest of the radio setup is untouched");
+
+    // a new full setup keeps the bomb switches that do not clash with it
+    DeviceMapping fresh = m;
+    fresh.channels[kAux2] = ChannelBinding{};
+    fresh.channels[kAux2].button = 0;  // angle now on the explode button
+    RadioWizard::mergeBombSwitches(fresh, merged, true);
+    CHECK(fresh.channels[kAux7].axis == 8, "bomb arm kept (axis %d)", fresh.channels[kAux7].axis);
+    CHECK(fresh.channels[kAux8].button < 0 && fresh.channels[kAux8].axis < 0, "explode dropped: its button is taken");
+    DeviceMapping stick = m;
+    stick.channels[kRoll].axis = 8;
+    RadioWizard::mergeBombSwitches(stick, merged, true);
+    CHECK(stick.channels[kAux7].axis < 0, "bomb arm dropped: its axis is a stick now");
 #endif
 }
 
@@ -146,12 +180,12 @@ void testMiddleOnly() {
 
 }  // namespace
 
-// The optional switches can all be skipped. The bomb switches are only
-// offered with the bomb installed.
-void testSkipOptionalSwitches(bool bomb) {
+// The optional switches can all be skipped; the bomb switches are not part
+// of the full setup.
+void testSkipOptionalSwitches() {
     FakeRadio r;
     RadioWizard w;
-    w.start(r.d, bomb);
+    w.start(r.d);
     step(w, r);
     for (int a : {2, 3, 1, 0}) {
         r.d.axes[a] = 1;
@@ -172,28 +206,31 @@ void testSkipOptionalSwitches(bool bomb) {
         w.skip();
         skipped++;
     }
-#if defined(LIBFPV_KAMIKAZE)
-    if (bomb)
-        CHECK(skipped == 7, "angle, beeper, turtle, air mode, OSD, bomb arm and explode are optional (%d skipped)",
-              skipped);
-    else
-#endif
-        CHECK(skipped == 5, "angle, beeper, turtle, air mode and OSD are optional (%d skipped)", skipped);
+    CHECK(skipped == 5, "angle, beeper, turtle, air mode and OSD are optional (%d skipped)", skipped);
     CHECK(w.step() == RadioWizard::Step::Done && w.mapping().complete, "done after skipping");
     for (int c = kAux2; c < kChannelCount; c++)
         CHECK(w.mapping().channels[c].axis < 0 && w.mapping().channels[c].button < 0, "AUX%d unbound", c - kAux1 + 1);
-    if (!bomb) {
-        w.back();
-        CHECK(w.step() == RadioWizard::Step::OsdSwitch, "back from done without the bomb returns to OSD");
-    }
+    w.back();
+    CHECK(w.step() == RadioWizard::Step::OsdSwitch, "back from done returns to OSD");
+#if defined(LIBFPV_KAMIKAZE)
+    // the bomb switches' setup: both optional, back from the first one is rest
+    RadioWizard b;
+    b.startBombSwitches(r.d, w.mapping());
+    step(b, r);
+    CHECK(b.canSkip(), "bomb arm optional");
+    b.back();
+    CHECK(b.step() == RadioWizard::Step::Rest, "back from bomb arm returns to rest");
+    step(b, r);
+    b.skip();
+    CHECK(b.step() == RadioWizard::Step::ExplodeSwitch && b.canSkip(), "explode optional");
+    b.skip();
+    CHECK(b.step() == RadioWizard::Step::Done, "bomb setup done after skipping");
+#endif
 }
 
 int main() {
     testSharedThreePositionSwitch();
-    testSkipOptionalSwitches(false);
-#if defined(LIBFPV_KAMIKAZE)
-    testSkipOptionalSwitches(true);
-#endif
+    testSkipOptionalSwitches();
     testMiddleOnly();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;

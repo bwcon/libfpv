@@ -11,9 +11,9 @@ namespace {
 constexpr float kMoveThreshold = 0.35f;  // raw units (-1..1) a stick must move to count
 }
 
-void RadioWizard::start(const RawDevice &dev, bool bombSwitches) {
+void RadioWizard::start(const RawDevice &dev) {
     m_active = true;
-    m_bombSwitches = bombSwitches;
+    m_bombOnly = false;
     m_step = Step::Rest;
     m_mapping = DeviceMapping{};
     m_mapping.guid = dev.guid;
@@ -24,6 +24,39 @@ void RadioWizard::start(const RawDevice &dev, bool bombSwitches) {
     m_max = dev.axes;
     m_candidate = -1;
 }
+
+#if defined(LIBFPV_KAMIKAZE)
+void RadioWizard::startBombSwitches(const RawDevice &dev, const DeviceMapping &current) {
+    start(dev);
+    m_bombOnly = true;
+    m_mapping = current;
+    m_mapping.guid = dev.guid;
+    m_mapping.name = dev.name;
+    m_mapping.channels[kAux7] = ChannelBinding{};
+    m_mapping.channels[kAux8] = ChannelBinding{};
+}
+
+void RadioWizard::mergeBombSwitches(DeviceMapping &into, const DeviceMapping &from, bool onlyIfFree) {
+    for (int c : {kAux7, kAux8}) {
+        const ChannelBinding &b = from.channels[c];
+        into.channels[c] = ChannelBinding{};
+        if (b.axis < 0 && b.button < 0) continue;
+        bool free = true;
+        if (onlyIfFree) {
+            for (int o = 0; o < kChannelCount; o++) {
+                const ChannelBinding &ob = into.channels[o];
+                if (o == c) continue;
+                if (b.button >= 0 && ob.button == b.button) free = false;
+                // a stick axis, or a switch in the same position
+                if (b.axis >= 0 && ob.axis == b.axis &&
+                    (o < kAux1 || std::fabs(ob.switchOn() - b.switchOn()) < kMoveThreshold))
+                    free = false;
+            }
+        }
+        if (free) into.channels[c] = b;
+    }
+}
+#endif
 
 int RadioWizard::channelForStep(Step s) const {
     switch (s) {
@@ -47,7 +80,7 @@ int RadioWizard::channelForStep(Step s) const {
 
 RadioWizard::Step RadioWizard::lastSwitch() const {
 #if defined(LIBFPV_KAMIKAZE)
-    if (m_bombSwitches) return Step::ExplodeSwitch;
+    if (m_bombOnly) return Step::ExplodeSwitch;
 #endif
     return Step::OsdSwitch;
 }
@@ -149,6 +182,13 @@ bool RadioWizard::next(std::string &hint) {
             hint = "This device has fewer than 4 axes; it cannot be used as a radio.";
             return false;
         }
+#if defined(LIBFPV_KAMIKAZE)
+        if (m_bombOnly) {
+            m_step = Step::BombArmSwitch;
+            m_candidate = -1;
+            return true;
+        }
+#endif
         m_step = Step::Throttle;
         return true;
     case Step::Calibrate: {
@@ -243,6 +283,13 @@ void RadioWizard::skip() {
 
 void RadioWizard::back() {
     if (m_step <= Step::Rest) return;
+#if defined(LIBFPV_KAMIKAZE)
+    if (m_bombOnly && m_step == Step::BombArmSwitch) {
+        m_step = Step::Rest;
+        m_candidate = -1;
+        return;
+    }
+#endif
     m_step = m_step == Step::Done ? lastSwitch() : (Step)((int)m_step - 1);
     int ch = channelForStep(m_step);
     if (ch >= 0) m_mapping.channels[ch] = ChannelBinding{};
@@ -278,6 +325,11 @@ const char *RadioWizard::instruction() const {
     switch (m_step) {
     case Step::PickDevice: return "Select the radio you want to fly with.";
     case Step::Rest:
+#if defined(LIBFPV_KAMIKAZE)
+        if (m_bombOnly)
+            return "Put every switch in its OFF position (the bomb switches too), then press Next. Only the bomb arm "
+                   "and explode switches are set up here; the rest of your radio setup stays as it is.";
+#endif
         return "Centre the right stick and the yaw, pull the throttle all the way down, and put every switch in "
                "its OFF position. Then press Next.";
     case Step::Throttle: return "Push the THROTTLE stick all the way UP and hold it there.";
@@ -314,6 +366,10 @@ const char *RadioWizard::instruction() const {
                "It only works while the bomb is armed and live.";
 #endif
     case Step::Done:
+#if defined(LIBFPV_KAMIKAZE)
+        if (m_bombOnly)
+            return "The bomb switches are set; the rest of your radio setup is unchanged. Check the bars below.";
+#endif
         return "Your radio is mapped. Check the bars below, then close this window and fly. Throttle down and flip "
                "the arm switch to arm.";
     }
@@ -335,6 +391,9 @@ std::string RadioWizard::detectedLabel() const {
 
 float RadioWizard::progress() const {
     if (m_step == Step::Done) return 1;
+#if defined(LIBFPV_KAMIKAZE)
+    if (m_bombOnly) return m_step == Step::Rest ? 0.0f : m_step == Step::BombArmSwitch ? 1 / 3.0f : 2 / 3.0f;
+#endif
     return (float)m_step / (float)((int)lastSwitch() + 1);
 }
 

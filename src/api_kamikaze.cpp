@@ -37,6 +37,18 @@ void applyKamikazeSettings() {
     });
 }
 
+uint32_t kamikazeEndingView() {
+    const Lib &L = lib();
+    int v = L.settings.kamikazeEndingView;
+    return v >= 0 && (L.kamikazeViewMask & (1u << v)) ? (uint32_t)v : L.kamikazeDefaultView;
+}
+
+uint32_t kamikazeEndingThen() {
+    const Lib &L = lib();
+    int t = L.settings.kamikazeEndingThen;
+    return t >= 0 && (L.kamikazeThenMask & (1u << t)) ? (uint32_t)t : L.kamikazeDefaultThen;
+}
+
 }  // namespace fpv
 
 extern "C" {
@@ -124,6 +136,8 @@ FPV_API void fpv_kamikaze_config_defaults(fpv_kamikaze_config *c) {
     c->payload_mass = def.kamikazePayloadKg;
     c->payload_drop = def.kamikazePayloadDrop;
     c->ending_duration = def.kamikazeEndingDuration;
+    c->ending_view = L.kamikazeDefaultView;
+    c->ending_then = L.kamikazeDefaultThen;
 }
 
 FPV_API fpv_result fpv_kamikaze_set_config(const fpv_kamikaze_config *in) {
@@ -139,6 +153,8 @@ FPV_API fpv_result fpv_kamikaze_set_config(const fpv_kamikaze_config *in) {
     // older hosts do not know it: keep the player's
     if (size < offsetof(fpv_kamikaze_config, ending_duration) + sizeof(c.ending_duration))
         c.ending_duration = s.kamikazeEndingDuration;
+    bool hasView = size >= offsetof(fpv_kamikaze_config, ending_view) + sizeof(c.ending_view);
+    bool hasThen = size >= offsetof(fpv_kamikaze_config, ending_then) + sizeof(c.ending_then);
     if (!std::isfinite(c.arming_delay) || c.arming_delay < 0 || c.arming_delay > 600)
         return setError(FPV_ERROR_INVALID_ARGUMENT, "arming_delay must be 0..600 s");
     float fuse = L.conv.lenToInternal(c.min_impact_speed);
@@ -149,11 +165,18 @@ FPV_API fpv_result fpv_kamikaze_set_config(const fpv_kamikaze_config *in) {
     if (!std::isfinite(c.payload_drop)) return setError(FPV_ERROR_INVALID_ARGUMENT, "payload_drop is not finite");
     if (!std::isfinite(c.ending_duration) || c.ending_duration < 0 || c.ending_duration > 30)
         return setError(FPV_ERROR_INVALID_ARGUMENT, "ending_duration must be 0..30 s");
+    if (hasView && c.ending_view > FPV_KAMIKAZE_VIEW_CUTSCENE)
+        return setError(FPV_ERROR_INVALID_ARGUMENT, "ending_view is not a fpv_kamikaze_ending_view");
+    if (hasThen && c.ending_then > FPV_KAMIKAZE_THEN_NOTHING)
+        return setError(FPV_ERROR_INVALID_ARGUMENT, "ending_then is not a fpv_kamikaze_ending_then");
     s.kamikazeArmingDelay = c.arming_delay;
     s.kamikazeMinImpactSpeed = std::max(0.1f, fuse);
     s.kamikazePayloadKg = c.payload_mass < 0 ? -1.0f : c.payload_mass;
     s.kamikazePayloadDrop = c.payload_drop < 0 ? -1.0f : std::min(L.conv.lenToInternal(c.payload_drop), 1.0f);
     s.kamikazeEndingDuration = c.ending_duration;
+    // a choice the host does not support reads back as its default
+    if (hasView) s.kamikazeEndingView = (int)c.ending_view;
+    if (hasThen) s.kamikazeEndingThen = (int)c.ending_then;
     s.kamikazeOsd = !(c.flags & FPV_KAMIKAZE_NO_OSD);
     applyKamikazeSettings();
     saveSettings();
@@ -175,9 +198,30 @@ FPV_API fpv_result fpv_kamikaze_get_config(fpv_kamikaze_config *out) {
     c.payload_mass = s.kamikazePayloadKg;
     c.payload_drop = s.kamikazePayloadDrop < 0 ? -1.0f : L.conv.lenToHost(s.kamikazePayloadDrop);
     c.ending_duration = s.kamikazeEndingDuration;
+    c.ending_view = kamikazeEndingView();
+    c.ending_then = kamikazeEndingThen();
     uint32_t size = std::min<uint32_t>(out->struct_size, sizeof(c));
     memcpy(out, &c, size);
     out->struct_size = size;
+    return FPV_OK;
+}
+
+FPV_API fpv_result fpv_kamikaze_set_ending_support(uint32_t viewMask, uint32_t thenMask, uint32_t defaultView,
+                                                   uint32_t defaultThen) {
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    if (!L.initialized) return setError(FPV_ERROR_NOT_INITIALIZED, "call fpv_global_init first");
+    // signal lost and "nothing" need nothing from the game: always possible
+    viewMask = (viewMask & 0x3u) | (1u << FPV_KAMIKAZE_VIEW_SIGNAL_LOST);
+    thenMask = (thenMask & 0x7u) | (1u << FPV_KAMIKAZE_THEN_NOTHING);
+    if (defaultView > FPV_KAMIKAZE_VIEW_CUTSCENE || !(viewMask & (1u << defaultView)))
+        return setError(FPV_ERROR_INVALID_ARGUMENT, "default_view must be a supported fpv_kamikaze_ending_view");
+    if (defaultThen > FPV_KAMIKAZE_THEN_NOTHING || !(thenMask & (1u << defaultThen)))
+        return setError(FPV_ERROR_INVALID_ARGUMENT, "default_then must be a supported fpv_kamikaze_ending_then");
+    L.kamikazeViewMask = viewMask;
+    L.kamikazeThenMask = thenMask;
+    L.kamikazeDefaultView = defaultView;
+    L.kamikazeDefaultThen = defaultThen;
     return FPV_OK;
 }
 

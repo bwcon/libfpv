@@ -29,12 +29,16 @@
 //      fpv_kamikaze_poll_detonation          every frame: explosion, blast damage
 //      fpv_drone_repair + fpv_drone_reset    the next drone, when the game decides
 // and targets to hit (surface objects, so a direct hit names its object_id).
-// The bomb is not installed by default: F8 > Fly > "Bomb installed" (or
+//      fpv_kamikaze_set_ending_support       the endings this game can do
+// The bomb is not installed by default: F8 > Kamikaze > "Bomb installed" (or
 // the game's own fpv_kamikaze_set_installed) adds it, for every drone.
-// Keys: K bomb arm switch, X explode, C what happens after the explosion
-// (arcade: a cutscene, 3 s by default (F8 > Fly), then respawn / signal lost until R).
-// --after arcade|signal picks it, --kamikaze-demo flies a scripted
-// strike that checks every warhead rule and exits 0 (pass) or 1 (fail).
+// Keys: K bomb arm switch, X explode, R respawn (also during the ending).
+// After the explosion the game shows the player's ending (F8 > Kamikaze):
+// the view (signal lost or a cutscene) for its duration, then respawn, or
+// nothing: the view stays until R (this game has no pilot to recall to). --view signal|cutscene,
+// --duration S and --then respawn|nothing set it like the overlay would.
+// --kamikaze-demo flies a scripted strike, then checks the ending options,
+// and exits 0 (pass) or 1 (fail).
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <SDL3/SDL.h>
@@ -397,11 +401,15 @@ static void savePpm(const char *path, int w, int h) {
 #if defined(LIBFPV_KAMIKAZE)
 // --- kamikaze -------------------------------------------------------------------------
 
-// What the game does after the explosion; libfpv supports each of them.
-enum class AfterBoom { Arcade, Signal };
-static const char *afterName(AfterBoom a) {
-    return a == AfterBoom::Arcade ? "arcade" : "signal";
-}
+// The ending in progress after a detonation, timed with the game's clock.
+struct Ending {
+    bool showing = false;    // the view is on screen
+    double until = -1;       // when the view ends, < 0 = until the player acts
+    uint32_t view = FPV_KAMIKAZE_VIEW_SIGNAL_LOST, then = FPV_KAMIKAZE_THEN_NOTHING;
+    double blastTime = -1;
+    int respawns = 0;        // for the demo's checks
+    int cutsceneFrames = 0;  // frames drawn from the cutscene camera
+};
 
 struct Target {
     V3 centre, half;
@@ -426,15 +434,29 @@ static fpv_camera lookCamera(V3 eye, V3 target, float fov) {
 static const V3 kDemoTarget{0, 1.0f, -11};
 
 // Scripted strike for --kamikaze-demo. Checks each warhead rule against
-// what libfpv reports and returns the channels to send.
+// what libfpv reports and returns the channels to send. Then checks the
+// ending options on host detonations: no view, a view that stays, an early
+// respawn that cancels the timer.
 struct KamikazeDemo {
     int failures = 0;
     int stage = 0;
     double stageTime = 0, respawnSeen = -1;
     bool detonated = false, respawned = false, targetHit = false, directHit = false;
-    bool wantRespawn = false;  // signal mode: the "player" takes the next drone
-    float armingDelay = 0;     // the player's setting (F8 > Fly), none by default
-    float endingDuration = 3;  // the player's setting (F8 > Fly)
+    bool wantRespawn = false;    // the "player" presses R
+    bool wantDetonate = false;   // the game blows the warhead up
+    float armingDelay = 0;       // the player's setting (F8 > Kamikaze), none by default
+    fpv_kamikaze_config ending{};  // the strike's ending (the player's choice)
+    const Ending *game = nullptr;
+    // the ending scenarios after the strike
+    struct Scenario {
+        const char *name;
+        uint32_t view;
+        float duration;
+        uint32_t then;
+        double earlyRespawn;  // the player presses R this long after the blast, < 0 = never
+    };
+    int scenario = 0, phase = 0, respawnsBefore = 0;
+    double phaseTime = 0;
     void check(bool ok, const char *what) {
         SDL_Log("[demo] %s %s", ok ? "PASS" : "FAIL", what);
         if (!ok) failures++;
@@ -444,6 +466,7 @@ struct KamikazeDemo {
         for (int i = 0; i < FPV_CHANNEL_COUNT; i++) ch[i] = (i == 2 || i >= 4) ? -1.0f : 0.0f;
         ch[5] = 1;  // angle mode
         bool armed = f.flags & FPV_DRONE_ARMED;
+        bool dead = f.flags & FPV_DRONE_DETONATED;
         double st = t - stageTime;
         // the scripted pilot's throttle: hold a height (PD, any payload)
         auto holdHeight = [&](float h) {
@@ -476,8 +499,7 @@ struct KamikazeDemo {
             ch[2] = holdHeight(5);
             ch[11] = st > 0.3 && st < 0.6 ? 1 : -1;
             if (st > 1.0) {
-                check(k.warhead == FPV_WARHEAD_SAFE && !(f.flags & FPV_DRONE_DETONATED),
-                      "explode switch does nothing while SAFE");
+                check(k.warhead == FPV_WARHEAD_SAFE && !dead, "explode switch does nothing while SAFE");
                 next();
             }
             break;
@@ -500,7 +522,7 @@ struct KamikazeDemo {
             ch[1] = 0.35f;
             ch[2] = holdHeight(kDemoTarget.y * 0.5f + 0.1f * dist);  // aim low at the truck's side
             ch[0] = std::fmax(-0.3f, std::fmin(0.3f, -0.1f * f.position[0]));  // stay on the line
-            if (f.flags & FPV_DRONE_DETONATED) {
+            if (dead) {
                 check(detonated, "detonation event received (fpv_kamikaze_poll_detonation)");
                 check(targetHit && directHit, "direct hit: the target ahead is destroyed (its object_id)");
                 check(f.video.signal_strength == 0, "video signal lost after the explosion");
@@ -509,16 +531,82 @@ struct KamikazeDemo {
             if (st > 15) check(false, "hit something within 15 s"), next();
             break;
         }
-        case 5:  // the game respawns the drone (arcade), or the pilot asks (signal)
-            // signal mode: nobody else respawns it
-            if (st > endingDuration + 1 && !respawned) wantRespawn = true;
-            if (respawned && respawnSeen < 0) respawnSeen = t;
-            if ((respawnSeen >= 0 && t - respawnSeen > 0.3) || st > endingDuration + 5) {
-                check(respawned && k.warhead == FPV_WARHEAD_SAFE && !(f.flags & FPV_DRONE_DETONATED),
+        case 5: {  // the strike's ending, as the player set it
+            double d = ending.ending_duration;
+            bool respawnAfter = ending.ending_then == FPV_KAMIKAZE_THEN_RESPAWN;
+            if (respawned && respawnSeen < 0) {
+                respawnSeen = t;
+                if (respawnAfter)
+                    check(std::fabs(t - game->blastTime - d) < 0.25,
+                          "the game respawns the drone when the ending's time is up");
+            }
+            if (!respawnAfter && !respawned && st > d + 1) {
+                check(dead && game->showing, "\"nothing\": the view stays until the player acts");
+                wantRespawn = true;
+            }
+            if ((respawnSeen >= 0 && t - respawnSeen > 0.3) || st > d + 6) {
+                check(respawned && k.warhead == FPV_WARHEAD_SAFE && !dead && !game->showing,
                       "respawned with a new, safe warhead");
-                return false;
+                next();
             }
             break;
+        }
+        case 6: {  // the ending options on host detonations, on the ground
+            static const Scenario scenarios[] = {
+                {"0 s view, then respawn", FPV_KAMIKAZE_VIEW_SIGNAL_LOST, 0, FPV_KAMIKAZE_THEN_RESPAWN, -1},
+                {"1 s cutscene, then nothing", FPV_KAMIKAZE_VIEW_CUTSCENE, 1, FPV_KAMIKAZE_THEN_NOTHING, 2.0},
+                {"3 s cutscene, early respawn", FPV_KAMIKAZE_VIEW_CUTSCENE, 3, FPV_KAMIKAZE_THEN_RESPAWN, 0.5},
+                {"0 s cutscene, then nothing", FPV_KAMIKAZE_VIEW_CUTSCENE, 0, FPV_KAMIKAZE_THEN_NOTHING, 1.0},
+            };
+            if (scenario >= (int)(sizeof scenarios / sizeof scenarios[0])) return false;
+            const Scenario &sc = scenarios[scenario];
+            double pt = t - phaseTime;
+            char what[160];
+            auto say = [&](const char *msg) {
+                std::snprintf(what, sizeof what, "%s: %s", sc.name, msg);
+                return what;
+            };
+            if (phase == 0 && pt > 0.5) {  // settled: the player's choice, then the blast
+                fpv_kamikaze_config c{};
+                c.struct_size = sizeof c;
+                fpv_kamikaze_get_config(&c);
+                c.ending_view = sc.view;
+                c.ending_duration = sc.duration;
+                c.ending_then = sc.then;
+                fpv_kamikaze_set_config(&c);
+                respawnsBefore = game->respawns;
+                wantDetonate = true;
+                phase = 1, phaseTime = t;
+            } else if (phase == 1 && pt > 0.1) {  // the blast went off a moment ago
+                bool respawnNow = sc.duration <= 0 && sc.then == FPV_KAMIKAZE_THEN_RESPAWN;
+                if (respawnNow) {
+                    check(game->respawns == respawnsBefore + 1 && !dead && game->cutsceneFrames == 0,
+                          say("respawned at once, no view"));
+                    phase = 3, phaseTime = t;
+                } else {
+                    // "nothing" shows the view even for 0 s, and holds it
+                    check(dead && game->showing, say("the view shows"));
+                    if (sc.view == FPV_KAMIKAZE_VIEW_CUTSCENE)
+                        check(game->cutsceneFrames > 0, say("drawn from the cutscene camera"));
+                    phase = 2, phaseTime = t - pt;
+                }
+            } else if (phase == 2 && sc.earlyRespawn >= 0 && pt >= sc.earlyRespawn) {
+                // the player respawns during the view (or with nothing on screen)
+                if (sc.then == FPV_KAMIKAZE_THEN_NOTHING)
+                    check(dead && game->showing && game->respawns == respawnsBefore,
+                          say("the view stays past its duration until the player acts"));
+                wantRespawn = true;
+                phase = 3, phaseTime = t;
+            } else if (phase == 3 && pt > 0.2 && pt < 0.3) {
+                check(!dead && !game->showing && game->respawns == respawnsBefore + 1, say("respawned, the view is gone"));
+                phase = 4;
+            } else if (phase == 4 && pt > std::fmax(0.5, sc.duration + 0.5)) {
+                // the cancelled timer must not respawn it again
+                check(game->respawns == respawnsBefore + 1, say("no second respawn from the cancelled timer"));
+                scenario++, phase = 0, phaseTime = t;
+            }
+            break;
+        }
         }
         return true;
     }
@@ -536,8 +624,10 @@ int main(int argc, char **argv) {
     int frames = 0, width = 1280, height = 720, camMode = 0;
     bool autopilot = false, openOverlay = false;
 #if defined(LIBFPV_KAMIKAZE)
-    AfterBoom after = AfterBoom::Arcade;
     bool kamikazeDemo = false;
+    // the ending chosen on the command line (-1 = the player's, F8 > Kamikaze)
+    int argView = -1, argThen = -1;
+    float argDuration = -1;
 #endif
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
@@ -551,10 +641,9 @@ int main(int argc, char **argv) {
         else if (a == "--height") height = std::atoi(nextArg().c_str());
 #if defined(LIBFPV_KAMIKAZE)
         else if (a == "--kamikaze-demo") kamikazeDemo = true;
-        else if (a == "--after") {
-            std::string m = nextArg();
-            after = m == "signal" ? AfterBoom::Signal : AfterBoom::Arcade;
-        }
+        else if (a == "--view") argView = nextArg() == "cutscene" ? FPV_KAMIKAZE_VIEW_CUTSCENE : FPV_KAMIKAZE_VIEW_SIGNAL_LOST;
+        else if (a == "--then") argThen = nextArg() == "respawn" ? FPV_KAMIKAZE_THEN_RESPAWN : FPV_KAMIKAZE_THEN_NOTHING;
+        else if (a == "--duration") argDuration = (float)std::atof(nextArg().c_str());
 #endif
         else if (a == "--camera") {
             std::string c = nextArg();
@@ -664,15 +753,29 @@ int main(int argc, char **argv) {
         V3 pos;
         double start = -1;
     } blast;
-    double respawnAt = -1;
+    // This game can show both views; after them it respawns the drone or
+    // does nothing (there is no pilot to recall to), nothing by default.
+    fpv_kamikaze_set_ending_support((1u << FPV_KAMIKAZE_VIEW_SIGNAL_LOST) | (1u << FPV_KAMIKAZE_VIEW_CUTSCENE),
+                                    (1u << FPV_KAMIKAZE_THEN_RESPAWN) | (1u << FPV_KAMIKAZE_THEN_NOTHING),
+                                    FPV_KAMIKAZE_VIEW_SIGNAL_LOST, FPV_KAMIKAZE_THEN_NOTHING);
+    fpv_kamikaze_config playerConfig{};  // restored after the demo
+    playerConfig.struct_size = sizeof playerConfig;
+    fpv_kamikaze_get_config(&playerConfig);
+    if (argView >= 0 || argThen >= 0 || argDuration >= 0) {
+        fpv_kamikaze_config kc = playerConfig;
+        if (argView >= 0) kc.ending_view = (uint32_t)argView;
+        if (argThen >= 0) kc.ending_then = (uint32_t)argThen;
+        if (argDuration >= 0) kc.ending_duration = std::fmin(argDuration, 30.0f);
+        if (fpv_kamikaze_set_config(&kc) != FPV_OK) std::fprintf(stderr, "ending: %s\n", fpv_last_error());
+    }
+    Ending ending;
     KamikazeDemo demo;
+    demo.game = &ending;
     if (kamikazeDemo) {
-        fpv_kamikaze_set_installed(1);  // the player would tick it in F8 > Fly
-        fpv_kamikaze_config kc{};
-        kc.struct_size = sizeof kc;
-        fpv_kamikaze_get_config(&kc);
-        demo.armingDelay = kc.arming_delay;
-        demo.endingDuration = kc.ending_duration;
+        fpv_kamikaze_set_installed(1);  // the player would tick it in F8 > Kamikaze
+        demo.ending.struct_size = sizeof demo.ending;
+        fpv_kamikaze_get_config(&demo.ending);
+        demo.armingDelay = demo.ending.arming_delay;
     }
 #endif
 
@@ -688,6 +791,16 @@ int main(int argc, char **argv) {
     // the home arrow and distance point at the launch pad, wherever the drone
     // is armed (without this, home is where it last armed)
     fpv_gps_set_home(dd.position);
+#if defined(LIBFPV_KAMIKAZE)
+    // the next drone: a new, safe warhead at the spawn; ends any ending
+    auto respawn = [&] {
+        fpv_drone_repair(drone);
+        fpv_drone_reset(drone, dd.position, dd.rotation);
+        ending.showing = false;
+        ending.respawns++;
+        demo.respawned = true;
+    };
+#endif
     fpv_frame frame;
     std::memset(&frame, 0, sizeof frame);
     frame.struct_size = sizeof frame;
@@ -745,15 +858,13 @@ int main(int argc, char **argv) {
 #endif
                     if (e.key.key == SDLK_V) camMode = (camMode + 1) % 3;
                     if (e.key.key == SDLK_R) {
-                        fpv_drone_repair(drone);  // kamikaze builds: also a new warhead
-                        fpv_drone_reset(drone, dd.position, dd.rotation);
-                    }
 #if defined(LIBFPV_KAMIKAZE)
-                    if (e.key.key == SDLK_C) {
-                        after = (AfterBoom)(((int)after + 1) % 2);
-                        SDL_Log("after the explosion: %s", afterName(after));
-                    }
+                        respawn();  // also during the ending view: it cancels the timer
+#else
+                        fpv_drone_repair(drone);
+                        fpv_drone_reset(drone, dd.position, dd.rotation);
 #endif
+                    }
                 }
                 break;
             }
@@ -813,8 +924,12 @@ int main(int argc, char **argv) {
             if (frame.impacts[i].speed > 4) SDL_Log("impact %.1f m/s", frame.impacts[i].speed);
 
 #if defined(LIBFPV_KAMIKAZE)
-        // the warhead went off: explosion, blast damage, then whatever this
-        // game does next (arcade: cutscene + respawn, or signal lost)
+        if (demo.wantDetonate) {
+            demo.wantDetonate = false;
+            fpv_kamikaze_detonate(drone, 1);  // as if shot: goes off even while safe
+        }
+        // the warhead went off: explosion, blast damage, then the player's
+        // ending: the view for its duration, then respawn or nothing
         fpv_detonation det{};
         det.struct_size = sizeof det;
         while (fpv_kamikaze_poll_detonation(&det)) {
@@ -841,16 +956,26 @@ int main(int argc, char **argv) {
             }
             fpv_kamikaze_config kc{};
             kc.struct_size = sizeof kc;
-            fpv_kamikaze_get_config(&kc);  // the player's ending length (F8 > Fly)
-            respawnAt = after == AfterBoom::Arcade ? time + kc.ending_duration : -1;
-            if (after == AfterBoom::Signal) SDL_Log("SIGNAL LOST - press R for the next drone");
+            fpv_kamikaze_get_config(&kc);  // the player's ending (F8 > Kamikaze)
+            bool respawnAfter = kc.ending_then == FPV_KAMIKAZE_THEN_RESPAWN;
+            ending.blastTime = time;
+            ending.view = kc.ending_view;
+            ending.then = kc.ending_then;
+            ending.cutsceneFrames = 0;
+            // "nothing" holds the view until the player acts (whatever the
+            // duration); otherwise 0 s means no view at all
+            ending.showing = kc.ending_duration > 0 || !respawnAfter;
+            ending.until = ending.showing && respawnAfter ? time + kc.ending_duration : -1;
+            if (!ending.showing && respawnAfter) respawn();
+            else if (!respawnAfter) SDL_Log("SIGNAL LOST - press R for the next drone");
         }
-        if ((respawnAt >= 0 && time >= respawnAt) || demo.wantRespawn) {
-            respawnAt = -1;
+        if (ending.showing && ending.until >= 0 && time >= ending.until) {
+            ending.showing = false;
+            if (ending.then == FPV_KAMIKAZE_THEN_RESPAWN) respawn();
+        }
+        if (demo.wantRespawn) {  // the player's R
             demo.wantRespawn = false;
-            fpv_drone_repair(drone);
-            fpv_drone_reset(drone, dd.position, dd.rotation);
-            demo.respawned = true;
+            respawn();
         }
 #endif
 
@@ -886,12 +1011,15 @@ int main(int argc, char **argv) {
         bool cutscene = false;
 #if defined(LIBFPV_KAMIKAZE)
         fpv_camera orbit;
-        if (blast.start >= 0 && respawnAt >= 0 && after == AfterBoom::Arcade) {
-            // explosion cutscene: orbit the blast until the respawn
+        if (ending.showing && ending.view == FPV_KAMIKAZE_VIEW_CUTSCENE) {
+            // explosion cutscene: orbit the blast until the view ends
             float a = (float)(time - blast.start) * 0.5f;
             orbit = lookCamera(blast.pos + V3{std::sin(a) * 14, 6, std::cos(a) * 14}, blast.pos, 60);
             camPtr = &orbit;
             cutscene = true;
+            ending.cutsceneFrames++;
+        } else if (ending.showing) {
+            camPtr = &frame.camera;  // signal lost: the dead FPV feed, whatever the camera mode
         }
 #endif
         const fpv_camera &cam = *camPtr;
@@ -969,6 +1097,9 @@ int main(int argc, char **argv) {
         glBindTexture(GL_TEXTURE_2D, fboTex);
         glUniform1i(glGetUniformLocation(postProg, "scene"), 0);
         bool fpv = camMode == 0 && !cutscene;
+#if defined(LIBFPV_KAMIKAZE)
+        if (ending.showing && ending.view == FPV_KAMIKAZE_VIEW_SIGNAL_LOST) fpv = true;
+#endif
         float flash = 0;
 #if defined(LIBFPV_KAMIKAZE)
         if (blast.start >= 0 && !fpv) flash = (float)std::fmax(0.0, 0.8 - (time - blast.start) * 3);
@@ -1021,6 +1152,9 @@ int main(int argc, char **argv) {
 #endif
 
     // 7. shutdown
+#if defined(LIBFPV_KAMIKAZE)
+    if (kamikazeDemo) fpv_kamikaze_set_config(&playerConfig);  // the demo's endings were not the player's
+#endif
     if (audio) SDL_DestroyAudioStream(audio);
     fpv_drone_delete(drone);
     fpv_global_terminate();

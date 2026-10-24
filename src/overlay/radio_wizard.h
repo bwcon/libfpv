@@ -1,5 +1,6 @@
 // libfpv - guided radio setup: move each stick, the wizard finds the axis,
-// its direction and endpoints, then the switches for ARM and modes.
+// its direction and endpoints, then the switches for ARM and modes. Kamikaze
+// builds set up the bomb switches separately (startBombSwitches).
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
@@ -32,9 +33,20 @@ public:
 #endif
         Done
     };
-    // `bombSwitches`: offer the bomb arm and explode switches (kamikaze builds
-    // with the bomb installed); ignored in other builds.
-    void start(const RawDevice &dev, bool bombSwitches = false);
+    // The full setup: sticks, then AUX1..6. Never the bomb switches.
+    void start(const RawDevice &dev);
+#if defined(LIBFPV_KAMIKAZE)
+    // Only the bomb arm (AUX7) and explode (AUX8) switches, on a radio set
+    // up already: the other bindings of `current` stay as they are, and the
+    // new switches avoid the positions they use. Merge the result with
+    // mergeBombSwitches.
+    void startBombSwitches(const RawDevice &dev, const DeviceMapping &current);
+    bool bombSwitchesOnly() const { return m_bombOnly; }
+    // Copies the bomb switches (AUX7, AUX8) of `from` into `into`, leaving
+    // its other bindings. With `onlyIfFree`, a switch whose axis position or
+    // button `into` uses already is left out (after a new full setup).
+    static void mergeBombSwitches(DeviceMapping &into, const DeviceMapping &from, bool onlyIfFree);
+#endif
     void cancel() { m_active = false; }
     bool active() const { return m_active; }
     Step step() const { return m_step; }
@@ -73,7 +85,7 @@ private:
     Step lastSwitch() const;
 
     bool m_active = false;
-    bool m_bombSwitches = false;
+    bool m_bombOnly = false;  // startBombSwitches: AUX7 and AUX8 only
     Step m_step = Step::PickDevice;
     DeviceMapping m_mapping;
     std::vector<float> m_rest;

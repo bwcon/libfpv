@@ -42,7 +42,9 @@ struct Settings {
     // fpv_kamikaze_config, internal units (seconds, m/s, kg, metres)
     float kamikazeArmingDelay = 0.0f, kamikazeMinImpactSpeed = 0.25f;
     float kamikazePayloadKg = -1.0f, kamikazePayloadDrop = -1.0f;  // < 0 = automatic
-    float kamikazeEndingDuration = 3.0f;  // the game's cutscene / static after a detonation, s
+    float kamikazeEndingDuration = 3.0f;  // the game's ending view after a detonation, s
+    // the player's ending view / then (fpv_kamikaze_ending_*), -1 = the host's default
+    int kamikazeEndingView = -1, kamikazeEndingThen = -1;
     bool kamikazeOsd = true;
 #endif
 };
@@ -95,6 +97,9 @@ struct Lib {
     // the bomb is installed (fpv_kamikaze_set_installed, overlay): kept for
     // the session, so every new or respawned drone carries it too; not saved
     bool kamikazeInstalled = false;
+    // the endings the host can do and its defaults (fpv_kamikaze_set_ending_support)
+    uint32_t kamikazeViewMask = 0x3, kamikazeThenMask = 0x7;
+    uint32_t kamikazeDefaultView = 0, kamikazeDefaultThen = 0;  // SIGNAL_LOST, RESPAWN
     // warhead OSD (host thread): last composed OSD and its revision
     uint8_t kamikazeOsd[FPV_OSD_ROWS * FPV_OSD_COLS] = {};
     uint32_t kamikazeOsdRevision = 0;
@@ -130,6 +135,10 @@ fpv_result resetEverything();
 #if defined(LIBFPV_KAMIKAZE)
 // Pushes the kamikaze settings to the warhead and the flight model.
 void applyKamikazeSettings();
+// The ending view / then in effect: the player's choice if the host
+// supports it, else the host's default (fpv_kamikaze_ending_*).
+uint32_t kamikazeEndingView();
+uint32_t kamikazeEndingThen();
 #endif
 
 // Runs a CLI script on the simulation thread; returns BFB_CLI_* code.

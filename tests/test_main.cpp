@@ -1802,6 +1802,118 @@ void testKamikazePayload() {
     fpv_kamikaze_config_defaults(&cfg);
     fpv_kamikaze_set_config(&cfg);
 }
+
+// The ending options (view, duration, then): stored for the game, saved in
+// settings.json, kept by older hosts, and limited to what the host can do.
+void testKamikazeEnding() {
+    auto get = [] {
+        fpv_kamikaze_config c{};
+        c.struct_size = sizeof c;
+        CHECK(fpv_kamikaze_get_config(&c) == FPV_OK, "get config: %s", fpv_last_error());
+        return c;
+    };
+    auto settingsText = [] {
+        std::ifstream in(std::filesystem::path(g_dataDir) / "settings.json");
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    auto reinit = [] {
+        fpv_global_terminate();
+        init(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    };
+    const uint32_t allViews = 0x3, allThens = 0x7;
+    fpv_kamikaze_config cfg;
+    fpv_kamikaze_config_defaults(&cfg);
+    CHECK(cfg.ending_view == FPV_KAMIKAZE_VIEW_SIGNAL_LOST && cfg.ending_then == FPV_KAMIKAZE_THEN_RESPAWN &&
+              cfg.ending_duration == 3.0f,
+          "defaults: signal lost, 3 s, respawn (%u, %.1f, %u)", cfg.ending_view, cfg.ending_duration, cfg.ending_then);
+    cfg.ending_view = FPV_KAMIKAZE_VIEW_CUTSCENE;
+    cfg.ending_then = FPV_KAMIKAZE_THEN_RECALL;
+    cfg.ending_duration = 0;
+    CHECK(fpv_kamikaze_set_config(&cfg) == FPV_OK, "set ending: %s", fpv_last_error());
+    fpv_kamikaze_config c = get();
+    CHECK(c.ending_view == FPV_KAMIKAZE_VIEW_CUTSCENE && c.ending_then == FPV_KAMIKAZE_THEN_RECALL &&
+              c.ending_duration == 0,
+          "cutscene, 0 s, recall (%u, %.1f, %u)", c.ending_view, c.ending_duration, c.ending_then);
+    // a host built before the view and then fields keeps the player's
+    fpv_kamikaze_config_defaults(&cfg);
+    cfg.struct_size = offsetof(fpv_kamikaze_config, ending_view);
+    cfg.ending_duration = 4.0f;
+    CHECK(fpv_kamikaze_set_config(&cfg) == FPV_OK, "set an old config: %s", fpv_last_error());
+    c = get();
+    CHECK(c.ending_view == FPV_KAMIKAZE_VIEW_CUTSCENE && c.ending_then == FPV_KAMIKAZE_THEN_RECALL &&
+              c.ending_duration == 4.0f,
+          "an old host keeps the player's view and then (%u, %.1f, %u)", c.ending_view, c.ending_duration,
+          c.ending_then);
+    fpv_kamikaze_config small{};
+    small.struct_size = offsetof(fpv_kamikaze_config, ending_view);
+    CHECK(fpv_kamikaze_get_config(&small) == FPV_OK && small.struct_size == offsetof(fpv_kamikaze_config, ending_view),
+          "an old host reads the old size (%u)", small.struct_size);
+    cfg = get();
+    cfg.ending_view = 2;
+    CHECK(fpv_kamikaze_set_config(&cfg) == FPV_ERROR_INVALID_ARGUMENT, "unknown view refused");
+    cfg.ending_view = FPV_KAMIKAZE_VIEW_CUTSCENE;
+    cfg.ending_then = 3;
+    CHECK(fpv_kamikaze_set_config(&cfg) == FPV_ERROR_INVALID_ARGUMENT, "unknown then refused");
+    cfg.ending_then = FPV_KAMIKAZE_THEN_RECALL;
+    cfg.ending_duration = 30.5f;
+    CHECK(fpv_kamikaze_set_config(&cfg) == FPV_ERROR_INVALID_ARGUMENT, "duration over 30 s refused");
+
+    // saved in settings.json, by name
+    std::string text = settingsText();
+    CHECK(text.find("\"cutscene\"") != std::string::npos && text.find("\"recall\"") != std::string::npos,
+          "settings.json has the view and then by name");
+    reinit();
+    c = get();
+    CHECK(c.ending_view == FPV_KAMIKAZE_VIEW_CUTSCENE && c.ending_then == FPV_KAMIKAZE_THEN_RECALL &&
+              c.ending_duration == 4.0f,
+          "kept across a restart (%u, %.1f, %u)", c.ending_view, c.ending_duration, c.ending_then);
+
+    // a host without the cutscene nor recall (the standalone example)
+    CHECK(fpv_kamikaze_set_ending_support(1u << FPV_KAMIKAZE_VIEW_SIGNAL_LOST,
+                                          (1u << FPV_KAMIKAZE_THEN_RESPAWN) | (1u << FPV_KAMIKAZE_THEN_NOTHING),
+                                          FPV_KAMIKAZE_VIEW_SIGNAL_LOST, FPV_KAMIKAZE_THEN_NOTHING) == FPV_OK,
+          "set support: %s", fpv_last_error());
+    c = get();
+    CHECK(c.ending_view == FPV_KAMIKAZE_VIEW_SIGNAL_LOST && c.ending_then == FPV_KAMIKAZE_THEN_NOTHING,
+          "unsupported choices read back as the host's defaults (%u, %u)", c.ending_view, c.ending_then);
+    fpv_kamikaze_config_defaults(&cfg);
+    CHECK(cfg.ending_then == FPV_KAMIKAZE_THEN_NOTHING, "defaults use the host's then (%u)", cfg.ending_then);
+    // ... without forgetting them: a host that supports them sees them again
+    CHECK(fpv_kamikaze_set_ending_support(allViews, allThens, FPV_KAMIKAZE_VIEW_SIGNAL_LOST,
+                                          FPV_KAMIKAZE_THEN_NOTHING) == FPV_OK,
+          "set support: %s", fpv_last_error());
+    c = get();
+    CHECK(c.ending_view == FPV_KAMIKAZE_VIEW_CUTSCENE && c.ending_then == FPV_KAMIKAZE_THEN_RECALL,
+          "a supported saved choice wins over the host default (%u, %u)", c.ending_view, c.ending_then);
+    // a player who never chose gets the host's default, even if it supports others
+    fpv_global_terminate();
+    std::ofstream(std::filesystem::path(g_dataDir) / "settings.json") << "{}";
+    init(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    CHECK(fpv_kamikaze_set_ending_support(allViews, allThens, FPV_KAMIKAZE_VIEW_CUTSCENE,
+                                          FPV_KAMIKAZE_THEN_NOTHING) == FPV_OK,
+          "set support: %s", fpv_last_error());
+    c = get();
+    CHECK(c.ending_view == FPV_KAMIKAZE_VIEW_CUTSCENE && c.ending_then == FPV_KAMIKAZE_THEN_NOTHING,
+          "no saved choice: the host's defaults (%u, %u)", c.ending_view, c.ending_then);
+    CHECK(settingsText().find("kamikazeEndingThen") == std::string::npos, "nothing saved for a default");
+    // signal lost and nothing are always possible; defaults must be supported
+    CHECK(fpv_kamikaze_set_ending_support(0, 0, FPV_KAMIKAZE_VIEW_SIGNAL_LOST, FPV_KAMIKAZE_THEN_NOTHING) == FPV_OK,
+          "empty masks still allow signal lost and nothing: %s", fpv_last_error());
+    CHECK(fpv_kamikaze_set_ending_support(0, 0, FPV_KAMIKAZE_VIEW_CUTSCENE, FPV_KAMIKAZE_THEN_NOTHING) ==
+              FPV_ERROR_INVALID_ARGUMENT,
+          "unsupported default view refused");
+    CHECK(fpv_kamikaze_set_ending_support(0, 0, FPV_KAMIKAZE_VIEW_SIGNAL_LOST, FPV_KAMIKAZE_THEN_RESPAWN) ==
+              FPV_ERROR_INVALID_ARGUMENT,
+          "unsupported default then refused");
+    CHECK(fpv_kamikaze_set_ending_support(allViews, allThens, 5, 0) == FPV_ERROR_INVALID_ARGUMENT,
+          "unknown default view refused");
+
+    // back to the defaults for the other tests
+    fpv_kamikaze_set_ending_support(allViews, allThens, FPV_KAMIKAZE_VIEW_SIGNAL_LOST, FPV_KAMIKAZE_THEN_RESPAWN);
+    fpv_kamikaze_config_defaults(&cfg);
+    fpv_kamikaze_set_config(&cfg);
+    loadWorld(makeLevel(Host(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1)), 100, 0));
+}
 #endif
 
 struct Test {
@@ -1857,6 +1969,7 @@ int main(int argc, char **argv) {
         {"kamikaze_ground_tap", testKamikazeGroundTap},
         {"kamikaze_payload", testKamikazePayload},
         {"kamikaze_install", testKamikazeInstall},
+        {"kamikaze_ending", testKamikazeEnding},
 #endif
     };
     int ran = 0;

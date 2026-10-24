@@ -508,7 +508,7 @@ FPV_API fpv_result fpv_gps_set_home(const float position[3]);
  * explode (AUX8). The bomb is not installed by default: the drone then
  * flies like in any other build (no extra weight, no warhead OSD, the
  * bomb switches do nothing). The player installs it in the overlay
- * (F8 > Fly), or the game with fpv_kamikaze_set_installed(); it stays for
+ * (F8 > Kamikaze), or the game with fpv_kamikaze_set_installed(); it stays for
  * the session, on every new, respawned or repaired drone. With it, the
  * rules, as on the real thing:
  *
@@ -536,9 +536,11 @@ FPV_API fpv_result fpv_gps_set_home(const float position[3]);
  *     new drone with a new, safe warhead (then fpv_drone_reset() to move it).
  *
  * The game reacts to fpv_kamikaze_poll_detonation(): play the explosion
- * at its position, damage what is around, then respawn at once, after a
- * cutscene, or leave the pilot looking at static until they take the next
- * drone. See docs/INTEGRATION.md#kamikaze-builds.
+ * at its position, damage what is around, then show the ending the player
+ * chose (fpv_kamikaze_config: ending_view for ending_duration seconds, then
+ * ending_then), timed with the game's own clock. While the view shows, the
+ * player's own respawn / recall / move-the-pilot commands work at once and
+ * replace ending_then. See docs/INTEGRATION.md#kamikaze-builds.
  * ======================================================================== */
 
 typedef enum fpv_warhead_state {
@@ -599,7 +601,7 @@ FPV_API int fpv_kamikaze_poll_detonation(fpv_detonation *out);
  * Kept until changed or the program exits (not saved), for every drone:
  * a new or respawned one carries it too. Removing it from a destroyed
  * drone leaves the wreck until fpv_drone_repair(). The player can do the
- * same in the overlay (F8 > Fly). */
+ * same in the overlay (F8 > Kamikaze). */
 FPV_API fpv_result fpv_kamikaze_set_installed(int installed);
 FPV_API int fpv_kamikaze_is_installed(void);
 
@@ -615,12 +617,25 @@ enum fpv_kamikaze_config_flags {
     FPV_KAMIKAZE_NO_OSD = 1u << 0
 };
 
+/* What the game shows right after the explosion (ending_view). */
+typedef enum fpv_kamikaze_ending_view {
+    FPV_KAMIKAZE_VIEW_SIGNAL_LOST = 0,  /* default: full static + SIGNAL LOST (OSD) */
+    FPV_KAMIKAZE_VIEW_CUTSCENE = 1      /* external game camera on the blast */
+} fpv_kamikaze_ending_view;
+
+/* What the game does when the view's time is up (ending_then). */
+typedef enum fpv_kamikaze_ending_then {
+    FPV_KAMIKAZE_THEN_RESPAWN = 0,      /* default: fpv_drone_repair + fpv_drone_reset */
+    FPV_KAMIKAZE_THEN_RECALL = 1,       /* end the flight, back to the pilot */
+    FPV_KAMIKAZE_THEN_NOTHING = 2       /* keep the view until the player acts (also with 0 s) */
+} fpv_kamikaze_ending_then;
+
 typedef struct fpv_kamikaze_config {
     uint32_t struct_size;
     float arming_delay;      /* seconds from bomb arm switch on to live, default 0 (none) */
     /* Contact fuse threshold: the slowest touch that sets it off, host
      * units / s, 0.1..30 m/s. Default 0.25 m/s (a light tap). Players can
-     * tune it in the overlay (F8 > Fly). */
+     * tune it in the overlay (F8 > Kamikaze). */
     float min_impact_speed;
     uint32_t flags;          /* fpv_kamikaze_config_flags */
     /* The warhead is real weight: it adds to the quad's mass and inertia
@@ -632,24 +647,45 @@ typedef struct fpv_kamikaze_config {
     /* How far below the frame centre it hangs, host units; -1 (default) =
      * the preset's, or just under the frame. */
     float payload_drop;
-    /* How long the game shows the ending after a detonation (the arcade
-     * cutscene, or the static of signal lost) before what comes next,
-     * seconds, 0..30, default 3. libfpv never times the ending itself: the
-     * game reads this (fpv_kamikaze_get_config) when the warhead goes off.
-     * Players can tune it in the overlay (F8 > Fly). Leave it out
+    /* The ending, the player's choice in the overlay (F8 > Kamikaze): after
+     * a detonation the game shows ending_view for ending_duration seconds
+     * (0..30, default 3), then does ending_then. 0 s skips the view for
+     * RESPAWN and RECALL (they happen at once). With
+     * FPV_KAMIKAZE_THEN_NOTHING the view shows and stays until the player
+     * acts, whatever the duration (also 0).
+     * During the view the player's own respawn / recall / move-the-pilot
+     * commands work at once and replace ending_then. libfpv never times the
+     * ending itself: the game reads these (fpv_kamikaze_get_config) when
+     * the warhead goes off and times it with its own clock. Leave them out
      * (a smaller struct_size) to keep the player's. */
     float ending_duration;
+    uint32_t ending_view;   /* fpv_kamikaze_ending_view, default SIGNAL_LOST */
+    uint32_t ending_then;   /* fpv_kamikaze_ending_then, default RESPAWN */
 } fpv_kamikaze_config;
 
-/* Fills the defaults (struct_size included). Call it after fpv_global_init
+/* Fills the defaults (struct_size included): the ending is the host's
+ * default (fpv_kamikaze_set_ending_support). Call it after fpv_global_init
  * so min_impact_speed is in host units. */
 FPV_API void fpv_kamikaze_config_defaults(fpv_kamikaze_config *config);
 /* Applies at once (the payload also in flight), for every drone and preset
- * until changed. Players can tweak the same values in the overlay (F8 > Fly);
+ * until changed. Players can tweak the same values in the overlay (F8 > Kamikaze);
  * both are saved in <data_dir>/settings.json, so set it at startup only if
  * the game wants to override the player. */
 FPV_API fpv_result fpv_kamikaze_set_config(const fpv_kamikaze_config *config);
 FPV_API fpv_result fpv_kamikaze_get_config(fpv_kamikaze_config *config);
+
+/* The host says which endings it can do and its own default "then", once at
+ * startup after fpv_global_init. Masks are bit sets of (1u << FPV_KAMIKAZE_VIEW_*)
+ * and (1u << FPV_KAMIKAZE_THEN_*). The overlay only offers supported choices;
+ * a saved player choice the host doesn't support reads back as the host
+ * default. It never overrides a supported saved choice. Not calling it =
+ * everything supported, default view SIGNAL_LOST, default then RESPAWN.
+ * SIGNAL_LOST and NOTHING must always be in the masks (libfpv forces them).
+ * FPV_ERROR_INVALID_ARGUMENT for an unknown or unsupported default. */
+FPV_API fpv_result fpv_kamikaze_set_ending_support(uint32_t view_mask,
+                                                   uint32_t then_mask,
+                                                   uint32_t default_view,
+                                                   uint32_t default_then);
 #endif /* LIBFPV_KAMIKAZE */
 
 /* ===========================================================================
