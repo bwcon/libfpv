@@ -1,0 +1,15 @@
+diff --git a/src/main/sensors/gyro_init.c b/src/main/sensors/gyro_init.c
+index 8c23ae9d6..f48cf90a6 100644
+--- a/src/main/sensors/gyro_init.c
++++ b/src/main/sensors/gyro_init.c
+@@ -301,7 +301,9 @@ void gyroInitSensor(gyroSensor_t *gyroSensor, const gyroDeviceConfig_t *config)
+ #ifdef USE_VIRTUAL_GYRO
+     if (gyroSensor->gyroDev.gyroHardware == GYRO_VIRTUAL) {
+         gyroSensor->gyroDev.gyroSampleRateHz = VIRTUAL_GYRO_SAMPLE_RATE_HZ;
+-        gyroSensor->gyroDev.accSampleRateHz = VIRTUAL_GYRO_SAMPLE_RATE_HZ;
++        // the accelerometer of real hardware stays at 1 kHz (SimITL runs the
++        // gyro at 8 kHz)
++        gyroSensor->gyroDev.accSampleRateHz = MIN(VIRTUAL_GYRO_SAMPLE_RATE_HZ, 1000);
+         gyroSensor->gyroDev.gyroRateKHz = GYRO_RATE_1_kHz;
+     } else
+ #endif

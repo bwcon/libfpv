@@ -651,9 +651,12 @@ FPV_API fpv_result fpv_global_init(const fpv_global_config *cfgIn) {
         bfb_ws_set_base_port(cfg.configurator_port - 1);
         bfb_ws_set_enabled(!(cfg.flags & FPV_INIT_NO_CONFIGURATOR));
         std::string eeprom = eepromPathFor(preset);
-        bool fresh = !fs::exists(pathFromUtf8(eeprom), ec);
-        // Betaflight's init creates a missing EEPROM with its own defaults,
-        // so freshness is decided before.
+        bool fresh = !bfb_eeprom_matches(eeprom.c_str());
+        if (fresh && fs::exists(pathFromUtf8(eeprom), ec))
+            FPV_LOGW("%s was written by another Betaflight version; setting it up again", eeprom.c_str());
+        // Betaflight's init creates a missing EEPROM, and resets one from
+        // another version, with its own defaults, so freshness is decided
+        // before.
         L.flight.initBetaflight(eeprom, preset);
         g_activeEeprom = eeprom;
         if (fresh) applyFirstRunConfig(preset);

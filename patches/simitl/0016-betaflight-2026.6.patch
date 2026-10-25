@@ -1,0 +1,1795 @@
+diff --git a/extern/betaflightext/src/main/cli/settings.c b/extern/betaflightext/src/main/cli/settings.c
+--- a/extern/betaflightext/src/main/cli/settings.c
++++ b/extern/betaflightext/src/main/cli/settings.c
+@@ -39,11 +39,12 @@
+ #include "drivers/bus_i2c.h"
+ #include "drivers/bus_spi.h"
+ #include "drivers/dshot_command.h"
+-#include "drivers/camera_control_impl.h"
++#include "drivers/camera_control.h"
+ #include "drivers/light_led.h"
+ #include "drivers/mco.h"
+ #include "drivers/pinio.h"
+ #include "drivers/sdio.h"
++#include "drivers/transponder_ir.h"
+ #include "drivers/vtx_common.h"
+ #include "drivers/vtx_table.h"
+ 
+@@ -71,11 +72,15 @@
+ #include "io/gps.h"
+ #include "io/ledstrip.h"
+ #include "io/serial.h"
++#include "io/transponder_ir.h"
+ #include "io/vtx.h"
+ #include "io/vtx_control.h"
+ #include "io/vtx_rtc6705.h"
+ 
+ #include "osd/osd.h"
++#if ENABLE_OSD_CUSTOM_TEXT
++#include "osd/osd_custom_text.h"
++#endif
+ 
+ #include "pg/adc.h"
+ #include "pg/alt_hold.h"
+@@ -83,6 +88,8 @@
+ #include "pg/beeper.h"
+ #include "pg/beeper_dev.h"
+ #include "pg/bus_i2c.h"
++#include "pg/can.h"
++#include "pg/dronecan.h"
+ #include "pg/dashboard.h"
+ #include "pg/displayport_profiles.h"
+ #include "pg/dyn_notch.h"
+@@ -93,6 +100,7 @@
+ #include "pg/mco.h"
+ #include "pg/motor.h"
+ #include "pg/msp.h"
++#include "pg/osd_nav_map.h"
+ #include "pg/pg.h"
+ #include "pg/pg_ids.h"
+ #include "pg/pilot.h"
+@@ -131,6 +139,7 @@
+ #include "sensors/gyro.h"
+ #include "sensors/rangefinder.h"
+ #include "sensors/opticalflow.h"
++#include "sensors/sensors.h"
+ 
+ #include "scheduler/scheduler.h"
+ 
+@@ -140,82 +149,9 @@
+ 
+ #include "settings.h"
+ 
+-// Sensor names (used in lookup tables for *_hardware settings and in status command output)
+-// sync with accelerationSensor_e
+-const char * const lookupTableAccHardware[] = {
+-    "AUTO",
+-    "NONE",
+-    "MPU6050",
+-    "MPU6000",
+-    "MPU6500",
+-    "MPU9250",
+-    "ICM20601",
+-    "ICM20602",
+-    "ICM20608G",
+-    "ICM20649",
+-    "ICM20689",
+-    "ICM42605",
+-    "ICM42688P",
+-    "BMI160",
+-    "BMI270",
+-    "LSM6DSO",
+-    "LSM6DSV16X",
+-    "IIM42653",
+-    "ICM45605",
+-    "ICM45686",
+-    "ICM40609D",
+-    "IIM42652",
+-    "VIRTUAL"
+-};
+-
+-// sync with gyroHardware_e
+-const char * const lookupTableGyroHardware[] = {
+-    "AUTO",
+-    "NONE",
+-    "MPU6050",
+-    "L3GD20",
+-    "MPU6000",
+-    "MPU6500",
+-    "MPU9250",
+-    "ICM20601",
+-    "ICM20602",
+-    "ICM20608G",
+-    "ICM20649",
+-    "ICM20689",
+-    "ICM42605",
+-    "ICM42688P",
+-    "BMI160",
+-    "BMI270",
+-    "LSM6DSO",
+-    "LSM6DSV16X",
+-    "IIM42653",
+-    "ICM45605",
+-    "ICM45686",
+-    "ICM40609D",
+-    "IIM42652",
+-    "VIRTUAL"
+-};
+-
+-#if defined(USE_SENSOR_NAMES) || defined(USE_BARO)
+-// sync with baroSensor_e
+-const char * const lookupTableBaroHardware[] = {
+-    "AUTO", "NONE", "BMP085", "MS5611", "BMP280", "LPS", "QMP6988", "BMP388", "DPS310", "2SMPB_02B", "LPS22DF", "VIRTUAL"
+-};
+-#endif
+-#if defined(USE_SENSOR_NAMES) || defined(USE_MAG)
+-// sync with magSensor_e
+-const char * const lookupTableMagHardware[] = {
+-    "AUTO", "NONE", "HMC5883", "AK8975", "AK8963", "QMC5883", "LIS2MDL", "LIS3MDL", "MPU925X_AK8963", "IST8310"
+-};
+-#endif
+-#if defined(USE_SENSOR_NAMES) || defined(USE_RANGEFINDER)
+-const char * const lookupTableRangefinderHardware[] = {
+-    "NONE", "HCSR04", "TFMINI", "TF02", "MTF01", "MTF02", "MTF01P", "MTF02P", "TFNOVA"
+-};
+-#endif
+-#if defined(USE_SENSOR_NAMES) || defined(USE_OPTICALFLOW)
+-const char * const lookupTableOpticalflowHardware[] = {
+-    "NONE", "MT"
++#if defined(USE_POSITION_HOLD)
++const char * const lookupTablePosHoldSource[] = {
++    "AUTO", "GPS_ONLY", "OPTICALFLOW_ONLY"
+ };
+ #endif
+ 
+@@ -252,7 +188,10 @@
+ 
+ #ifdef USE_GPS
+ static const char * const lookupTableGpsProvider[] = {
+-    "NMEA", "UBLOX", "MSP", "VIRTUAL"
++    "NMEA", "UBLOX", "MSP", "VIRTUAL",
++#if ENABLE_DRONECAN
++    "DRONECAN",
++#endif
+ };
+ 
+ static const char * const lookupTableGpsSbasMode[] = {
+@@ -268,6 +207,20 @@
+ };
+ #endif
+ 
++#ifndef USE_WING
++static const char * const lookupTableApYawMode[] = {
++    "VELOCITY", "BEARING", "HYBRID", "FIXED", "DAMPENER"
++};
++
++static const char * const lookupTableApRxLossPolicy[] = {
++    "DISABLE", "CONTINUE", "LAND"
++};
++
++static const char * const lookupTableApGeofenceAction[] = {
++    "LAND", "RTH"
++};
++#endif
++
+ #ifdef USE_SERVOS
+ static const char * const lookupTableGimbalMode[] = {
+     "NORMAL", "MIXTILT"
+@@ -312,6 +265,7 @@
+     "SRXL2",
+     "GHST",
+     "SPEK1024",
++    "MAVLINK",
+ };
+ #endif
+ 
+@@ -361,7 +315,8 @@
+ static const char * const lookupTablePwmProtocol[] = {
+     "PWM", "ONESHOT125", "ONESHOT42", "MULTISHOT", "BRUSHED",
+     "DSHOT150", "DSHOT300", "DSHOT600", "PROSHOT1000",
+-    "DISABLED"
++    "DISABLED",
++    "DRONECAN"
+ };
+ 
+ static const char * const lookupTableLowpassType[] = {
+@@ -418,14 +373,20 @@
+ #ifdef USE_OVERCLOCK
+ static const char * const lookupOverclock[] = {
+     "OFF",
+-#if defined(STM32F40_41xxx) || defined(STM32G4)
+-    "192MHZ", "216MHZ", "240MHZ"
+-#elif defined(STM32F411xE)
+-    "108MHZ", "120MHZ"
+-#elif defined(STM32F7)
+-    "240MHZ"
+-#elif defined(APM32F405xx) || defined(APM32F407xx)
+-    "192MHZ", "216MHZ", "240MHZ"
++#if ENABLE_OVERCLOCK_108_MHZ
++    "108MHZ",
++#endif
++#if ENABLE_OVERCLOCK_120_MHZ
++    "120MHZ",
++#endif
++#if ENABLE_OVERCLOCK_192_MHZ
++    "192MHZ",
++#endif
++#if ENABLE_OVERCLOCK_216_MHZ
++    "216MHZ",
++#endif
++#if ENABLE_OVERCLOCK_240_MHZ
++    "240MHZ",
+ #endif
+ };
+ #endif
+@@ -539,7 +500,7 @@
+ };
+ 
+ static const char * const lookupTablePositionAltitudeSource[] = {
+-    "DEFAULT", "BARO_ONLY", "GPS_ONLY"
++    "DEFAULT", "BARO_ONLY", "GPS_ONLY", "RANGEFINDER_PREFER", "RANGEFINDER_ONLY"
+ };
+ 
+ static const char * const lookupTableOffOnAuto[] = {
+@@ -555,13 +516,19 @@
+ };
+ 
+ const char * const lookupTableOsdDisplayPortDevice[] = {
+-    "NONE", "AUTO", "MAX7456", "MSP", "FRSKYOSD"
++    "NONE", "AUTO", "MAX7456", "MSP", "FRSKYOSD", "FBOSD"
+ };
+ 
+ #ifdef USE_OSD
+ static const char * const lookupTableOsdLogoOnArming[] = {
+     "OFF", "ON", "FIRST_ARMING",
+ };
++
++#if ENABLE_OSD_CUSTOM_TEXT
++static const char * const lookupTableOsdCustomTextTerminator[] = {
++    "NULL", "LF",
++};
++#endif
+ #endif
+ const char * const lookupTableSimplifiedTuningPidsMode[] = {
+     "OFF", "RP", "RPY",
+@@ -607,6 +574,12 @@
+ };
+ #endif // USE_WING
+ 
++#ifdef USE_TRANSPONDER
++static const char * const lookupTableTransponderProvider[] = {
++    "NONE", "ILAP", "ARCITIMER", "ERLT"
++};
++#endif
++
+ #define LOOKUP_TABLE_ENTRY(name) { name, ARRAYLEN(name) }
+ 
+ const lookupTableEntry_t lookupTables[] = {
+@@ -618,11 +591,16 @@
+     LOOKUP_TABLE_ENTRY(lookupTableGpsSbasMode),
+     LOOKUP_TABLE_ENTRY(lookupTableGpsUbloxModels),
+     LOOKUP_TABLE_ENTRY(lookupTableGpsUbloxUtcStandard),
++#endif
++#ifndef USE_WING
++    LOOKUP_TABLE_ENTRY(lookupTableApYawMode),
++    LOOKUP_TABLE_ENTRY(lookupTableApRxLossPolicy),
++    LOOKUP_TABLE_ENTRY(lookupTableApGeofenceAction),
++#endif
+ #ifdef USE_GPS_RESCUE
+     LOOKUP_TABLE_ENTRY(lookupTableRescueSanityType),
+     LOOKUP_TABLE_ENTRY(lookupTableRescueAltitudeMode),
+ #endif
+-#endif
+ #ifdef USE_BLACKBOX
+     LOOKUP_TABLE_ENTRY(lookupTableBlackboxDevice),
+     LOOKUP_TABLE_ENTRY(lookupTableBlackboxMode),
+@@ -640,12 +618,12 @@
+     LOOKUP_TABLE_ENTRY(lookupTableRxSpi),
+ #endif
+     LOOKUP_TABLE_ENTRY(lookupTableGyroHardwareLpf),
+-    LOOKUP_TABLE_ENTRY(lookupTableAccHardware),
++    { lookupTableAccHardware, ACC_HARDWARE_COUNT },
+ #ifdef USE_BARO
+-    LOOKUP_TABLE_ENTRY(lookupTableBaroHardware),
++    { lookupTableBaroHardware, BARO_HARDWARE_COUNT },
+ #endif
+ #ifdef USE_MAG
+-    LOOKUP_TABLE_ENTRY(lookupTableMagHardware),
++    { lookupTableMagHardware, MAG_HARDWARE_COUNT },
+ #endif
+     LOOKUP_TABLE_ENTRY(debugModeNames),
+     LOOKUP_TABLE_ENTRY(lookupTablePwmProtocol),
+@@ -668,10 +646,13 @@
+     LOOKUP_TABLE_ENTRY(lookupTableFrskySpiA1Source),
+ #endif
+ #ifdef USE_RANGEFINDER
+-    LOOKUP_TABLE_ENTRY(lookupTableRangefinderHardware),
++    { lookupTableRangefinderHardware, RANGEFINDER_HARDWARE_COUNT },
+ #endif
+ #ifdef USE_OPTICALFLOW
+-    LOOKUP_TABLE_ENTRY(lookupTableOpticalflowHardware),
++    { lookupTableOpticalflowHardware, OPTICALFLOW_HARDWARE_COUNT },
++#endif
++#ifdef USE_POSITION_HOLD
++    LOOKUP_TABLE_ENTRY(lookupTablePosHoldSource),
+ #endif
+ #ifdef USE_GYRO_OVERFLOW_CHECK
+     LOOKUP_TABLE_ENTRY(lookupTableGyroOverflowCheck),
+@@ -700,7 +681,6 @@
+ #ifdef USE_VTX_COMMON
+     LOOKUP_TABLE_ENTRY(lookupTableVtxLowPowerDisarm),
+ #endif
+-    LOOKUP_TABLE_ENTRY(lookupTableGyroHardware),
+ #ifdef USE_SDCARD
+     LOOKUP_TABLE_ENTRY(lookupTableSdcardMode),
+ #endif
+@@ -724,6 +704,9 @@
+ 
+ #ifdef USE_OSD
+     LOOKUP_TABLE_ENTRY(lookupTableOsdLogoOnArming),
++#if ENABLE_OSD_CUSTOM_TEXT
++    LOOKUP_TABLE_ENTRY(lookupTableOsdCustomTextTerminator),
++#endif
+ #endif
+     LOOKUP_TABLE_ENTRY(lookupTableMixerType),
+     LOOKUP_TABLE_ENTRY(lookupTableSimplifiedTuningPidsMode),
+@@ -740,6 +723,9 @@
+     LOOKUP_TABLE_ENTRY(lookupTableTpaSpeedType),
+     LOOKUP_TABLE_ENTRY(lookupTableYawType),
+ #endif // USE_WING
++#ifdef USE_TRANSPONDER
++    LOOKUP_TABLE_ENTRY(lookupTableTransponderProvider),
++#endif
+ };
+ 
+ #undef LOOKUP_TABLE_ENTRY
+@@ -861,7 +847,7 @@
+     { "rssi_smoothing",             VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, UINT8_MAX }, PG_RX_CONFIG, offsetof(rxConfig_t, rssi_smoothing) },
+ 
+ #ifdef USE_RC_SMOOTHING_FILTER
+-    { PARAM_NAME_RC_SMOOTHING,                   VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_RX_CONFIG, offsetof(rxConfig_t, rc_smoothing_mode) },
++    { PARAM_NAME_RC_SMOOTHING,                   VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_RX_CONFIG, offsetof(rxConfig_t, rc_smoothing) },
+     { PARAM_NAME_RC_SMOOTHING_AUTO_FACTOR,       VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { RC_SMOOTHING_AUTO_FACTOR_MIN, RC_SMOOTHING_AUTO_FACTOR_MAX }, PG_RX_CONFIG, offsetof(rxConfig_t, rc_smoothing_auto_factor_rpy) },
+     { PARAM_NAME_RC_SMOOTHING_AUTO_FACTOR_THROTTLE, VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { RC_SMOOTHING_AUTO_FACTOR_MIN, RC_SMOOTHING_AUTO_FACTOR_MAX }, PG_RX_CONFIG, offsetof(rxConfig_t, rc_smoothing_auto_factor_throttle) },
+     { PARAM_NAME_RC_SMOOTHING_SETPOINT_CUTOFF,    VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, UINT8_MAX }, PG_RX_CONFIG, offsetof(rxConfig_t, rc_smoothing_setpoint_cutoff) },
+@@ -1003,21 +989,26 @@
+     { "gimbal_mode",                VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_GIMBAL_MODE }, PG_GIMBAL_CONFIG, offsetof(gimbalConfig_t, mode) },
+ #endif
+ 
+-// PG_BATTERY_CONFIG
+-    { "bat_capacity",               VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 20000 }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, batteryCapacity) },
+-    { "vbat_max_cell_voltage",      VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { VBAT_CELL_VOTAGE_RANGE_MIN, VBAT_CELL_VOTAGE_RANGE_MAX }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, vbatmaxcellvoltage) },
+-    { "vbat_full_cell_voltage",     VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { VBAT_CELL_VOTAGE_RANGE_MIN, VBAT_CELL_VOTAGE_RANGE_MAX }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, vbatfullcellvoltage) },
+-    { "vbat_min_cell_voltage",      VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { VBAT_CELL_VOTAGE_RANGE_MIN, VBAT_CELL_VOTAGE_RANGE_MAX }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, vbatmincellvoltage) },
+-    { "vbat_warning_cell_voltage",  VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { VBAT_CELL_VOTAGE_RANGE_MIN, VBAT_CELL_VOTAGE_RANGE_MAX }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, vbatwarningcellvoltage) },
++// PG_BATTERY_PROFILES (per-profile settings)
++#ifdef USE_PROFILE_NAMES
++    { "battery_profile_name",       VAR_UINT8  | PROFILE_BATTERY_VALUE | MODE_STRING, .config.string = { 1, MAX_BATTERY_PROFILE_NAME_LENGTH, STRING_FLAGS_NONE }, PG_BATTERY_PROFILES, offsetof(batteryProfile_t, profileName) },
++#endif
++    { "bat_capacity",               VAR_UINT16 | PROFILE_BATTERY_VALUE, .config.minmaxUnsigned = { 0, 20000 }, PG_BATTERY_PROFILES, offsetof(batteryProfile_t, batteryCapacity) },
++    { "vbat_max_cell_voltage",      VAR_UINT16  | PROFILE_BATTERY_VALUE, .config.minmaxUnsigned = { VBAT_CELL_VOTAGE_RANGE_MIN, VBAT_CELL_VOTAGE_RANGE_MAX }, PG_BATTERY_PROFILES, offsetof(batteryProfile_t, vbatmaxcellvoltage) },
++    { "vbat_full_cell_voltage",     VAR_UINT16  | PROFILE_BATTERY_VALUE, .config.minmaxUnsigned = { VBAT_CELL_VOTAGE_RANGE_MIN, VBAT_CELL_VOTAGE_RANGE_MAX }, PG_BATTERY_PROFILES, offsetof(batteryProfile_t, vbatfullcellvoltage) },
++    { "vbat_min_cell_voltage",      VAR_UINT16  | PROFILE_BATTERY_VALUE, .config.minmaxUnsigned = { VBAT_CELL_VOTAGE_RANGE_MIN, VBAT_CELL_VOTAGE_RANGE_MAX }, PG_BATTERY_PROFILES, offsetof(batteryProfile_t, vbatmincellvoltage) },
++    { "vbat_warning_cell_voltage",  VAR_UINT16  | PROFILE_BATTERY_VALUE, .config.minmaxUnsigned = { VBAT_CELL_VOTAGE_RANGE_MIN, VBAT_CELL_VOTAGE_RANGE_MAX }, PG_BATTERY_PROFILES, offsetof(batteryProfile_t, vbatwarningcellvoltage) },
++    { "cbat_alert_percent",         VAR_UINT8  | PROFILE_BATTERY_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_BATTERY_PROFILES, offsetof(batteryProfile_t, consumptionWarningPercentage) },
++    { "force_battery_cell_count",   VAR_UINT8  | PROFILE_BATTERY_VALUE, .config.minmaxUnsigned = { 0, 24 }, PG_BATTERY_PROFILES, offsetof(batteryProfile_t, forceBatteryCellCount) },
++
++// PG_BATTERY_CONFIG (global/hardware settings)
+     { "vbat_hysteresis",            VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 250 }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, vbathysteresis) },
+     { "current_meter",              VAR_UINT8  | HARDWARE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_CURRENT_METER }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, currentMeterSource) },
+     { "battery_meter",              VAR_UINT8  | HARDWARE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_VOLTAGE_METER }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, voltageMeterSource) },
+     { "vbat_detect_cell_voltage",   VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 2000 }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, vbatnotpresentcellvoltage) },
+     { "use_vbat_alerts",            VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, useVBatAlerts) },
+     { "use_cbat_alerts",            VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, useConsumptionAlerts) },
+-    { "cbat_alert_percent",         VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, consumptionWarningPercentage) },
+     { "vbat_cutoff_percent",        VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, lvcPercentage) },
+-    { "force_battery_cell_count",   VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 24 }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, forceBatteryCellCount) },
+     { "vbat_display_lpf_period",    VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 1, UINT8_MAX }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, vbatDisplayLpfPeriod) },
+ #if defined(USE_BATTERY_VOLTAGE_SAG_COMPENSATION)
+     { "vbat_sag_lpf_period",        VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 1, UINT8_MAX }, PG_BATTERY_CONFIG, offsetof(batteryConfig_t, vbatSagLpfPeriod) },
+@@ -1060,6 +1051,7 @@
+     { PARAM_NAME_MIXER_TYPE,        VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_MIXER_TYPE }, PG_MIXER_CONFIG, offsetof(mixerConfig_t, mixer_type) },
+     { "crashflip_motor_percent",    VAR_UINT8 |  MASTER_VALUE,  .config.minmaxUnsigned = { 0, 100 }, PG_MIXER_CONFIG, offsetof(mixerConfig_t, crashflip_motor_percent) },
+     { "crashflip_rate",             VAR_UINT8 |  MASTER_VALUE,  .config.minmaxUnsigned = { 0, 250 }, PG_MIXER_CONFIG, offsetof(mixerConfig_t, crashflip_rate) },
++    { "crashflip_auto_rearm",       VAR_INT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_MIXER_CONFIG, offsetof(mixerConfig_t, crashflip_auto_rearm) },
+ #ifdef USE_RPM_LIMIT
+     { "rpm_limit",                  VAR_INT8   |  MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_MIXER_CONFIG, offsetof(mixerConfig_t, rpm_limit) },
+     { "rpm_limit_p",                VAR_UINT16 |  MASTER_VALUE,  .config.minmaxUnsigned = { 0, 100 },        PG_MIXER_CONFIG, offsetof(mixerConfig_t, rpm_limit_p) },
+@@ -1121,6 +1113,8 @@
+     { PARAM_NAME_IMU_PROCESS_DENOM,   VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 1,     4 }, PG_IMU_CONFIG, offsetof(imuConfig_t, imu_process_denom) },
+ #ifdef USE_MAG
+     { PARAM_NAME_IMU_MAG_DECLINATION, VAR_INT16 | MASTER_VALUE, .config.minmax = { -300, 300 }, PG_IMU_CONFIG, offsetof(imuConfig_t, mag_declination) },
++    { PARAM_NAME_TRUST_MAG,           VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON },  PG_IMU_CONFIG, offsetof(imuConfig_t, trust_mag) },
++
+ #endif
+ 
+ // PG_ARMING_CONFIG
+@@ -1138,6 +1132,7 @@
+     { PARAM_NAME_GPS_UPDATE_RATE_HZ,         VAR_UINT8  | MASTER_VALUE,               .config.minmaxUnsigned = {1, 20},          PG_GPS_CONFIG, offsetof(gpsConfig_t, gps_update_rate_hz) },
+     { PARAM_NAME_GPS_UBLOX_UTC_STANDARD,     VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_GPS_UBLOX_UTC_STANDARD }, PG_GPS_CONFIG, offsetof(gpsConfig_t, gps_ublox_utc_standard) },
+     { PARAM_NAME_GPS_UBLOX_USE_GALILEO,      VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON },         PG_GPS_CONFIG, offsetof(gpsConfig_t, gps_ublox_use_galileo) },
++    { PARAM_NAME_GPS_UBLOX_ENABLE_ANA,       VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON },         PG_GPS_CONFIG, offsetof(gpsConfig_t, gps_ublox_enable_ana) },
+     { PARAM_NAME_GPS_SET_HOME_POINT_ONCE,    VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON },         PG_GPS_CONFIG, offsetof(gpsConfig_t, gps_set_home_point_once) },
+     { PARAM_NAME_GPS_USE_3D_SPEED,           VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON },         PG_GPS_CONFIG, offsetof(gpsConfig_t, gps_use_3d_speed) },
+     { PARAM_NAME_GPS_SBAS_INTEGRITY,         VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON },         PG_GPS_CONFIG, offsetof(gpsConfig_t, sbas_integrity) },
+@@ -1146,34 +1141,21 @@
+ #ifdef USE_GPS_RESCUE
+ #ifndef USE_WING
+     // PG_GPS_RESCUE
+-    { PARAM_NAME_GPS_RESCUE_MIN_START_DIST,  VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 10, 30 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, minStartDistM) },
++    { PARAM_NAME_GPS_RESCUE_MIN_START_DIST,  VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 5, 30 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, minStartDistM) },
+     { PARAM_NAME_GPS_RESCUE_ALT_MODE,        VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_GPS_RESCUE_ALT_MODE }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, altitudeMode) },
+     { PARAM_NAME_GPS_RESCUE_INITIAL_CLIMB,   VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, initialClimbM) },
+     { PARAM_NAME_GPS_RESCUE_ASCEND_RATE,     VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 50, 2500 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, ascendRate) },
+ 
+     { PARAM_NAME_GPS_RESCUE_RETURN_ALT,      VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 5, 1000 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, returnAltitudeM) },
+     { PARAM_NAME_GPS_RESCUE_GROUND_SPEED,    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 3000 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, groundSpeedCmS) },
+-    { PARAM_NAME_GPS_RESCUE_MAX_RESCUE_ANGLE, VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 30, 60 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, maxRescueAngle) },
+-    { PARAM_NAME_GPS_RESCUE_ROLL_MIX,        VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 250 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, rollMix) },
+-    { PARAM_NAME_GPS_RESCUE_PITCH_CUTOFF,    VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 10, 255 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, pitchCutoffHz) },
+-    { PARAM_NAME_GPS_RESCUE_IMU_YAW_GAIN,    VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 5, 20 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, imuYawGain) },
+ 
+-    { PARAM_NAME_GPS_RESCUE_DESCENT_DIST,    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 10, 500 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, descentDistanceM) },
++    { PARAM_NAME_GPS_RESCUE_DESCENT_DIST,    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 5, 500 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, descentDistanceM) },
+     { PARAM_NAME_GPS_RESCUE_DESCEND_RATE,    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 25, 500 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, descendRate) },
+-    { PARAM_NAME_GPS_RESCUE_DISARM_THRESHOLD, VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 1, 250 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, disarmThreshold) },
+-
+     { PARAM_NAME_GPS_RESCUE_SANITY_CHECKS,   VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_GPS_RESCUE_SANITY_CHECK }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, sanityChecks) },
+     { PARAM_NAME_GPS_RESCUE_MIN_SATS,        VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 5, 50 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, minSats) },
+     { PARAM_NAME_GPS_RESCUE_ALLOW_ARMING_WITHOUT_FIX, VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, allowArmingWithoutFix) },
+ 
+-    { PARAM_NAME_GPS_RESCUE_VELOCITY_P,      VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 200 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, velP) },
+-    { PARAM_NAME_GPS_RESCUE_VELOCITY_I,      VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 200 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, velI) },
+-    { PARAM_NAME_GPS_RESCUE_VELOCITY_D,      VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 200 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, velD) },
+     { PARAM_NAME_GPS_RESCUE_YAW_P,           VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 200 }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, yawP) },
+-
+-#ifdef USE_MAG
+-    { PARAM_NAME_GPS_RESCUE_USE_MAG,         VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_GPS_RESCUE, offsetof(gpsRescueConfig_t, useMag) },
+-#endif // USE_MAG
+ #endif // !USE_WING
+ #endif // USE_GPS_RESCUE
+ 
+@@ -1185,7 +1167,6 @@
+ #endif // USE_GPS_LAP_TIMER
+ 
+ #endif // USE_GPS
+-
+     { PARAM_NAME_DEADBAND,          VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 32 }, PG_RC_CONTROLS_CONFIG, offsetof(rcControlsConfig_t, deadband) },
+     { PARAM_NAME_YAW_DEADBAND,      VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_RC_CONTROLS_CONFIG, offsetof(rcControlsConfig_t, yaw_deadband) },
+     { "yaw_control_reversed",       VAR_INT8   | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_RC_CONTROLS_CONFIG, offsetof(rcControlsConfig_t, yaw_control_reversed) },
+@@ -1199,8 +1180,10 @@
+ 
+ #ifdef USE_POSITION_HOLD
+ #ifndef USE_WING
+-    { PARAM_NAME_POS_HOLD_WITHOUT_MAG, VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_POSHOLD_CONFIG, offsetof(posHoldConfig_t, posHoldWithoutMag) },
+     { PARAM_NAME_POS_HOLD_DEADBAND,    VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50 }, PG_POSHOLD_CONFIG, offsetof(posHoldConfig_t, deadband) },
++    { "poshold_position_source",       VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_POSHOLD_SOURCE }, PG_POSHOLD_CONFIG, offsetof(posHoldConfig_t, positionSource) },
++    { "poshold_opticalflow_quality_min", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_POSHOLD_CONFIG, offsetof(posHoldConfig_t, opticalflowQualityMin) },
++    { "poshold_opticalflow_max_range", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 50, 1000 }, PG_POSHOLD_CONFIG, offsetof(posHoldConfig_t, opticalflowMaxRange) },
+ #endif // !USE_WING
+ #endif // USE_POSITION_HOLD
+ 
+@@ -1311,13 +1294,6 @@
+     { PARAM_NAME_CHIRP_TIME_SECONDS,            VAR_UINT8  | PROFILE_VALUE, .config.minmaxUnsigned = { 1, 255 }, PG_PID_PROFILE, offsetof(pidProfile_t, chirp_time_seconds) },
+ #endif
+ 
+-#if defined(USE_ABSOLUTE_CONTROL)
+-    { PARAM_NAME_ABS_CONTROL_GAIN,  VAR_UINT8 | PROFILE_VALUE,  .config.minmaxUnsigned = { 0, 20 }, PG_PID_PROFILE, offsetof(pidProfile_t, abs_control_gain) },
+-    { "abs_control_limit",          VAR_UINT8 | PROFILE_VALUE,  .config.minmaxUnsigned = { 10, 255 }, PG_PID_PROFILE, offsetof(pidProfile_t, abs_control_limit) },
+-    { "abs_control_error_limit",    VAR_UINT8 | PROFILE_VALUE,  .config.minmaxUnsigned = { 1, 45 }, PG_PID_PROFILE, offsetof(pidProfile_t, abs_control_error_limit) },
+-    { "abs_control_cutoff",         VAR_UINT8 | PROFILE_VALUE,  .config.minmaxUnsigned = { 1, 45 }, PG_PID_PROFILE, offsetof(pidProfile_t, abs_control_cutoff) },
+-#endif
+-
+ #ifdef USE_INTEGRATED_YAW_CONTROL
+     { PARAM_NAME_USE_INTEGRATED_YAW, VAR_UINT8  | PROFILE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_PID_PROFILE, offsetof(pidProfile_t, use_integrated_yaw) },
+     { "integrated_yaw_relax",        VAR_UINT8  | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 255 }, PG_PID_PROFILE, offsetof(pidProfile_t, integrated_yaw_relax) },
+@@ -1346,10 +1322,6 @@
+     { "thrust_linear",              VAR_UINT8 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 150 }, PG_PID_PROFILE, offsetof(pidProfile_t, thrustLinearization) },
+ #endif
+ 
+-#ifdef USE_AIRMODE_LPF
+-    { "transient_throttle_limit",   VAR_UINT8 | PROFILE_VALUE, .config.minmax = { 0, 30 }, PG_PID_PROFILE, offsetof(pidProfile_t, transient_throttle_limit) },
+-#endif
+-
+ #ifdef USE_FEEDFORWARD
+     { PARAM_NAME_FEEDFORWARD_TRANSITION,     VAR_UINT8  | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_PID_PROFILE, offsetof(pidProfile_t, feedforward_transition) },
+     { PARAM_NAME_FEEDFORWARD_AVERAGING,      VAR_UINT8 | PROFILE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_FEEDFORWARD_AVERAGING }, PG_PID_PROFILE, offsetof(pidProfile_t, feedforward_averaging) },
+@@ -1437,6 +1409,9 @@
+ #ifdef USE_TELEMETRY
+     { "tlm_inverted",               VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, telemetry_inverted) },
+     { "tlm_halfduplex",             VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, halfDuplex) },
++#if defined(USE_CRSF_ACCGYRO_TELEMETRY)
++    { "crsf_tlm_accgyro",           VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, crsf_tlm_accgyro) },
++#endif
+ #if defined(USE_TELEMETRY_FRSKY_HUB)
+ #if defined(USE_GPS)
+     { "frsky_default_lat",          VAR_INT16  | MASTER_VALUE, .config.minmax = { -9000, 9000 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, gpsNoFixLatitude) },
+@@ -1457,6 +1432,14 @@
+     // Set to 10 to show a tenth of your capacity drawn.
+     // Set to $size_of_battery to get a percentage of battery used.
+     { "mavlink_mah_as_heading_divisor", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 30000 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, mavlink_mah_as_heading_divisor) },
++    // mavlink telemetry flow control to prevent TX buffers overflow
++    { "mavlink_min_txbuff", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 100 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, mavlink_min_txbuff) },
++    { "mavlink_ext_status_rate", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, mavlink_extended_status_rate) },
++    { "mavlink_rc_chan_rate", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, mavlink_rc_channels_rate) },
++    { "mavlink_pos_rate", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, mavlink_position_rate) },
++    { "mavlink_extra1_rate", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, mavlink_extra1_rate) },
++    { "mavlink_extra2_rate", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, mavlink_extra2_rate) },
++    { "mavlink_extra3_rate", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, mavlink_extra3_rate) },
+ #endif
+ #ifdef USE_TELEMETRY_SENSORS_DISABLED_DETAILS
+     { "telemetry_disabled_voltage",         VAR_UINT32  | MASTER_VALUE | MODE_BITSET, .config.bitpos = LOG2(SENSOR_VOLTAGE),         PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, disabledSensors)},
+@@ -1501,6 +1484,12 @@
+     { "ledstrip_rainbow_freq",      VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 2000 }, PG_LED_STRIP_CONFIG, offsetof(ledStripConfig_t, ledstrip_rainbow_freq) },
+ #endif
+ 
++// PG_TRANSPONDER_CONFIG
++#ifdef USE_TRANSPONDER
++    { PARAM_NAME_TRANSPONDER_PROVIDER, VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_TRANSPONDER_PROVIDER }, PG_TRANSPONDER_CONFIG, offsetof(transponderConfig_t, provider) },
++    { PARAM_NAME_TRANSPONDER_DATA,     VAR_UINT8 | MASTER_VALUE | MODE_ARRAY,  .config.array.length = TRANSPONDER_DATA_LENGTH, PG_TRANSPONDER_CONFIG, offsetof(transponderConfig_t, data) },
++#endif
++
+ // PG_SDCARD_CONFIG
+ #ifdef USE_SDCARD
+     { "sdcard_detect_inverted",     VAR_UINT8  | HARDWARE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_SDCARD_CONFIG, offsetof(sdcardConfig_t, cardDetectInverted) },
+@@ -1513,7 +1502,7 @@
+     { "sdio_clk_bypass",            VAR_UINT8  | HARDWARE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_SDIO_CONFIG, offsetof(sdioConfig_t, clockBypass) },
+     { "sdio_use_cache",             VAR_UINT8  | HARDWARE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_SDIO_CONFIG, offsetof(sdioConfig_t, useCache) },
+     { "sdio_use_4bit_width",        VAR_UINT8  | HARDWARE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_SDIO_CONFIG, offsetof(sdioConfig_t, use4BitWidth) },
+-#ifdef STM32H7
++#if ENABLE_SDIO_PIN_CONFIG
+     { "sdio_device",                VAR_UINT8  | HARDWARE_VALUE, .config.minmaxUnsigned = { 0, SDIODEV_COUNT }, PG_SDIO_CONFIG, offsetof(sdioConfig_t, device) },
+ #endif
+ #endif
+@@ -1625,6 +1614,9 @@
+     { "osd_nheading_pos",           VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_NUMERICAL_HEADING]) },
+     { "osd_up_down_reference_pos",  VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_UP_DOWN_REFERENCE]) },
+     { "osd_ready_mode_pos",         VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_READY_MODE]) },
++#ifdef USE_POSITION_HOLD
++    { "osd_pos_hold_ready_pos",     VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_POS_HOLD_READY]) },
++#endif
+ #ifdef USE_VARIO
+     { "osd_nvario_pos",             VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_NUMERICAL_VARIO]) },
+ #endif
+@@ -1649,8 +1641,9 @@
+ #endif
+ 
+ #ifdef USE_PROFILE_NAMES
+-    { "osd_rate_profile_name_pos",  VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_RATE_PROFILE_NAME]) },
+-    { "osd_pid_profile_name_pos",   VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_PID_PROFILE_NAME]) },
++    { "osd_rate_profile_name_pos",     VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_RATE_PROFILE_NAME]) },
++    { "osd_pid_profile_name_pos",      VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_PID_PROFILE_NAME]) },
++    { "osd_battery_profile_name_pos",  VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_BATTERY_PROFILE_NAME]) },
+ #endif
+ 
+ #ifdef USE_OSD_PROFILES
+@@ -1708,6 +1701,27 @@
+ #ifdef USE_RANGEFINDER
+     { "osd_lidar_dist_pos",         VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_LIDAR_DIST]) },
+ #endif //USE_RANGEFINDER
++#if ENABLE_OSD_CUSTOM_TEXT
++    { "osd_custom_serial_text_pos", VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_CUSTOM_SERIAL_TEXT]) },
++    { "osd_custom_serial_text_terminator", VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OSD_CUSTOM_TEXT_TERMINATOR }, PG_OSD_CUSTOM_TEXT_CONFIG, offsetof(osdCustomTextConfig_t, terminator) },
++#endif //ENABLE_OSD_CUSTOM_TEXT
++#if defined(USE_GPS) && ENABLE_FLIGHT_PLAN
++    { "osd_wp_number_pos",          VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_WP_NUMBER]) },
++    { "osd_wp_current_lat_pos",     VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_WP_CURRENT_LAT]) },
++    { "osd_wp_current_lon_pos",     VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_WP_CURRENT_LON]) },
++    { "osd_wp_current_alt_pos",     VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_WP_CURRENT_ALT]) },
++    { "osd_wp_distance_pos",        VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_WP_DISTANCE]) },
++    { "osd_wp_direction_pos",       VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_WP_DIRECTION]) },
++    { "osd_wp_next_number_pos",     VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_WP_NEXT_NUMBER]) },
++    { "osd_wp_eta_pos",             VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_WP_ETA]) },
++#endif // USE_GPS && ENABLE_FLIGHT_PLAN
++
++#ifdef USE_OSD_NAV_MAP
++    { "osd_nav_map_pos",            VAR_UINT16  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_POSCFG_MAX }, PG_OSD_ELEMENT_CONFIG, offsetof(osdElementConfig_t, item_pos[OSD_NAV_MAP]) },
++    { PARAM_NAME_OSD_NAV_MAP_MODE,        VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_NAV_MAP_MODE_COUNT - 1 },   PG_OSD_NAV_MAP_CONFIG, offsetof(osdNavMapConfig_t, mode) },
++    { PARAM_NAME_OSD_NAV_MAP_CENTRE,      VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, OSD_NAV_MAP_CENTRE_COUNT - 1 }, PG_OSD_NAV_MAP_CONFIG, offsetof(osdNavMapConfig_t, centre) },
++    { PARAM_NAME_OSD_NAV_MAP_MIN_SCALE_M, VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 20, 5000 },                        PG_OSD_NAV_MAP_CONFIG, offsetof(osdNavMapConfig_t, minScaleM) },
++#endif // USE_OSD_NAV_MAP
+ #endif // end of #ifdef USE_OSD
+ 
+ // PG_SYSTEM_CONFIG
+@@ -1861,11 +1875,8 @@
+     /* i2cBus   */                                                                 \
+     { "gyro_" STR(N) "_i2cBus",        VAR_UINT8 | HARDWARE_VALUE, .config.minmaxUnsigned = { 0, I2CDEV_COUNT }, PG_GYRO_DEVICE_CONFIG, PG_ARRAY_ELEMENT_OFFSET(gyroDeviceConfig_t, IDX, i2cBus) },\
+     /* i2c addr */                                                                 \
+-    { "gyro_" STR(N) "_i2c_address",   VAR_UINT8 | HARDWARE_VALUE, .config.minmaxUnsigned = { 0, I2C_ADDR7_MAX }, PG_GYRO_DEVICE_CONFIG, PG_ARRAY_ELEMENT_OFFSET(gyroDeviceConfig_t, IDX, i2cAddress) },\
+-    /* custom roll/pitch/yaw */                                                    \
+-    { "gyro_" STR(N) "_align_roll",   VAR_INT16 | HARDWARE_VALUE, .config.minmax = { -3600, 3600 }, PG_GYRO_DEVICE_CONFIG, PG_ARRAY_ELEMENT_OFFSET(gyroDeviceConfig_t, IDX, customAlignment.roll) },\
+-    { "gyro_" STR(N) "_align_pitch",  VAR_INT16 | HARDWARE_VALUE, .config.minmax = { -3600, 3600 }, PG_GYRO_DEVICE_CONFIG, PG_ARRAY_ELEMENT_OFFSET(gyroDeviceConfig_t, IDX, customAlignment.pitch) },\
+-    { "gyro_" STR(N) "_align_yaw",    VAR_INT16 | HARDWARE_VALUE, .config.minmax = { -3600, 3600 }, PG_GYRO_DEVICE_CONFIG, PG_ARRAY_ELEMENT_OFFSET(gyroDeviceConfig_t, IDX, customAlignment.yaw) }\
++    { "gyro_" STR(N) "_i2c_address",   VAR_UINT8 | HARDWARE_VALUE, .config.minmaxUnsigned = { 0, I2C_ADDR7_MAX }, PG_GYRO_DEVICE_CONFIG, PG_ARRAY_ELEMENT_OFFSET(gyroDeviceConfig_t, IDX, i2cAddress) }\
++    /* end      */
+ 
+     GYRO_DEVICE_RECORDS(1, 0),
+ #if GYRO_COUNT > 1
+@@ -1911,6 +1922,18 @@
+     { "i2c4_clockspeed_khz", VAR_UINT16 | HARDWARE_VALUE, .config.minmax = { I2C_CLOCKSPEED_MIN_KHZ, I2C_CLOCKSPEED_MAX_KHZ }, PG_I2C_CONFIG, PG_ARRAY_ELEMENT_OFFSET(i2cConfig_t, I2CDEV_4, clockSpeed) },
+ #endif
+ #endif
++#if ENABLE_CAN
++// PG_CAN_CONFIG
++    { "can_bitrate_khz", VAR_UINT16 | HARDWARE_VALUE, .config.minmaxUnsigned = { 125, 1000 }, PG_CAN_CONFIG, offsetof(canConfig_t, bitrate_khz) },
++#endif
++#if ENABLE_DRONECAN
++// PG_DRONECAN_CONFIG
++    { "dronecan_enabled", VAR_UINT8 | HARDWARE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_DRONECAN_CONFIG, offsetof(dronecanConfig_t, enabled) },
++    { "dronecan_node_id", VAR_UINT8 | HARDWARE_VALUE, .config.minmaxUnsigned = { 0, 127 }, PG_DRONECAN_CONFIG, offsetof(dronecanConfig_t, node_id) },
++    { "dronecan_device", VAR_UINT8 | HARDWARE_VALUE, .config.minmaxUnsigned = { 1, CANDEV_COUNT }, PG_DRONECAN_CONFIG, offsetof(dronecanConfig_t, device) },
++    { "dronecan_esc_rate_hz", VAR_UINT16 | HARDWARE_VALUE, .config.minmaxUnsigned = { 50, 500 }, PG_DRONECAN_CONFIG, offsetof(dronecanConfig_t, esc_rate_hz) },
++    { "dronecan_dna_enabled", VAR_UINT8 | HARDWARE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_DRONECAN_CONFIG, offsetof(dronecanConfig_t, dna_enabled) },
++#endif
+ #ifdef USE_MCO
+ #if defined(USE_MCO_DEVICE1)
+ // TODO: remove pin specific names
+@@ -1983,13 +2006,14 @@
+ // PG_POSITION
+     { PARAM_NAME_ALTITUDE_SOURCE,       VAR_INT8   | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_POSITION_ALT_SOURCE }, PG_POSITION, offsetof(positionConfig_t, altitude_source) },
+     { PARAM_NAME_ALTITUDE_PREFER_BARO,  VAR_INT8   | MASTER_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_POSITION, offsetof(positionConfig_t, altitude_prefer_baro) },
+-    { PARAM_NAME_ALTITUDE_LPF,          VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 10, 1000 }, PG_POSITION, offsetof(positionConfig_t, altitude_lpf) },
+-    { PARAM_NAME_ALTITUDE_D_LPF,        VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 10, 1000 }, PG_POSITION, offsetof(positionConfig_t, altitude_d_lpf) },
++    { PARAM_NAME_ALTITUDE_LPF,          VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 10, 5000 }, PG_POSITION, offsetof(positionConfig_t, altitude_lpf) },
++    { "rangefinder_max_range_cm",       VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 50, 1000 }, PG_POSITION, offsetof(positionConfig_t, rangefinder_max_range_cm) },
++    { PARAM_NAME_ALTITUDE_D_LPF,        VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 10, 5000 }, PG_POSITION, offsetof(positionConfig_t, altitude_d_lpf) },
+ 
+ // PG_AUTOPILOT
+ #ifndef USE_WING
+     { PARAM_NAME_AP_LANDING_ALTITUDE_M,  VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 200 },     PG_AUTOPILOT, offsetof(autopilotConfig_t, landingAltitudeM) },
+-    { PARAM_NAME_AP_HOVER_THROTTLE,      VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1100, 1700 }, PG_AUTOPILOT, offsetof(autopilotConfig_t, hoverThrottle) },
++    { PARAM_NAME_AP_HOVER_THROTTLE,      VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 1700 }, PG_AUTOPILOT, offsetof(autopilotConfig_t, hoverThrottle) },
+     { PARAM_NAME_AP_THROTTLE_MIN,        VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1050, 1400 }, PG_AUTOPILOT, offsetof(autopilotConfig_t, throttleMin) },
+     { PARAM_NAME_AP_THROTTLE_MAX,        VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1400, 2000 }, PG_AUTOPILOT, offsetof(autopilotConfig_t, throttleMax) },
+     { PARAM_NAME_AP_ALTITUDE_P,          VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 200 },     PG_AUTOPILOT, offsetof(autopilotConfig_t, altitudeP) },
+@@ -2000,8 +2024,69 @@
+     { PARAM_NAME_AP_POSITION_I,          VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 200 },     PG_AUTOPILOT, offsetof(autopilotConfig_t, positionI) },
+     { PARAM_NAME_AP_POSITION_D,          VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 200 },     PG_AUTOPILOT, offsetof(autopilotConfig_t, positionD) },
+     { PARAM_NAME_AP_POSITION_A,          VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 200 },     PG_AUTOPILOT, offsetof(autopilotConfig_t, positionA) },
+-    { PARAM_NAME_AP_POSITION_CUTOFF,     VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 10, 250 },    PG_AUTOPILOT, offsetof(autopilotConfig_t, positionCutoff) },
++    { PARAM_NAME_AP_POSITION_F,          VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 200 },     PG_AUTOPILOT, offsetof(autopilotConfig_t, positionF) },
++    { PARAM_NAME_AP_POSITION_CUTOFF,     VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 10, 50 },     PG_AUTOPILOT, offsetof(autopilotConfig_t, positionCutoff) },
++    { PARAM_NAME_AP_STOP_THRESHOLD,      VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 100 },     PG_AUTOPILOT, offsetof(autopilotConfig_t, stopThreshold) },
+     { PARAM_NAME_AP_MAX_ANGLE,           VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 10, 70 },     PG_AUTOPILOT, offsetof(autopilotConfig_t, maxAngle) },
++
++    // Drag feedforward and velocity setpoint cap
++    { PARAM_NAME_AP_VELOCITY_DRAG_COEFF, VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 100 },     PG_AUTOPILOT, offsetof(autopilotConfig_t, velocityDragCoeff) },
++    { PARAM_NAME_AP_MAX_VELOCITY,        VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 100, 5000 },  PG_AUTOPILOT, offsetof(autopilotConfig_t, maxVelocity) },
++
++// Phase 3: Waypoint navigation & yaw control
++#if ENABLE_FLIGHT_PLAN
++    { PARAM_NAME_AP_WAYPOINT_ARRIVAL_RADIUS, VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 100, 5000 },  PG_AUTOPILOT, offsetof(autopilotConfig_t, waypointArrivalRadius) },
++    { PARAM_NAME_AP_WAYPOINT_HOLD_RADIUS,    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 50, 1000 },   PG_AUTOPILOT, offsetof(autopilotConfig_t, waypointHoldRadius) },
++    { PARAM_NAME_AP_STICK_DEADBAND,          VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 500 },     PG_AUTOPILOT, offsetof(autopilotConfig_t, stickDeadband) },
++    { PARAM_NAME_AP_THROTTLE_DEADBAND,       VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 500 },     PG_AUTOPILOT, offsetof(autopilotConfig_t, throttleDeadband) },
++    { PARAM_NAME_AP_YAW_MODE,                VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_AP_YAW_MODE }, PG_AUTOPILOT, offsetof(autopilotConfig_t, yawMode) },
++    { PARAM_NAME_AP_YAW_P,                   VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 500 },     PG_AUTOPILOT, offsetof(autopilotConfig_t, yawP) },
++    { PARAM_NAME_AP_YAW_D,                   VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 200 },     PG_AUTOPILOT, offsetof(autopilotConfig_t, yawD) },
++    { PARAM_NAME_AP_MAX_YAW_RATE,            VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 10, 360 },    PG_AUTOPILOT, offsetof(autopilotConfig_t, maxYawRate) },
++    { PARAM_NAME_AP_MIN_FORWARD_VELOCITY,    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 10, 500 },    PG_AUTOPILOT, offsetof(autopilotConfig_t, minForwardVelocity) },
++
++    // Leg-line carrot path tracking and turn-angle cornering
++    { PARAM_NAME_AP_NAV_CORNER_SPEED,        VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 50, 2000 },   PG_AUTOPILOT, offsetof(autopilotConfig_t, navCornerSpeed) },
++    { PARAM_NAME_AP_NAV_CORNER_DELTA_V,      VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 100, 4000 },  PG_AUTOPILOT, offsetof(autopilotConfig_t, navCornerDeltaV) },
++    { PARAM_NAME_AP_NAV_DECEL,               VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 20, 1000 },   PG_AUTOPILOT, offsetof(autopilotConfig_t, navDecel) },
++    { PARAM_NAME_AP_NAV_ACCEL,               VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 20, 1000 },   PG_AUTOPILOT, offsetof(autopilotConfig_t, navAccel) },
++    { PARAM_NAME_AP_NAV_CARROT_LEAD_TIME,    VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 2, 40 },      PG_AUTOPILOT, offsetof(autopilotConfig_t, navCarrotLeadTime) },
++    { PARAM_NAME_AP_NAV_CARROT_LEAD_MAX,     VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 600, 6000 },  PG_AUTOPILOT, offsetof(autopilotConfig_t, navCarrotLeadMax) },
++    { PARAM_NAME_AP_NAV_PRETURN_DIST,        VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 500, 5000 },  PG_AUTOPILOT, offsetof(autopilotConfig_t, navPreturnDist) },
++
++    // Phase 5: Velocity buildup
++    { PARAM_NAME_AP_VELOCITY_BUILDUP_MAX_PITCH, VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 20 },   PG_AUTOPILOT, offsetof(autopilotConfig_t, velocityBuildupMaxPitch) },
++
++    // Turn rate and holding patterns
++    { PARAM_NAME_AP_MAX_TURN_RATE,       VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 1, 90 },      PG_AUTOPILOT, offsetof(autopilotConfig_t, maxTurnRate) },
++    { PARAM_NAME_AP_HOLD_ORBIT_RADIUS,   VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 300, 5000 },  PG_AUTOPILOT, offsetof(autopilotConfig_t, holdOrbitRadius) },
++    { PARAM_NAME_AP_HOLD_FIGURE8_WIDTH,  VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 500, 10000 }, PG_AUTOPILOT, offsetof(autopilotConfig_t, holdFigure8Width) },
++
++    // Landing sequence
++    { PARAM_NAME_AP_LANDING_DESCENT_RATE,    VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 10, 200 },  PG_AUTOPILOT, offsetof(autopilotConfig_t, landingDescentRate) },
++    { PARAM_NAME_AP_LANDING_DETECTION_TIME,  VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 5, 50 },    PG_AUTOPILOT, offsetof(autopilotConfig_t, landingDetectionTime) },
++    { PARAM_NAME_AP_LANDING_SPIRAL_ENABLE,   VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_AUTOPILOT, offsetof(autopilotConfig_t, landingSpiralEnable) },
++    { PARAM_NAME_AP_LANDING_SPIRAL_RADIUS,   VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 50, 2000 }, PG_AUTOPILOT, offsetof(autopilotConfig_t, landingSpiralRadius) },
++    { PARAM_NAME_AP_LANDING_SPIRAL_RATE,     VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 1, 45 },    PG_AUTOPILOT, offsetof(autopilotConfig_t, landingSpiralRate) },
++    { PARAM_NAME_AP_LANDING_VELOCITY_THRESHOLD, VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 10, 200 }, PG_AUTOPILOT, offsetof(autopilotConfig_t, landingVelocityThreshold) },
++    { PARAM_NAME_AP_LANDING_THROTTLE_THRESHOLD, VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 10, 500 }, PG_AUTOPILOT, offsetof(autopilotConfig_t, landingThrottleThreshold) },
++
++    // L1 Nonlinear Guidance parameters
++    { PARAM_NAME_AP_L1_ENABLE,               VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_AUTOPILOT, offsetof(autopilotConfig_t, l1Enable) },
++    { PARAM_NAME_AP_L1_PERIOD,               VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 5, 100 },   PG_AUTOPILOT, offsetof(autopilotConfig_t, l1Period) },
++    { PARAM_NAME_AP_L1_MIN_LOOKAHEAD,        VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 100, 5000 }, PG_AUTOPILOT, offsetof(autopilotConfig_t, l1MinLookahead) },
++    { PARAM_NAME_AP_L1_MAX_LOOKAHEAD,        VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1000, 50000 }, PG_AUTOPILOT, offsetof(autopilotConfig_t, l1MaxLookahead) },
++    { PARAM_NAME_AP_L1_MAX_CROSS_TRACK_ERROR, VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1000, 50000 }, PG_AUTOPILOT, offsetof(autopilotConfig_t, l1MaxCrossTrackError) },
++    { PARAM_NAME_AP_L1_TURN_RATE,            VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 90 },    PG_AUTOPILOT, offsetof(autopilotConfig_t, l1TurnRate) },
++
++    // Vertical track
++    { PARAM_NAME_AP_MIN_NAV_ALTITUDE_M,      VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50 },    PG_AUTOPILOT, offsetof(autopilotConfig_t, minNavAltitudeM) },
++
++    // Safety
++    { PARAM_NAME_AP_RX_LOSS_POLICY,          VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_AP_RX_LOSS_POLICY }, PG_AUTOPILOT, offsetof(autopilotConfig_t, rxLossPolicy) },
++    { PARAM_NAME_AP_MAX_DISTANCE_FROM_HOME,  VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 10000 }, PG_AUTOPILOT, offsetof(autopilotConfig_t, maxDistanceFromHomeM) },
++    { PARAM_NAME_AP_GEOFENCE_ACTION,         VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_AP_GEOFENCE_ACTION }, PG_AUTOPILOT, offsetof(autopilotConfig_t, geofenceAction) },
++#endif // ENABLE_FLIGHT_PLAN
+ #endif // !USE_WING
+ 
+ // PG_MODE_ACTIVATION_CONFIG
+diff --git a/extern/betaflightext/src/main/cli/settings.h b/extern/betaflightext/src/main/cli/settings.h
+--- a/extern/betaflightext/src/main/cli/settings.h
++++ b/extern/betaflightext/src/main/cli/settings.h
+@@ -34,6 +34,11 @@
+     TABLE_GPS_UBLOX_MODELS,
+     TABLE_GPS_UBLOX_UTC_STANDARD,
+ #endif
++#ifndef USE_WING
++    TABLE_AP_YAW_MODE,
++    TABLE_AP_RX_LOSS_POLICY,
++    TABLE_AP_GEOFENCE_ACTION,
++#endif
+ #ifdef USE_GPS_RESCUE
+     TABLE_GPS_RESCUE_SANITY_CHECK,
+     TABLE_GPS_RESCUE_ALT_MODE,
+@@ -88,6 +93,9 @@
+ #ifdef USE_OPTICALFLOW
+     TABLE_OPTICALFLOW_HARDWARE,
+ #endif
++#ifdef USE_POSITION_HOLD
++    TABLE_POSHOLD_SOURCE,
++#endif
+ #ifdef USE_GYRO_OVERFLOW_CHECK
+     TABLE_GYRO_OVERFLOW_CHECK,
+ #endif
+@@ -115,7 +123,6 @@
+ #ifdef USE_VTX_COMMON
+     TABLE_VTX_LOW_POWER_DISARM,
+ #endif
+-    TABLE_GYRO_HARDWARE,
+ #ifdef USE_SDCARD
+     TABLE_SDCARD_MODE,
+ #endif
+@@ -136,6 +143,9 @@
+     TABLE_OSD_DISPLAYPORT_DEVICE,
+ #ifdef USE_OSD
+     TABLE_OSD_LOGO_ON_ARMING,
++#if ENABLE_OSD_CUSTOM_TEXT
++    TABLE_OSD_CUSTOM_TEXT_TERMINATOR,
++#endif
+ #endif
+     TABLE_MIXER_TYPE,
+     TABLE_SIMPLIFIED_TUNING_PIDS_MODE,
+@@ -152,6 +162,9 @@
+     TABLE_TPA_SPEED_TYPE,
+     TABLE_YAW_TYPE,
+ #endif // USE_WING
++#ifdef USE_TRANSPONDER
++    TABLE_TRANSPONDER_PROVIDER,
++#endif
+     LOOKUP_TABLE_COUNT
+ } lookupTableIndex_e;
+ 
+@@ -162,7 +175,7 @@
+ 
+ #define VALUE_TYPE_OFFSET 0
+ #define VALUE_SECTION_OFFSET 3
+-#define VALUE_MODE_OFFSET 5
++#define VALUE_MODE_OFFSET 6
+ 
+ typedef enum {
+     // value type, bits 0-2
+@@ -173,13 +186,14 @@
+     VAR_UINT32 = (4 << VALUE_TYPE_OFFSET),
+     VAR_INT32 = (5 << VALUE_TYPE_OFFSET),
+ 
+-    // value section, bits 3-4
++    // value section, bits 3-5
+     MASTER_VALUE = (0 << VALUE_SECTION_OFFSET),
+     PROFILE_VALUE = (1 << VALUE_SECTION_OFFSET),
+     PROFILE_RATE_VALUE = (2 << VALUE_SECTION_OFFSET),
+     HARDWARE_VALUE = (3 << VALUE_SECTION_OFFSET), // Part of the master section, but used for the hardware definition
++    PROFILE_BATTERY_VALUE = (4 << VALUE_SECTION_OFFSET),
+ 
+-    // value mode, bits 5-7
++    // value mode, bits 6-8
+     MODE_DIRECT = (0 << VALUE_MODE_OFFSET),
+     MODE_LOOKUP = (1 << VALUE_MODE_OFFSET),
+     MODE_ARRAY = (2 << VALUE_MODE_OFFSET),
+@@ -188,8 +202,8 @@
+ } cliValueFlag_e;
+ 
+ #define VALUE_TYPE_MASK (0x07)
+-#define VALUE_SECTION_MASK (0x18)
+-#define VALUE_MODE_MASK (0xE0)
++#define VALUE_SECTION_MASK (0x38)
++#define VALUE_MODE_MASK (0x1C0)
+ 
+ typedef struct cliMinMaxConfig_s {
+     const int16_t min;
+@@ -237,7 +251,7 @@
+ 
+ typedef struct clivalue_s {
+     const char *name;
+-    const uint8_t type;                       // see cliValueFlag_e
++    const uint16_t type;                      // see cliValueFlag_e
+     const cliValueConfig_t config;
+ 
+     pgn_t pgn;
+@@ -250,20 +264,6 @@
+ extern const clivalue_t valueTable[];
+ //extern const uint8_t lookupTablesEntryCount;
+ 
+-extern const char * const lookupTableGyroHardware[];
+-
+-extern const char * const lookupTableAccHardware[];
+-//extern const uint8_t lookupTableAccHardwareEntryCount;
+-
+-extern const char * const lookupTableBaroHardware[];
+-//extern const uint8_t lookupTableBaroHardwareEntryCount;
+-
+-extern const char * const lookupTableMagHardware[];
+-//extern const uint8_t lookupTableMagHardwareEntryCount;
+-
+-extern const char * const lookupTableRangefinderHardware[];
+-
+-extern const char * const lookupTableOpticalflowHardware[];
+ 
+ extern const char * const lookupTableLedstripColors[];
+ 
+diff --git a/extern/betaflightext/src/main/io/serial.c b/extern/betaflightext/src/main/io/serial.c
+--- a/extern/betaflightext/src/main/io/serial.c
++++ b/extern/betaflightext/src/main/io/serial.c
+@@ -39,7 +39,7 @@
+ #include "drivers/serial_softserial.h"
+ #endif
+ 
+-#if defined(SIMULATOR_BUILD)
++#if ENABLE_SIMULATOR
+ #include "drivers/serial_tcp.h"
+ #include "drivers/serial_ws.h"
+ #endif
+@@ -104,6 +104,21 @@
+ #ifdef USE_UART10
+     SERIAL_PORT_USART10,
+ #endif
++#ifdef USE_UART11
++    SERIAL_PORT_UART11,
++#endif
++#ifdef USE_UART12
++    SERIAL_PORT_UART12,
++#endif
++#ifdef USE_UART13
++    SERIAL_PORT_UART13,
++#endif
++#ifdef USE_UART14
++    SERIAL_PORT_UART14,
++#endif
++#ifdef USE_UART15
++    SERIAL_PORT_UART15,
++#endif
+ #ifdef USE_SOFTSERIAL1
+     SERIAL_PORT_SOFTSERIAL1,
+ #endif
+@@ -182,6 +197,21 @@
+ #ifdef USE_UART10
+     "UART10",
+ #endif
++#ifdef USE_UART11
++    "UART11",
++#endif
++#ifdef USE_UART12
++    "UART12",
++#endif
++#ifdef USE_UART13
++    "UART13",
++#endif
++#ifdef USE_UART14
++    "UART14",
++#endif
++#ifdef USE_UART15
++    "UART15",
++#endif
+ #ifdef USE_SOFTSERIAL1
+     "SOFT1",
+ #endif
+@@ -581,7 +611,7 @@
+     case SERIALTYPE_UART:
+     case SERIALTYPE_LPUART:
+     case SERIALTYPE_PIOUART:
+-#if defined(SIMULATOR_BUILD)
++#if ENABLE_SIMULATOR
+         // emulate serial ports over TCP
+         //serialPort = serTcpOpen(identifier, rxCallback, rxCallbackData, baudRate, mode, options);
+ 
+@@ -709,11 +739,19 @@
+     // Either port might be open in a mode other than MODE_RXTX. We rely on
+     // serialRxBytesWaiting() to do the right thing for a TX only port. No
+     // special handling is necessary OR performed.
++
++    // On a DTR-less host link (e.g. a BLE/UART bridge) the only way out of
++    // passthrough is a power cycle. Give those links a "+++" escape: a '+++'
++    // that begins after >=1 s of host silence reboots the FC out of passthrough
++    // (GPS keeps power and its fix; the BLE link survives the reset). The idle
++    // guard is what makes it safe: the binary config stream never pauses for
++    // 1 s, so a stray '+' in it can't arm the escape. USB VCP is excluded, so
++    // its DTR-reset behaviour is unchanged.
++    const bool escEnabled = right->identifier != SERIAL_PORT_USB_VCP;
++    uint32_t hostIdleMs = millis();   // time of last host->FC byte
++    int escCount = 0;                 // consecutive '+' since the idle guard
++
+     while (1) {
+-        // TODO: maintain a timestamp of last data received. Use this to
+-        // implement a guard interval and check for `+++` as an escape sequence
+-        // to return to CLI command mode.
+-        // https://en.wikipedia.org/wiki/Escape_sequence#Modem_control
+         if (serialRxBytesWaiting(left)) {
+             LED0_ON;
+             uint8_t c = serialRead(left);
+@@ -730,6 +768,18 @@
+              while (!serialTxBytesFree(left));
+              serialWrite(left, c);
+              rightC(c);
++             if (escEnabled) {
++                 const uint32_t nowMs = millis();
++                 // first '+' must follow a >=1 s gap; '+++' then reboots
++                 if (c == '+' && (escCount > 0 || nowMs - hostIdleMs >= 1000)) {
++                     if (++escCount >= 3) {
++                         systemReset();
++                     }
++                 } else {
++                     escCount = 0;
++                 }
++                 hostIdleMs = nowMs;
++             }
+              LED0_OFF;
+          }
+      }
+diff --git a/extern/betaflightext/src/main/io/serial.h b/extern/betaflightext/src/main/io/serial.h
+--- a/extern/betaflightext/src/main/io/serial.h
++++ b/extern/betaflightext/src/main/io/serial.h
+@@ -52,6 +52,8 @@
+     FUNCTION_FRSKY_OSD           = (1 << 16), // 65536
+     FUNCTION_VTX_MSP             = (1 << 17), // 131072
+     FUNCTION_GIMBAL              = (1 << 18), // 262144
++    FUNCTION_LIDAR_NL            = (1 << 19), // 524288
++    FUNCTION_OSD_CUSTOM_TEXT     = (1 << 20), // 1048576
+ } serialPortFunction_e;
+ 
+ #define TELEMETRY_SHAREABLE_PORT_FUNCTIONS_MASK (FUNCTION_TELEMETRY_FRSKY_HUB | FUNCTION_TELEMETRY_LTM | FUNCTION_TELEMETRY_MAVLINK)
+@@ -118,6 +120,11 @@
+     SERIAL_PORT_UART9,
+     SERIAL_PORT_USART10,
+     SERIAL_PORT_UART10 = SERIAL_PORT_USART10,
++    SERIAL_PORT_UART11,
++    SERIAL_PORT_UART12,
++    SERIAL_PORT_UART13,
++    SERIAL_PORT_UART14,
++    SERIAL_PORT_UART15,
+ 
+     SERIAL_PORT_PIOUART_FIRST = 70,
+     SERIAL_PORT_PIOUART0 = SERIAL_PORT_PIOUART_FIRST,
+diff --git a/extern/betaflightext/src/main/scheduler/scheduler.c b/extern/betaflightext/src/main/scheduler/scheduler.c
+--- a/extern/betaflightext/src/main/scheduler/scheduler.c
++++ b/extern/betaflightext/src/main/scheduler/scheduler.c
+@@ -118,9 +118,9 @@
+ #endif
+ 
+ #if defined(USE_LATE_TASK_STATISTICS)
+-static int16_t lateTaskCount = 0;
++static uint32_t lateTaskCount = 0;
+ static uint32_t lateTaskTotal = 0;
+-static int16_t taskCount = 0;
++static uint32_t taskCount = 0;
+ static uint32_t lateTaskPercentage = 0;
+ static uint32_t nextTimingCycles;
+ static int32_t gyroCyclesNow;
+@@ -214,7 +214,7 @@
+         schedulerIgnoreTaskExecTime();
+     }
+ 
+-#if defined(SIMULATOR_BUILD)
++#if ENABLE_SIMULATOR
+     averageSystemLoadPercent = 0;
+ #endif
+ }
+@@ -228,10 +228,10 @@
+ #endif
+ }
+ 
+-timeUs_t checkFuncMaxExecutionTimeUs;
+-timeUs_t checkFuncTotalExecutionTimeUs;
+-timeUs_t checkFuncMovingSumExecutionTimeUs;
+-timeUs_t checkFuncMovingSumDeltaTimeUs;
++static timeUs_t checkFuncMaxExecutionTimeUs;
++static timeUs_t checkFuncTotalExecutionTimeUs;
++static timeUs_t checkFuncMovingSumExecutionTimeUs;
++static timeUs_t checkFuncMovingSumDeltaTimeUs;
+ 
+ void getCheckFuncInfo(cfCheckFuncInfo_t *checkFuncInfo)
+ {
+@@ -243,21 +243,24 @@
+ 
+ void getTaskInfo(taskId_e taskId, taskInfo_t * taskInfo)
+ {
+-    taskInfo->isEnabled = queueContains(getTask(taskId));
+-    taskInfo->desiredPeriodUs = getTask(taskId)->attribute->desiredPeriodUs;
+-    taskInfo->staticPriority = getTask(taskId)->attribute->staticPriority;
+-    taskInfo->taskName = getTask(taskId)->attribute->taskName;
+-    taskInfo->subTaskName = getTask(taskId)->attribute->subTaskName;
+-    taskInfo->maxExecutionTimeUs = getTask(taskId)->maxExecutionTimeUs;
+-    taskInfo->totalExecutionTimeUs = getTask(taskId)->totalExecutionTimeUs;
+-    taskInfo->averageExecutionTime10thUs = getTask(taskId)->movingSumExecutionTime10thUs / TASK_STATS_MOVING_SUM_COUNT;
+-    taskInfo->averageDeltaTime10thUs = getTask(taskId)->movingSumDeltaTime10thUs / TASK_STATS_MOVING_SUM_COUNT;
+-    taskInfo->latestDeltaTimeUs = getTask(taskId)->taskLatestDeltaTimeUs;
+-    taskInfo->movingAverageCycleTimeUs = getTask(taskId)->movingAverageCycleTimeUs;
++    task_t *taskPtr = getTask(taskId);
++    taskInfo->isEnabled = queueContains(taskPtr);
++    taskInfo->desiredPeriodUs = taskPtr->attribute->desiredPeriodUs;
++    taskInfo->staticPriority = taskPtr->attribute->staticPriority;
++    taskInfo->taskName = taskPtr->attribute->taskName;
++    taskInfo->subTaskName = taskPtr->attribute->subTaskName;
++    taskInfo->maxExecutionTimeUs = taskPtr->maxExecutionTimeUs;
++    taskInfo->totalExecutionTimeUs = taskPtr->totalExecutionTimeUs;
++    taskInfo->averageExecutionTime10thUs = taskPtr->movingSumExecutionTime10thUs / TASK_STATS_MOVING_SUM_COUNT;
++    taskInfo->averageDeltaTime10thUs = taskPtr->movingSumDeltaTime10thUs / TASK_STATS_MOVING_SUM_COUNT;
++    taskInfo->latestDeltaTimeUs = taskPtr->taskLatestDeltaTimeUs;
++    taskInfo->movingAverageLoad10thPct =  taskPtr->movingSumDeltaTime10thUs == 0 ? 0 : (taskPtr->movingSumStatesExecTime10thUs * 1000) / taskPtr->movingSumDeltaTime10thUs;
++    taskInfo->maxLoad10thPct = taskInfo->averageDeltaTime10thUs == 0 ? 0 : (taskPtr->maxStatesExecTimeUs * 10000) /  taskInfo->averageDeltaTime10thUs;
++
+ #if defined(USE_LATE_TASK_STATISTICS)
+-    taskInfo->lateCount = getTask(taskId)->lateCount;
+-    taskInfo->runCount = getTask(taskId)->runCount;
+-    taskInfo->execTime = getTask(taskId)->execTime;
++    taskInfo->lateCount = taskPtr->lateCount;
++    taskInfo->runCount = taskPtr->runCount;
++    taskInfo->execTime = taskPtr->execTime;
+ #endif
+ }
+ 
+@@ -334,11 +337,13 @@
+         currentTask->movingSumDeltaTime10thUs = 0;
+         currentTask->totalExecutionTimeUs = 0;
+         currentTask->maxExecutionTimeUs = 0;
++        currentTask->maxStatesExecTimeUs = 0;
+     } else if (taskId < TASK_COUNT) {
+         getTask(taskId)->anticipatedExecutionTime = 0;
+         getTask(taskId)->movingSumDeltaTime10thUs = 0;
+         getTask(taskId)->totalExecutionTimeUs = 0;
+         getTask(taskId)->maxExecutionTimeUs = 0;
++        getTask(taskId)->maxStatesExecTimeUs = 0;
+     }
+ }
+ 
+@@ -346,9 +351,11 @@
+ {
+     if (taskId == TASK_SELF) {
+         currentTask->maxExecutionTimeUs = 0;
++        currentTask->maxStatesExecTimeUs = 0;
+     } else if (taskId < TASK_COUNT) {
+         task_t *task = getTask(taskId);
+         task->maxExecutionTimeUs = 0;
++        task->maxStatesExecTimeUs = 0;
+ #if defined(USE_LATE_TASK_STATISTICS)
+         task->lateCount = 0;
+         task->runCount = 0;
+@@ -412,7 +419,6 @@
+         ignoreCurrentTaskExecRate = false;
+         ignoreCurrentTaskExecTime = false;
+         taskNextStateTime = -1;
+-        float period = currentTimeUs - selectedTask->lastExecutedAtUs;
+         selectedTask->lastExecutedAtUs = currentTimeUs;
+         selectedTask->lastDesiredAt += selectedTask->attribute->desiredPeriodUs;
+         selectedTask->dynamicPriority = 0;
+@@ -425,20 +431,32 @@
+         selectedTask->attribute->taskFunc(currentTimeBeforeTaskCallUs);
+         taskExecutionTimeUs = micros() - currentTimeBeforeTaskCallUs;
+         taskTotalExecutionTime += taskExecutionTimeUs;
++        if (!ignoreCurrentTaskExecTime) {
++            selectedTask->execTimeSinceStatesTime += taskExecutionTimeUs;
++        }
++
+         selectedTask->movingSumExecutionTime10thUs += (taskExecutionTimeUs * 10) - selectedTask->movingSumExecutionTime10thUs / TASK_STATS_MOVING_SUM_COUNT;
+         if (!ignoreCurrentTaskExecRate) {
+             // Record task execution rate and max execution time
+-            selectedTask->taskLatestDeltaTimeUs = cmpTimeUs(currentTimeUs, selectedTask->lastStatsAtUs);
++            uint32_t deltaStateTime = cmpTimeUs(currentTimeUs, selectedTask->lastStatsAtUs);
++            selectedTask->taskLatestDeltaTimeUs = deltaStateTime;
+             selectedTask->movingSumDeltaTime10thUs += (selectedTask->taskLatestDeltaTimeUs * 10) - selectedTask->movingSumDeltaTime10thUs / TASK_STATS_MOVING_SUM_COUNT;
+             selectedTask->lastStatsAtUs = currentTimeUs;
++            selectedTask->movingSumStatesExecTime10thUs += (selectedTask->execTimeSinceStatesTime * 10) - selectedTask->movingSumStatesExecTime10thUs / TASK_STATS_MOVING_SUM_COUNT;
++            selectedTask->maxStatesExecTimeUs = MAX(selectedTask->maxStatesExecTimeUs, selectedTask->execTimeSinceStatesTime);
++            selectedTask->execTimeSinceStatesTime = 0;
+         }
+ 
+         // Update estimate of expected task duration
+         if (taskNextStateTime != -1) {
+             selectedTask->anticipatedExecutionTime = taskNextStateTime << TASK_EXEC_TIME_SHIFT;
+         } else if (!ignoreCurrentTaskExecTime) {
+-            if (taskExecutionTimeUs > (selectedTask->anticipatedExecutionTime >> TASK_EXEC_TIME_SHIFT)) {
+-                selectedTask->anticipatedExecutionTime = taskExecutionTimeUs << TASK_EXEC_TIME_SHIFT;
++            timeUs_t taskExecutionEstimateUs = taskExecutionTimeUs;
++            if ((TASK_EXEC_TIME_CLAMP_US != 0) && (taskExecutionEstimateUs > TASK_EXEC_TIME_CLAMP_US)) {
++                taskExecutionEstimateUs = TASK_EXEC_TIME_CLAMP_US;
++            }
++            if (taskExecutionEstimateUs > (selectedTask->anticipatedExecutionTime >> TASK_EXEC_TIME_SHIFT)) {
++                selectedTask->anticipatedExecutionTime = taskExecutionEstimateUs << TASK_EXEC_TIME_SHIFT;
+             } else if (selectedTask->anticipatedExecutionTime > 1) {
+                 // Slowly decay the max time
+                 selectedTask->anticipatedExecutionTime--;
+@@ -450,7 +468,6 @@
+         }
+ 
+         selectedTask->totalExecutionTimeUs += taskExecutionTimeUs;   // time consumed by scheduler + task
+-        selectedTask->movingAverageCycleTimeUs += 0.05f * (period - selectedTask->movingAverageCycleTimeUs);
+ #if defined(USE_LATE_TASK_STATISTICS)
+         selectedTask->runCount++;
+ 
+@@ -612,7 +629,7 @@
+                 // 10ths % of tasks late in last second
+                 DEBUG_SET(DEBUG_TIMING_ACCURACY, 4, lateTaskPercentage);
+ 
+-                float gyroCyclesStdDev = sqrt(devSquared/gyroCyclesCount);
++                float gyroCyclesStdDev = sqrtf(devSquared/gyroCyclesCount);
+                 int32_t gyroCyclesStdDev100thus = clockCyclesTo100thMicros((int32_t)gyroCyclesStdDev);
+                 DEBUG_SET(DEBUG_TIMING_ACCURACY, 7, gyroCyclesStdDev100thus);
+                 DEBUG_SET(DEBUG_SCHEDULER_DETERMINISM, 7, gyroCyclesStdDev100thus);
+diff --git a/extern/betaflightext/src/main/scheduler/scheduler.h b/extern/betaflightext/src/main/scheduler/scheduler.h
+--- a/extern/betaflightext/src/main/scheduler/scheduler.h
++++ b/extern/betaflightext/src/main/scheduler/scheduler.h
+@@ -53,6 +53,14 @@
+ // Decay the estimated max task duration by 1/(1 << TASK_EXEC_TIME_SHIFT) on every invocation
+ #define TASK_EXEC_TIME_SHIFT            7
+ 
++// Cap a single measured execution time when updating a task's anticipated
++// duration, 0 = no cap. Hosted targets (SITL) override this: OS preemption
++// produces multi-millisecond wall-clock samples that would otherwise
++// peak-hold the estimate and starve the task out of every scheduling window.
++#ifndef TASK_EXEC_TIME_CLAMP_US
++#define TASK_EXEC_TIME_CLAMP_US         0
++#endif
++
+ #define TASK_AGE_EXPEDITE_RX            schedulerConfig()->rxRelaxDeterminism  // Make RX tasks more schedulable if it's failed to be scheduled this many times
+ #define TASK_AGE_EXPEDITE_OSD           schedulerConfig()->osdRelaxDeterminism  // Make OSD tasks more schedulable if it's failed to be scheduled this many times
+ #define TASK_AGE_EXPEDITE_COUNT         1   // Make aged tasks more schedulable
+@@ -90,7 +98,8 @@
+     timeUs_t     totalExecutionTimeUs;
+     timeUs_t     averageExecutionTime10thUs;
+     timeUs_t     averageDeltaTime10thUs;
+-    float        movingAverageCycleTimeUs;
++    uint32_t     movingAverageLoad10thPct;
++    uint32_t     maxLoad10thPct;
+ #if defined(USE_LATE_TASK_STATISTICS)
+     uint32_t     runCount;
+     uint32_t     lateCount;
+@@ -140,7 +149,7 @@
+ #ifdef USE_OPTICALFLOW
+     TASK_OPTICALFLOW,
+ #endif
+-#if defined(USE_BARO) || defined(USE_GPS)
++#if defined(USE_BARO) || defined(USE_GPS) || defined(USE_RANGEFINDER)
+     TASK_ALTITUDE,
+ #endif
+ #ifdef USE_DASHBOARD
+@@ -194,6 +203,12 @@
+ #ifdef USE_GIMBAL
+     TASK_GIMBAL,
+ #endif
++#if ENABLE_OSD_CUSTOM_TEXT
++    TASK_OSD_CUSTOM_TEXT,
++#endif
++#if ENABLE_DRONECAN
++    TASK_DRONECAN,
++#endif
+ 
+     /* Count of real tasks */
+     TASK_COUNT,
+@@ -226,13 +241,15 @@
+     timeUs_t lastDesiredAt;             // time of last desired execution
+ 
+     // Statistics
+-    float    movingAverageCycleTimeUs;
+     timeUs_t anticipatedExecutionTime;  // Fixed point expectation of next execution time
+     timeUs_t movingSumDeltaTime10thUs;  // moving sum over 64 samples
+     timeUs_t movingSumExecutionTime10thUs;
+     timeUs_t maxExecutionTimeUs;
+     timeUs_t totalExecutionTimeUs;      // total time consumed by task since boot
+     timeUs_t lastStatsAtUs;             // time of last stats gathering for rate calculation
++    uint32_t execTimeSinceStatesTime;
++    uint32_t movingSumStatesExecTime10thUs;
++    uint32_t maxStatesExecTimeUs;
+ #if defined(USE_LATE_TASK_STATISTICS)
+     uint32_t runCount;
+     uint32_t lateCount;
+diff --git a/extern/betaflightext/src/main/sensors/battery_fake.c b/extern/betaflightext/src/main/sensors/battery_fake.c
+--- a/extern/betaflightext/src/main/sensors/battery_fake.c
++++ b/extern/betaflightext/src/main/sensors/battery_fake.c
+@@ -21,6 +21,7 @@
+ #include <stdbool.h>
+ #include <stdint.h>
+ #include <stdlib.h>
++#include <string.h>
+ #include <math.h>
+ 
+ #include "platform.h"
+@@ -40,6 +41,7 @@
+ #include "fc/rc_controls.h"
+ 
+ #include "flight/mixer.h"
++#include "flight/mixer_init.h"
+ 
+ #include "io/beeper.h"
+ 
+@@ -101,32 +103,45 @@
+ #define DEFAULT_VOLTAGE_METER_SOURCE VOLTAGE_METER_NONE
+ #endif
+ 
+-PG_REGISTER_WITH_RESET_TEMPLATE(batteryConfig_t, batteryConfig, PG_BATTERY_CONFIG, 3);
++#ifndef DEFAULT_IBAT_LPF_PERIOD
++#define DEFAULT_IBAT_LPF_PERIOD 10
++#endif
++
++const batteryProfile_t *currentBatteryProfile;
++
++// Initializes all battery profiles with default voltage thresholds and capacity.
++void pgResetFn_batteryProfiles(batteryProfile_t *batteryProfiles)
++{
++    for (int i = 0; i < BATTERY_PROFILE_COUNT; i++) {
++        batteryProfiles[i].vbatmaxcellvoltage = VBAT_CELL_VOLTAGE_DEFAULT_MAX;
++        batteryProfiles[i].vbatmincellvoltage = VBAT_CELL_VOLTAGE_DEFAULT_MIN;
++        batteryProfiles[i].vbatwarningcellvoltage = 350;
++        batteryProfiles[i].vbatfullcellvoltage = 410;
++        batteryProfiles[i].batteryCapacity = 0;
++        batteryProfiles[i].forceBatteryCellCount = 0;
++        batteryProfiles[i].consumptionWarningPercentage = 10;
++        memset(batteryProfiles[i].profileName, 0, sizeof(batteryProfiles[i].profileName));
++    }
++}
++
++PG_REGISTER_ARRAY_WITH_RESET_FN(batteryProfile_t, BATTERY_PROFILE_COUNT, batteryProfiles, PG_BATTERY_PROFILES, 1);
++
++PG_REGISTER_WITH_RESET_TEMPLATE(batteryConfig_t, batteryConfig, PG_BATTERY_CONFIG, 4);
+ 
+ PG_RESET_TEMPLATE(batteryConfig_t, batteryConfig,
+     // voltage
+-    .vbatmaxcellvoltage = VBAT_CELL_VOLTAGE_DEFAULT_MAX,
+-    .vbatmincellvoltage = VBAT_CELL_VOLTAGE_DEFAULT_MIN,
+-    .vbatwarningcellvoltage = 350,
+     .vbatnotpresentcellvoltage = 300, //A cell below 3 will be ignored
+     .voltageMeterSource = DEFAULT_VOLTAGE_METER_SOURCE,
+     .lvcPercentage = 100, //Off by default at 100%
+ 
+     // current
+-    .batteryCapacity = 0,
+     .currentMeterSource = DEFAULT_CURRENT_METER_SOURCE,
+ 
+-    // cells
+-    .forceBatteryCellCount = 0, //0 will be ignored
+-
+     // warnings / alerts
+     .useVBatAlerts = true,
+     .useConsumptionAlerts = false,
+-    .consumptionWarningPercentage = 10,
+     .vbathysteresis = 1, // 0.01V
+ 
+-    .vbatfullcellvoltage = 410,
+-
+     .vbatDisplayLpfPeriod = 30,
+     .vbatSagLpfPeriod = 2,
+     .ibatLpfPeriod = 10,
+@@ -180,6 +195,25 @@
+     }
+ }
+ 
++// Detects the number of battery cells based on the current voltage reading.
++static unsigned autoDetectCellCount(void)
++{
++    unsigned cells = (voltageMeter.displayFiltered / currentBatteryProfile->vbatmaxcellvoltage) + 1;
++    if (cells > MAX_AUTO_DETECT_CELL_COUNT) {
++        cells = MAX_AUTO_DETECT_CELL_COUNT;
++    }
++    return cells;
++}
++
++// Recalculates warning and critical voltage thresholds from the current profile and cell count.
++static void recalculateBatteryThresholds(void)
++{
++    batteryWarningVoltage = batteryCellCount * currentBatteryProfile->vbatwarningcellvoltage;
++    batteryCriticalVoltage = batteryCellCount * currentBatteryProfile->vbatmincellvoltage;
++    batteryWarningHysteresisVoltage = (batteryWarningVoltage > batteryConfig()->vbathysteresis) ? batteryWarningVoltage - batteryConfig()->vbathysteresis : 0;
++    batteryCriticalHysteresisVoltage = (batteryCriticalVoltage > batteryConfig()->vbathysteresis) ? batteryCriticalVoltage - batteryConfig()->vbathysteresis : 0;
++}
++
+ //TODO: make all of these independent of voltage filtering for display
+ 
+ static bool isVoltageStable(void)
+@@ -189,10 +223,14 @@
+ 
+ static bool isVoltageFromBat(void)
+ {
++    if (!currentBatteryProfile) {
++        return false;
++    }
++
+     // We want to disable battery getting detected around USB voltage or 0V
+ 
+     return (voltageMeter.displayFiltered >= batteryConfig()->vbatnotpresentcellvoltage  // Above ~0V
+-        && voltageMeter.displayFiltered <= batteryConfig()->vbatmaxcellvoltage)  // 1s max cell voltage check
++        && voltageMeter.displayFiltered <= currentBatteryProfile->vbatmaxcellvoltage)  // 1s max cell voltage check
+         || voltageMeter.displayFiltered > batteryConfig()->vbatnotpresentcellvoltage * 2; // USB voltage - 2s or more check
+ }
+ 
+@@ -203,24 +241,19 @@
+         // Battery has just been connected - calculate cells, warning voltages and reset state
+ 
+         consumptionState = voltageState = BATTERY_OK;
+-        if (batteryConfig()->forceBatteryCellCount != 0) {
+-            batteryCellCount = batteryConfig()->forceBatteryCellCount;
++        if (currentBatteryProfile->forceBatteryCellCount != 0) {
++            batteryCellCount = currentBatteryProfile->forceBatteryCellCount;
+         } else {
+-            unsigned cells = (voltageMeter.displayFiltered / batteryConfig()->vbatmaxcellvoltage) + 1;
+-            if (cells > MAX_AUTO_DETECT_CELL_COUNT) {
+-                // something is wrong, we expect MAX_CELL_COUNT cells maximum (and autodetection will be problematic at 6+ cells)
+-                cells = MAX_AUTO_DETECT_CELL_COUNT;
+-            }
+-            batteryCellCount = cells;
++            batteryCellCount = autoDetectCellCount();
+ 
+             if (!ARMING_FLAG(ARMED)) {
+                 changePidProfileFromCellCount(batteryCellCount);
+             }
+         }
+-        batteryWarningVoltage = batteryCellCount * batteryConfig()->vbatwarningcellvoltage;
+-        batteryCriticalVoltage = batteryCellCount * batteryConfig()->vbatmincellvoltage;
+-        batteryWarningHysteresisVoltage = (batteryWarningVoltage > batteryConfig()->vbathysteresis) ? batteryWarningVoltage - batteryConfig()->vbathysteresis : 0;
+-        batteryCriticalHysteresisVoltage = (batteryCriticalVoltage > batteryConfig()->vbathysteresis) ? batteryCriticalVoltage - batteryConfig()->vbathysteresis : 0;
++#ifdef USE_RPM_LIMIT
++        mixerResetRpmLimiter();
++#endif
++        recalculateBatteryThresholds();
+         lowVoltageCutoff.percentage = 100;
+         lowVoltageCutoff.startTime = 0;
+     } else if (voltageState != BATTERY_NOT_PRESENT && isVoltageStable() && !isVoltageFromBat()) {
+@@ -308,12 +341,12 @@
+ 
+ static void batteryUpdateConsumptionState(void)
+ {
+-    if (batteryConfig()->useConsumptionAlerts && batteryConfig()->batteryCapacity > 0 && batteryCellCount > 0) {
++    if (batteryConfig()->useConsumptionAlerts && currentBatteryProfile->batteryCapacity > 0 && batteryCellCount > 0) {
+         uint8_t batteryPercentageRemaining = calculateBatteryPercentageRemaining();
+ 
+         if (batteryPercentageRemaining == 0) {
+             consumptionState = BATTERY_CRITICAL;
+-        } else if (batteryPercentageRemaining <= batteryConfig()->consumptionWarningPercentage) {
++        } else if (batteryPercentageRemaining <= currentBatteryProfile->consumptionWarningPercentage) {
+             consumptionState = BATTERY_WARNING;
+         } else {
+             consumptionState = BATTERY_OK;
+@@ -357,8 +390,50 @@
+     return batteryStateStrings[getBatteryState()];
+ }
+ 
++// Sets the currentBatteryProfile pointer to the active battery profile.
++void loadBatteryProfile(void)
++{
++    uint8_t index = systemConfig()->activeBatteryProfile;
++    if (index >= BATTERY_PROFILE_COUNT) {
++        index = 0;
++        systemConfigMutable()->activeBatteryProfile = index;
++    }
++    currentBatteryProfile = batteryProfiles(index);
++}
++
++// Switches to the specified battery profile and recalculates voltage thresholds.
++// Does not reset the voltage/current meters so readings remain continuous.
++void changeBatteryProfile(uint8_t profileIndex)
++{
++    const bool wasForced = currentBatteryProfile && currentBatteryProfile->forceBatteryCellCount != 0;
++
++    if (profileIndex < BATTERY_PROFILE_COUNT) {
++        systemConfigMutable()->activeBatteryProfile = profileIndex;
++    }
++
++    loadBatteryProfile();
++
++    // Only update cell count and thresholds when a battery is actually present
++    const bool batteryPresent = (voltageState != BATTERY_NOT_PRESENT && voltageState != BATTERY_INIT);
++
++    // Recalculate cell count if forceBatteryCellCount changed
++    if (batteryPresent && currentBatteryProfile->forceBatteryCellCount != 0) {
++        batteryCellCount = currentBatteryProfile->forceBatteryCellCount;
++    } else if (batteryPresent && voltageState == BATTERY_OK && (batteryCellCount == 0 || wasForced)) {
++        // Re-detect cell count when switching to auto-detect or if count was lost
++        batteryCellCount = autoDetectCellCount();
++    }
++
++    // Recalculate warning/critical thresholds for the new profile
++    if (batteryPresent && batteryCellCount > 0) {
++        recalculateBatteryThresholds();
++    }
++}
++
+ void batteryInit(void)
+ {
++    loadBatteryProfile();
++
+     //
+     // presence
+     //
+@@ -487,12 +562,23 @@
+ {
+     uint8_t batteryPercentage = 0;
+     if (batteryCellCount > 0) {
+-        uint16_t batteryCapacity = batteryConfig()->batteryCapacity;
++        uint16_t batteryCapacity = currentBatteryProfile->batteryCapacity;
+ 
+         if (batteryCapacity > 0) {
+             batteryPercentage = constrain(((float)batteryCapacity - currentMeter.mAhDrawn) * 100 / batteryCapacity, 0, 100);
+         } else {
+-            batteryPercentage = constrain((((uint32_t)voltageMeter.displayFiltered - (batteryConfig()->vbatmincellvoltage * batteryCellCount)) * 100) / ((batteryConfig()->vbatmaxcellvoltage - batteryConfig()->vbatmincellvoltage) * batteryCellCount), 0, 100);
++            uint32_t batteryVoltage = voltageMeter.displayFiltered;
++            uint32_t batteryVoltageMin = currentBatteryProfile->vbatmincellvoltage * batteryCellCount;
++            uint32_t batteryVoltageMax = currentBatteryProfile->vbatmaxcellvoltage * batteryCellCount;
++            if (batteryVoltage <= batteryVoltageMin) {
++                batteryPercentage = 0;
++            } else if (batteryVoltage >= batteryVoltageMax) {
++                batteryPercentage = 100;
++            } else if (batteryVoltageMax > batteryVoltageMin) {
++                batteryPercentage = (uint8_t)(((batteryVoltage - batteryVoltageMin) * 100) / (batteryVoltageMax - batteryVoltageMin));
++            } else {
++                batteryPercentage = 0;
++            }
+         }
+     }
+ 
+@@ -573,7 +659,7 @@
+ {
+     return batteryConfig()->isBatteryContinueEnabled
+           && !(ARMING_FLAG(ARMED) || ARMING_FLAG(WAS_EVER_ARMED)) && (getBatteryState() == BATTERY_OK)
+-          && getBatteryAverageCellVoltage() < batteryConfig()->vbatfullcellvoltage
++          && getBatteryAverageCellVoltage() < currentBatteryProfile->vbatfullcellvoltage
+           && statsConfig()->stats_mah_used > 0;
+ }
+ 
+diff --git a/extern/betaflightext/src/main/sensors/battery_fake.h b/extern/betaflightext/src/main/sensors/battery_fake.h
+--- a/extern/betaflightext/src/main/sensors/battery_fake.h
++++ b/extern/betaflightext/src/main/sensors/battery_fake.h
+@@ -44,28 +44,39 @@
+     AUTO_PROFILE_CELL_COUNT_CHANGE = -1, // Always switch to a profile with matching cell count if there is one
+ };
+ 
+-typedef struct batteryConfig_s {
+-    // voltage
++#define MAX_BATTERY_PROFILE_NAME_LENGTH 8
++
++// Per-profile battery settings (voltage thresholds, capacity)
++typedef struct batteryProfile_s {
+     uint16_t vbatmaxcellvoltage;            // maximum voltage per cell, used for auto-detecting battery voltage in 0.01V units, default is 430 (4.30V)
+     uint16_t vbatmincellvoltage;            // minimum voltage per cell, this triggers battery critical alarm, in 0.01V units, default is 330 (3.30V)
+     uint16_t vbatwarningcellvoltage;        // warning voltage per cell, this triggers battery warning alarm, in 0.01V units, default is 350 (3.50V)
++    uint16_t vbatfullcellvoltage;           // Cell voltage at which the battery is deemed to be "full" 0.01V units, default is 410 (4.1V)
++    uint16_t batteryCapacity;               // mAh
++    uint8_t  forceBatteryCellCount;         // Number of cells in battery, used for overwriting auto-detected cell count if someone has issues with it.
++    uint8_t  consumptionWarningPercentage;  // Percentage of remaining capacity that should trigger a battery warning
++    char     profileName[MAX_BATTERY_PROFILE_NAME_LENGTH + 1];
++} batteryProfile_t;
++
++PG_DECLARE_ARRAY(batteryProfile_t, BATTERY_PROFILE_COUNT, batteryProfiles);
++
++extern const batteryProfile_t *currentBatteryProfile;
++
++// Global/hardware battery settings (not per-profile)
++typedef struct batteryConfig_s {
++    // voltage
+     uint16_t vbatnotpresentcellvoltage;     // Between vbatmaxcellvoltage and 2*this is considered to be USB powered. Below this it is notpresent
+     uint8_t lvcPercentage;                  // Percentage of throttle when lvc is triggered
+     voltageMeterSource_e voltageMeterSource; // source of battery voltage meter used, either ADC or ESC
+ 
+     // current
+     currentMeterSource_e currentMeterSource; // source of battery current meter used, either ADC, Virtual or ESC
+-    uint16_t batteryCapacity;               // mAh
+ 
+     // warnings / alerts
+     bool useVBatAlerts;                     // Issue alerts based on VBat readings
+     bool useConsumptionAlerts;              // Issue alerts based on total power consumption
+-    uint8_t consumptionWarningPercentage;   // Percentage of remaining capacity that should trigger a battery warning
+     uint8_t vbathysteresis;                 // hysteresis for alarm in 0.01V units, default 1 = 0.01V
+ 
+-    uint16_t vbatfullcellvoltage;           // Cell voltage at which the battery is deemed to be "full" 0.01V units, default is 410 (4.1V)
+-
+-    uint8_t forceBatteryCellCount;          // Number of cells in battery, used for overwriting auto-detected cell count if someone has issues with it.
+     uint8_t vbatDisplayLpfPeriod;           // Period of the cutoff frequency for the Vbat filter for display and startup (in 0.1 s)
+     uint8_t ibatLpfPeriod;                  // Period of the cutoff frequency for the Ibat filter (in 0.1 s)
+     uint8_t vbatDurationForWarning;         // Period voltage has to sustain before the battery state is set to BATTERY_WARNING (in 0.1 s)
+@@ -134,3 +145,5 @@
+ currentMeter_t* getCurrentMeter(void);
+ voltageMeter_t* getVoltageMeter(void);
+ void setCellCount(uint8_t count);
++
++void loadBatteryProfile(void);
+diff --git a/extern/betaflightext/src/main/target/simITL/target.c b/extern/betaflightext/src/main/target/simITL/target.c
+--- a/extern/betaflightext/src/main/target/simITL/target.c
++++ b/extern/betaflightext/src/main/target/simITL/target.c
+@@ -38,6 +38,7 @@
+ #include "drivers/system.h"
+ #include "drivers/time.h"
+ #include "drivers/pwm_output.h"
++#include "drivers/servo_impl.h"
+ #include "drivers/pwm_output_impl.h"
+ #include "drivers/light_led.h"
+ 
+@@ -87,8 +88,9 @@
+     printf("[timer]Init...\n");
+ }
+ 
+-void timerStart(TIM_TypeDef *tim)
++void timerStart(const timerHardware_t *timHw)
+ {
++    UNUSED(timHw);
+ }
+ 
+ void failureMode(failureMode_e mode)
+@@ -363,34 +365,24 @@
+ 
+ bool IORead(IO_t io)
+ {
+-    if (!io) {
+-        return false;
+-    }
+-    return (IO_GPIO(io)->IDR & IO_Pin(io));
++    UNUSED(io);
++    return false;
+ }
+ 
+ void IOWrite(IO_t io, bool hi)
+ {
+-    if (!io) {
+-        return;
+-    }
+-    IO_GPIO(io)->BSRR = IO_Pin(io) << (hi ? 0 : 16);
++    UNUSED(io);
++    UNUSED(hi);
+ }
+ 
+ void IOHi(IO_t io)
+ {
+-    if (!io) {
+-        return;
+-    }
+-    IO_GPIO(io)->BSRR = IO_Pin(io);
++    UNUSED(io);
+ }
+ 
+ void IOLo(IO_t io)
+ {
+-    if (!io) {
+-        return;
+-    }
+-    IO_GPIO(io)->BRR = IO_Pin(io);
++    UNUSED(io);
+ }
+ 
+ void IOInitGlobal(void)
+@@ -404,23 +396,9 @@
+     return NULL;
+ }
+ 
+-const mcuTypeInfo_t *getMcuTypeInfo(void)
+-{
+-    static const mcuTypeInfo_t info = { .id = MCU_TYPE_SIMULATOR, .name = "SIMULATOR" };
+-    return &info;
+-}
+-
+ void IOToggle(IO_t io)
+ {
+-    if (!io) {
+-        return;
+-    }
+-
+-    uint32_t mask = IO_Pin(io);
+-    if (IO_GPIO(io)->ODR & mask) {
+-        mask <<= 16; // bit is set, shift mask to reset half
+-    }
+-    IO_GPIO(io)->BSRR = mask;
++    UNUSED(io);
+ }
+ 
+ 
+@@ -452,6 +430,29 @@
+   cliMode = false;
+ }
+ 
++// Betaflight 2026.6 split init() into phases (main.c); the simulator has no
++// mass storage mode between phase 2 and 3.
++void init(void)
++{
++    initPhase1();
++    initPhase2();
++    initPhase3();
++}
++
++void EXTIInit(void)
++{
++}
++
++bool usbCableIsInserted(void)
++{
++    return false;
++}
++
++bool usbCableIsActive(void)
++{
++    return false;
++}
++
+ void systemReset(void) {
+   printf("[system] Reset!\n");
+ 
+@@ -512,10 +513,8 @@
+ 
+ int IO_GPIOPortIdx(IO_t io)
+ {
+-    if (!io) {
+-        return -1;
+-    }
+-    return (((size_t)IO_GPIO(io) - GPIOA_BASE) >> 10);
++    UNUSED(io);
++    return -1;
+ }
+ 
+ bool useDshotTelemetry = false;
+\ No newline at end of file
+diff --git a/extern/betaflightext/src/main/target/simITL/target.h b/extern/betaflightext/src/main/target/simITL/target.h
+--- a/extern/betaflightext/src/main/target/simITL/target.h
++++ b/extern/betaflightext/src/main/target/simITL/target.h
+@@ -22,10 +22,12 @@
+ 
+ #pragma once
+ 
+-#include <stdint.h>
++#include <stdbool.h>
+ #include <stddef.h>
++#include <stdint.h>
+ 
+ #include "common/utils.h"
++#include "drivers/serial_uart_types.h"
+ 
+ #define TARGET_BOARD_IDENTIFIER "SITL"
+ 
+@@ -47,10 +49,15 @@
+ #define DMA_DATA
+ #define STATIC_DMA_DATA_AUTO
+ 
+-// use simulatior's attitude directly
+-// disable this if wants to test AHRS algorithm
++// SimITL sets the attitude straight from its physics (bf.cpp,
++// imuSetAttitudeQuat); Betaflight 2026.6 SITL defaults to its own estimator.
+ #undef USE_IMU_CALC
+ 
++//#define ENABLE_SIMULATOR_ACC_SYNC 1
++//#define ENABLE_SIMULATOR_GYRO_SYNC 1
++//#define ENABLE_SIMULATOR_IMU_SYNC 1
++//#define ENABLE_SIMULATOR_GYROPID_SYNC 1
++
+ // file name to save config
+ //#define EEPROM_FILENAME "eeprom.bin"
+ 
+@@ -80,6 +87,8 @@
+ 
+ #define USE_GYRO
+ #define USE_VIRTUAL_GYRO
++// SimITL steps the gyro at the 8 kHz of real hardware (2026.6 SITL: 1 kHz)
++#define VIRTUAL_GYRO_SAMPLE_RATE_HZ 8000
+ 
+ #define USE_MAG
+ #define USE_VIRTUAL_MAG
+@@ -114,6 +123,10 @@
+ #define DEFAULT_RX_FEATURE      FEATURE_RX_MSP
+ #define DEFAULT_FEATURES        (FEATURE_GPS | FEATURE_TELEMETRY | FEATURE_OSD)
+ 
++#define USE_ALTITUDE_HOLD
++#define USE_POSITION_HOLD
++#define USE_FLIGHT_PLAN
++
+ #define USE_PARAMETER_GROUPS
+ 
+ #define USE_BEEPER
+@@ -153,6 +166,7 @@
+ #undef USE_TELEMETRY_HOTT
+ #undef USE_TELEMETRY_SMARTPORT
+ #undef USE_TELEMETRY_MAVLINK
++#undef USE_SERIALRX_MAVLINK
+ #undef USE_RESOURCE_MGMT
+ //#undef USE_CMS
+ #undef USE_TELEMETRY_CRSF
+@@ -204,31 +218,6 @@
+ typedef enum {RESET = 0, SET = !RESET} FlagStatus, ITStatus;
+ typedef enum {DISABLE = 0, ENABLE = !DISABLE} FunctionalState;
+ typedef enum {TEST_IRQ = 0 } IRQn_Type;
+-typedef enum {
+-    EXTI_Trigger_Rising = 0x08,
+-    EXTI_Trigger_Falling = 0x0C,
+-    EXTI_Trigger_Rising_Falling = 0x10
+-} EXTITrigger_TypeDef;
+-
+-typedef struct
+-{
+-  uint32_t IDR;
+-  uint32_t ODR;
+-  uint32_t BSRR;
+-  uint32_t BRR;
+-} GPIO_TypeDef;
+-
+-#define GPIOA_BASE ((intptr_t)0x0001)
+-
+-typedef struct
+-{
+-    void* test;
+-} TIM_TypeDef;
+-
+-typedef struct
+-{
+-    void* test;
+-} TIM_OCInitTypeDef;
+ 
+ typedef struct {
+     void* test;
+@@ -246,33 +235,29 @@
+ void DMA_Cmd(DMA_Channel_TypeDef*, FunctionalState );
+ void DMA_ClearFlag(uint32_t);
+ 
+-typedef struct
+-{
+-    void* test;
+-} SPI_TypeDef;
+-
+-typedef struct
+-{
+-    void* test;
+-} USART_TypeDef;
+-
+-#define USART1 ((USART_TypeDef *)0x0001)
+-#define USART2 ((USART_TypeDef *)0x0002)
+-#define USART3 ((USART_TypeDef *)0x0003)
+-#define USART4 ((USART_TypeDef *)0x0004)
+-#define USART5 ((USART_TypeDef *)0x0005)
+-#define USART6 ((USART_TypeDef *)0x0006)
+-#define USART7 ((USART_TypeDef *)0x0007)
+-#define USART8 ((USART_TypeDef *)0x0008)
+-
+-#define UART4 ((USART_TypeDef *)0x0004)
+-#define UART5 ((USART_TypeDef *)0x0005)
+-#define UART7 ((USART_TypeDef *)0x0007)
+-#define UART8 ((USART_TypeDef *)0x0008)
++struct spiResource_s;
++struct quadSpiResource_s;
++struct octoSpiResource_s;
++
++#define USART1 ((usartResource_t *)0x0001)
++#define USART2 ((usartResource_t *)0x0002)
++#define USART3 ((usartResource_t *)0x0003)
++#define USART4 ((usartResource_t *)0x0004)
++#define USART5 ((usartResource_t *)0x0005)
++#define USART6 ((usartResource_t *)0x0006)
++#define USART7 ((usartResource_t *)0x0007)
++#define USART8 ((usartResource_t *)0x0008)
++
++#define UART4 ((usartResource_t *)0x0004)
++#define UART5 ((usartResource_t *)0x0005)
++#define UART7 ((usartResource_t *)0x0007)
++#define UART8 ((usartResource_t *)0x0008)
+ 
+ #define SIMULATOR_MAX_RC_CHANNELS   16
+ #define SIMULATOR_MAX_PWM_CHANNELS  16
+ 
++struct i2cResource_s;
++
+ typedef struct
+ {
+ 
+@@ -324,4 +309,7 @@
+ 
+ int lockMainPID(void);
+ 
+-
++int targetParseArgs(int argc, char * argv[]);
++#ifdef CONFIG_IN_FILE
++const char *targetGetConfigFile(void);
++#endif

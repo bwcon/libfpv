@@ -1,10 +1,29 @@
 diff --git a/src/main/fc/core.c b/src/main/fc/core.c
-index 91beddd07..73bc5c3cf 100644
+index 390006d64..4cc17d158 100644
 --- a/src/main/fc/core.c
 +++ b/src/main/fc/core.c
-@@ -566,6 +566,10 @@ void tryArm(void)
-             setMotorSpinDirection(crashFlipModeActive ? DSHOT_CMD_SPIN_DIRECTION_REVERSED : DSHOT_CMD_SPIN_DIRECTION_NORMAL);
+@@ -291,7 +291,7 @@ void updateArmingStatus(void)
+     if (ARMING_FLAG(ARMED)) {
+         LED0_ON;
+ 
+-#ifdef USE_DSHOT
++#if defined(USE_DSHOT) || defined(SITL)
+ // --- handle crashFlip behaviours while armed ---
+ if (crashFlipModeActive) {
+     if (!IS_RC_MODE_ACTIVE(BOXCRASHFLIP)) {
+@@ -305,7 +305,9 @@ if (crashFlipModeActive) {
+             disarm(DISARM_REASON_CRASHFLIP); // stop the motors, revert crashflipMode and set motor direction normal
+         } else {
+             // we are in auto re-arm mode, terminate crashflip mode and set motor direction normal
++#ifdef USE_DSHOT
+             setMotorSpinDirection(DSHOT_CMD_SPIN_DIRECTION_NORMAL);
++#endif
+             crashFlipModeActive = false;
          }
+     }
+@@ -609,6 +611,10 @@ if (isMotorProtocolDshot()) {
+     setMotorSpinDirection(crashFlipModeActive ? DSHOT_CMD_SPIN_DIRECTION_REVERSED : DSHOT_CMD_SPIN_DIRECTION_NORMAL);
+ }
  #endif // USE_DSHOT
 +#if defined(SITL) && !defined(USE_DSHOT)
 +        // the simulator reverses the motors itself (isCrashFlipModeActive())
@@ -13,20 +32,20 @@ index 91beddd07..73bc5c3cf 100644
  
  #ifdef USE_LAUNCH_CONTROL
          if (!crashFlipModeActive && (canUseLaunchControl() || (tryingToArm == ARMING_DELAYED_LAUNCH_CONTROL))) {
-@@ -984,7 +988,7 @@ void processRxModes(timeUs_t currentTimeUs)
+@@ -1029,7 +1035,7 @@ void processRxModes(timeUs_t currentTimeUs)
  
      updateActivatedModes();
  
 -#ifdef USE_DSHOT
 +#if defined(USE_DSHOT) || defined(SITL)
      if (crashFlipModeActive) {
-         // Enable beep warning when the crashflip mode is active
          beeper(BEEPER_CRASHFLIP_MODE);
+     }
 diff --git a/src/main/msp/msp_box.c b/src/main/msp/msp_box.c
-index e816db02d..9dce45971 100644
+index cfe2f90b1..3b88fff6a 100644
 --- a/src/main/msp/msp_box.c
 +++ b/src/main/msp/msp_box.c
-@@ -289,6 +289,9 @@ void initActiveBoxIds(void)
+@@ -297,6 +297,9 @@ void initActiveBoxIds(void)
          BME(BOXCRASHFLIP);
      }
  #endif

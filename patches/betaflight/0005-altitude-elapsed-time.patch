@@ -1,4 +1,5 @@
 diff --git a/src/main/flight/position.c b/src/main/flight/position.c
+index a8ff6f83c..7a0ef9007 100644
 --- a/src/main/flight/position.c
 +++ b/src/main/flight/position.c
 @@ -31,6 +31,8 @@
@@ -10,13 +11,12 @@ diff --git a/src/main/flight/position.c b/src/main/flight/position.c
  #include "fc/runtime_config.h"
  
  #include "flight/position.h"
-@@ -98,6 +100,17 @@
-     static float baroAltOffsetCm = 0.0f;
-     static float newBaroAltOffsetCm = 0.0f;
+@@ -118,6 +120,16 @@ void calculateEstimatedAltitude(void)
+     }
+ #endif
  
-+    // Filter and differentiate over the time actually elapsed: the task can
-+    // run below its nominal rate (simulators), which made the altitude lag
-+    // and the vario read too high by the same factor.
++    // Filter over the time actually elapsed, as the estimator does: the task
++    // can run below its nominal rate (simulators).
 +    static timeUs_t previousTimeUs = 0;
 +    const timeUs_t nowUs = micros();
 +    const timeDelta_t elapsedUs = previousTimeUs ? cmpTimeUs(nowUs, previousTimeUs) : 0;
@@ -25,15 +25,24 @@ diff --git a/src/main/flight/position.c b/src/main/flight/position.c
 +    pt2FilterUpdateCutoff(&altitudeLpf, pt2FilterGain(positionConfig()->altitude_lpf / 100.0f, sampleTimeS));
 +    pt2FilterUpdateCutoff(&altitudeDerivativeLpf, pt2FilterGain(positionConfig()->altitude_d_lpf / 100.0f, sampleTimeS));
 +
-     float baroAltCm = 0.0f;
-     float gpsTrust = 0.3f; // if no pDOP value, use 0.3, intended range 0-1;
-     bool haveBaroAlt = false; // true if baro exists and has been calibrated on power up
-@@ -193,7 +206,7 @@
+     // Run the Kalman filter estimator (prediction + all sensor measurement updates)
+     positionEstimatorUpdate();
  
-     // *** calculate Vario signal
-     static float previousZeroedAltitudeCm = 0.0f;
--    zeroedAltitudeDerivative = (zeroedAltitudeCm - previousZeroedAltitudeCm) * TASK_ALTITUDE_RATE_HZ; // cm/s
-+    zeroedAltitudeDerivative = (zeroedAltitudeCm - previousZeroedAltitudeCm) / sampleTimeS; // cm/s
-     previousZeroedAltitudeCm = zeroedAltitudeCm;
+diff --git a/src/main/flight/position_estimator.c b/src/main/flight/position_estimator.c
+--- a/src/main/flight/position_estimator.c
++++ b/src/main/flight/position_estimator.c
+@@ -589,7 +589,13 @@
+ void positionEstimatorUpdate(void)
+ {
+     const timeUs_t nowUs = micros();
+-    const float dt = HZ_TO_INTERVAL(TASK_ALTITUDE_RATE_HZ);
++    // Predict over the time actually elapsed: the task can run below its
++    // nominal rate (simulators), which made the altitude lag and the
++    // velocity read too high by the same factor.
++    static timeUs_t previousUs = 0;
++    const timeDelta_t elapsedUs = previousUs ? cmpTimeUs(nowUs, previousUs) : 0;
++    previousUs = nowUs;
++    const float dt = (elapsedUs > 0 && elapsedUs < 1000000) ? elapsedUs * 1e-6f : HZ_TO_INTERVAL(TASK_ALTITUDE_RATE_HZ);
  
-     zeroedAltitudeDerivative = pt2FilterApply(&altitudeDerivativeLpf, zeroedAltitudeDerivative);
+     const bool wantXY = positionEstimatorWantXYFusion();
+     if (wantXY != xyEnabled) {

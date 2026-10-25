@@ -1,16 +1,15 @@
 diff --git a/src/main/osd/osd_elements.c b/src/main/osd/osd_elements.c
 --- a/src/main/osd/osd_elements.c
 +++ b/src/main/osd/osd_elements.c
-@@ -839,12 +839,20 @@
-     memcpy(element->buff, compassBar + osdGetHeadingIntoDiscreteDirections(DECIDEGREES_TO_DEGREES(attitude.values.yaw), 16), 9);
+@@ -926,11 +926,19 @@
      element->buff[9] = 0;
  }
-+
+ 
 +// Text a simulator host supplies for a custom message element; it replaces
 +// the MSPv2 message while osdHostCustomMsgSet is true (empty = draw nothing).
 +char osdHostCustomMsg[OSD_CUSTOM_MSG_COUNT][MAX_NAME_LENGTH + 1];
 +bool osdHostCustomMsgSet[OSD_CUSTOM_MSG_COUNT];
- 
++
  //display custom message from MSPv2
  static void osdElementCustomMsg(osdElementParms_t *element)
  {
@@ -24,6 +23,7 @@ diff --git a/src/main/osd/osd_elements.c b/src/main/osd/osd_elements.c
      } else {
          strncpy(element->buff, pilotConfig()->message[msgIndex], MAX_NAME_LENGTH);
 diff --git a/src/main/osd/osd_elements.h b/src/main/osd/osd_elements.h
+index 7de37002b..9bcfc15f3 100644
 --- a/src/main/osd/osd_elements.h
 +++ b/src/main/osd/osd_elements.h
 @@ -23,6 +23,7 @@
@@ -34,7 +34,7 @@ diff --git a/src/main/osd/osd_elements.h b/src/main/osd/osd_elements.h
  
  typedef enum {
      OSD_ELEMENT_TYPE_1 = 0,
-@@ -72,3 +73,7 @@
+@@ -76,3 +77,7 @@ bool osdElementsNeedAccelerometer(void);
  #ifdef USE_SPEC_PREARM_SCREEN
  bool osdDrawSpec(displayPort_t *osdDisplayPort);
  #endif // USE_SPEC_PREARM_SCREEN

@@ -1,7 +1,8 @@
 diff --git a/src/main/osd/osd.c b/src/main/osd/osd.c
+index adf1f3327..46c54a593 100644
 --- a/src/main/osd/osd.c
 +++ b/src/main/osd/osd.c
-@@ -1361,7 +1361,9 @@
+@@ -1379,7 +1379,9 @@ bool osdUpdateCheck(timeUs_t currentTimeUs, timeDelta_t currentDeltaTimeUs)
  
      //TODO: fix for multiple init calls
      if(cmpTimeUs(currentTimeUs, osdUpdateDueUs) < -1000000){
@@ -12,7 +13,7 @@ diff --git a/src/main/osd/osd.c b/src/main/osd/osd.c
        osdState = OSD_STATE_INIT;
      }
  
-@@ -1376,6 +1378,13 @@
+@@ -1394,6 +1396,13 @@ bool osdUpdateCheck(timeUs_t currentTimeUs, timeDelta_t currentDeltaTimeUs)
                  //while (cmpTimeUs(osdUpdateDueUs, currentTimeUs) < 0) {
                      osdUpdateDueUs += OSD_UPDATE_INTERVAL_US;
                  //}
