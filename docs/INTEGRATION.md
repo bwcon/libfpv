@@ -495,6 +495,26 @@ A `waveOut` thread (44.1 kHz, stereo, 16-bit, 4 × 512-frame buffers) that
 pulls `fpv_audio_read` is enough, and the sound plays through the game's
 output device. Stop and join it before deleting the drone.
 
+### Sound effects for the game's reactions
+
+Short sounds as reactions to the drone are a nice touch, and worth adding:
+a click when the drone launches or a move-here works, a back sound on
+recall, a buzz when an action is refused, a tick on a camera switch, and a
+bump on an impact (a minimum speed, e.g. 3 m/s, and a short cooldown, so
+scrapes don't play a sound on every contact frame).
+
+- **Use only sounds the game already has.** libfpv will never ship its own
+  sounds for this. If the game has no fitting sound for a reaction, skip that
+  reaction.
+- Play them through the game's sound system, so they follow its volume and
+  positioning: the menu sounds for actions, and the game's collision sound
+  at the impact point (with the surface that was hit, if the engine picks the
+  sound by surface).
+- Super Mario 64 uses `SOUND_MENU_CLICK_FILE_SELECT`, `SOUND_MENU_CAMERA_BUZZ`,
+  `SOUND_MENU_CHANGE_SELECT` and `SOUND_ACTION_BONK`. GTA San Andreas uses the
+  frontend events 1 to 4 (select, back, highlight, error) and
+  `CAudioEngine::ReportCollision` with the drone as plastic.
+
 ### Testing without a human
 
 - `FPV_INPUT_SOURCE_HOST` / `fpv_input_set_channels` let the mod fly
