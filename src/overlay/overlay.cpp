@@ -1139,7 +1139,7 @@ void Overlay::tabConfigurator() {
 void Overlay::buildUi() {
     Lib &L = lib();
     ImGuiIO &io = ImGui::GetIO();
-    ImVec2 size(std::min(m_w - 20, 820 * m_scale), std::min(m_h - 20, 620 * m_scale));
+    ImVec2 size(std::min(m_w - 20, 984 * m_scale), std::min(m_h - 20, 744 * m_scale));
     ImGui::SetNextWindowPos(ImVec2(m_w * 0.5f, m_h * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(size, ImGuiCond_Appearing);
     bool open = true;
