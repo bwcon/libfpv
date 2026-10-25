@@ -4,8 +4,9 @@
 	ignore = dirty
 [submodule "third_party/betaflight"]
 	path = third_party/betaflight
-	url = https://github.com/AJ92/betaflight.git
+	url = https://github.com/bwcon/betaflight.git
 	ignore = dirty
+	branch = bf-2026.6-simitl
 [submodule "third_party/libwebsockets"]
 	path = third_party/libwebsockets
 	url = https://github.com/warmcat/libwebsockets.git
