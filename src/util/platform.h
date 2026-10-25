@@ -2,7 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include <string>
+
 namespace fpv {
+
+// An environment variable as UTF-8, "" when unset.
+std::string envUtf8(const char *name);
+
+// The per-user settings folder (UTF-8), "" when unknown: Roaming AppData on
+// Windows, ~/Library/Application Support on macOS, $XDG_CONFIG_HOME or
+// ~/.config elsewhere.
+std::string userConfigDir();
 
 // Prevents the host from unmapping libfpv (FreeLibrary/dlclose) while its
 // threads exist. Returns false if pinning is not possible.

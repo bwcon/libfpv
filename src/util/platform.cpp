@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <cstring>
 
 #include "util/log.h"
 
@@ -12,11 +13,55 @@
 #    define WIN32_LEAN_AND_MEAN
 #  endif
 #  include <windows.h>
+#  include <shlobj.h>
 #elif !defined(__EMSCRIPTEN__)
 #  include <dlfcn.h>
 #endif
 
 namespace fpv {
+
+#if defined(_WIN32)
+static std::string utf8(const wchar_t *w) {
+    int bytes = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
+    if (bytes <= 1) return {};
+    std::string out(size_t(bytes - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w, -1, out.data(), bytes, nullptr, nullptr);
+    return out;
+}
+#endif
+
+std::string envUtf8(const char *name) {
+#if defined(_WIN32)
+    // The process environment, not the C runtime's copy: MinGW's msvcrt only
+    // builds its wide table for wmain programs, so _wgetenv returns null here.
+    std::wstring wname(name, name + std::strlen(name));
+    DWORD n = GetEnvironmentVariableW(wname.c_str(), nullptr, 0);
+    if (n == 0) return {};
+    std::wstring value(n, L'\0');
+    GetEnvironmentVariableW(wname.c_str(), value.data(), n);
+    return utf8(value.c_str());
+#else
+    const char *v = std::getenv(name);
+    return v ? v : "";
+#endif
+}
+
+std::string userConfigDir() {
+#if defined(_WIN32)
+    // The shell's answer, not %APPDATA%: some processes start without it.
+    PWSTR path = nullptr;
+    std::string dir;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &path))) dir = utf8(path);
+    CoTaskMemFree(path);
+    return dir.empty() ? envUtf8("APPDATA") : dir;
+#elif defined(__APPLE__)
+    std::string home = envUtf8("HOME");
+    return home.empty() ? home : home + "/Library/Application Support";
+#else
+    std::string xdg = envUtf8("XDG_CONFIG_HOME"), home = envUtf8("HOME");
+    return !xdg.empty() ? xdg : home.empty() ? home : home + "/.config";
+#endif
+}
 
 static std::atomic<bool> g_pinned{false};
 
