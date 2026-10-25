@@ -871,6 +871,13 @@ FPV_API const fpv_draw_data *fpv_osd_draw_data(const fpv_frame *frame, float wid
 FPV_API fpv_result fpv_osd_render_rgba(const fpv_frame *frame, uint8_t *rgba, uint32_t width,
                                        uint32_t height, uint32_t stride_bytes, fpv_osd_style style);
 
+/* The player's OSD look, as picked in the overlay's OSD tab and saved in
+ * settings.json (FPV_OSD_STYLE_ANALOG until changed). Hosts pass it to
+ * fpv_osd_draw_data. The setter is for a host's own hotkey or menu; it
+ * saves the choice and the overlay shows it. Any thread. */
+FPV_API fpv_osd_style fpv_osd_get_style(void);
+FPV_API void fpv_osd_set_style(fpv_osd_style style);
+
 /* ===========================================================================
  * Audio
  * ======================================================================== */
