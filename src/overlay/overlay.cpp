@@ -5,11 +5,13 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 
 #include "core/bf_bridge.h"
 #include "imgui.h"
 #include "lib.h"
 #include "osd/osd.h"
+#include "util/fs.h"
 #include "util/log.h"
 #include "web/web.h"
 
@@ -928,6 +930,24 @@ void Overlay::tabOsd() {
     ImGui::SameLine();
     if (ImGui::RadioButton("HD look (53x20, DJI)", style == FPV_OSD_STYLE_HD)) style = FPV_OSD_STYLE_HD;
     if (style != current) fpv_osd_set_style((fpv_osd_style)style);
+    // goggle fonts: the folders in <data_dir>/fonts, as copied from the goggles' SD card
+    {
+        std::string font = fpv_osd_get_font();
+        if (ImGui::BeginCombo("Font", font.empty() ? "Built-in" : font.c_str())) {
+            if (ImGui::Selectable("Built-in", font.empty())) fpv_osd_set_font(nullptr);
+            std::error_code ec;
+            for (const auto &e : std::filesystem::directory_iterator(pathFromUtf8(L.dataDir) / "fonts", ec)) {
+                if (!e.is_directory(ec)) continue;
+                std::string name = pathToUtf8(e.path().filename());
+                if (ImGui::Selectable(name.c_str(), name == font) && fpv_osd_set_font(name.c_str()) != FPV_OK)
+                    m_fontError = fpv_last_error();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(copy font folders to %s\\fonts)", L.dataDir.c_str());
+        if (!m_fontError.empty()) ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "%s", m_fontError.c_str());
+    }
     struct E {
         const char *label, *name;
     } static const elems[] = {
@@ -969,15 +989,13 @@ void Overlay::tabOsd() {
     ImVec2 size(cw * cols, chh * rows);
     ImDrawList *dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(p0, ImVec2(p0.x + size.x, p0.y + size.y), IM_COL32(60, 70, 60, 255));
-    const float aw = (float)OsdRenderer::kAtlasW, ah = (float)OsdRenderer::kAtlasH;
-    int fontOff = style == FPV_OSD_STYLE_HD ? OsdRenderer::kGlyphW * 16 : 0;
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
             uint8_t g = chars[r * cols + c];
             if (g == 0 || g == ' ') continue;
             ImVec2 a(p0.x + c * cw, p0.y + r * chh), b(a.x + cw, a.y + chh);
-            ImVec2 uv0(((g % 16) * OsdRenderer::kGlyphW + fontOff) / aw, (g / 16) * OsdRenderer::kGlyphH / ah);
-            ImVec2 uv1(uv0.x + OsdRenderer::kGlyphW / aw, uv0.y + OsdRenderer::kGlyphH / ah);
+            ImVec2 uv0, uv1;
+            osdRenderer().glyphUv(g, style, uv0.x, uv0.y, uv1.x, uv1.y);
             dl->AddImage(ImTextureRef((ImTextureID)FPV_TEXTURE_OSD_FONT), a, b, uv0, uv1);
         }
     }

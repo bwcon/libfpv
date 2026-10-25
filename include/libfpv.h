@@ -892,6 +892,18 @@ FPV_API fpv_result fpv_osd_render_rgba(const fpv_frame *frame, uint8_t *rgba, ui
 FPV_API fpv_osd_style fpv_osd_get_style(void);
 FPV_API void fpv_osd_set_style(fpv_osd_style style);
 
+/* Goggle OSD fonts: a folder in <data_dir>/fonts holding the files that go
+ * on the goggles' SD card, unchanged: DJI O3 sheets (*_SD.png, *_HD.png,
+ * *_O3.png, for example SNEAKY_FPV fonts) or WTFOS msp-osd fonts
+ * (font_bf.bin, font_bf_hd.bin). The HD canvas uses the O3 or HD sheet, the
+ * analog canvas the SD sheet; a missing one falls back to the built-in
+ * font. NULL or "" selects the built-in fonts. Saved in settings.json;
+ * FPV_TEXTURE_OSD_FONT changes revision. FPV_ERROR_NOT_FOUND when the folder
+ * has no usable font (the current font stays). Any thread. */
+FPV_API fpv_result fpv_osd_set_font(const char *name);
+/* The selected font folder's name, "" for the built-in fonts. */
+FPV_API const char *fpv_osd_get_font(void);
+
 /* ===========================================================================
  * Audio
  * ======================================================================== */
