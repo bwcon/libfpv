@@ -48,7 +48,9 @@ struct FlightSnapshot {
     uint32_t armingDisableFlags = 0;
     float altitude = -1;
     float videoNoise = 0, videoBreakup = 0, videoSignal = 1;
-    std::array<uint8_t, 16 * 30> osd{};
+    // OSD canvas, row major with osdCols per row: 30 x 16, or 53 x 20 (HD).
+    std::array<uint8_t, 20 * 53> osd{};
+    uint8_t osdRows = 16, osdCols = 30;
     uint32_t osdRevision = 0;
     std::array<float, kChannelCount> channels{};
 #if defined(LIBFPV_KAMIKAZE)

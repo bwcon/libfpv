@@ -259,7 +259,12 @@ extern "C" FPV_API fpv_result fpv_drone_tick(fpv_drone *d, float frameDt, fpv_fr
         o.motor_index = e.motorIndex;
     }
 
-    memcpy(f.osd, cur.osd.data(), sizeof(f.osd));
+    f.osd_rows = cur.osdRows;
+    f.osd_cols = cur.osdCols;
+    memcpy(f.osd_hd, cur.osd.data(), sizeof(f.osd_hd));
+    memset(f.osd, 0, sizeof(f.osd));  // the top-left 30 x 16, for older hosts
+    for (uint32_t r = 0; r < FPV_OSD_ROWS && r < f.osd_rows; r++)
+        for (uint32_t c = 0; c < FPV_OSD_COLS && c < f.osd_cols; c++) f.osd[r * FPV_OSD_COLS + c] = f.osd_hd[r * f.osd_cols + c];
     f.osd_revision = cur.osdRevision;
 #if defined(LIBFPV_KAMIKAZE)
     // no flight controller OSD over the lost feed, whatever the OSD disable switch

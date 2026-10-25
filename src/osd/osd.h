@@ -19,8 +19,10 @@ public:
     bool ok() const { return m_ok; }
     const std::vector<uint8_t> &atlas() const { return m_atlas; }
 
-    const fpv_draw_data *drawData(const uint8_t *osd, float width, float height, int style);
-    void rasterize(const uint8_t *osd, uint8_t *rgba, uint32_t width, uint32_t height, uint32_t stride, int style);
+    // osd: rows x cols characters, row major (30 x 16 analog, 53 x 20 HD).
+    const fpv_draw_data *drawData(const uint8_t *osd, int rows, int cols, float width, float height, int style);
+    void rasterize(const uint8_t *osd, int rows, int cols, uint8_t *rgba, uint32_t width, uint32_t height,
+                   uint32_t stride, int style);
 
     // Viewport of the OSD grid inside a width x height target.
     static void viewport(float width, float height, int style, float &x, float &y, float &w, float &h);

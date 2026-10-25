@@ -620,8 +620,12 @@ void Flight::step(float dt, const float channels[kChannelCount], bool radioLost)
     m_snap.osdDisabled = bfb_osd_disabled() != 0;
     m_snap.onGround = m_active && m_lastGroundContact >= 0 && m_simTime - m_lastGroundContact < 0.05;
     m_snap.crashed = m_active && (anyBurned || anyBroken);
-    if (std::memcmp(m_snap.osd.data(), out.osd, m_snap.osd.size()) != 0) {
+    static_assert(sizeof(out.osd) == std::tuple_size<decltype(m_snap.osd)>::value, "OSD canvas buffers match");
+    if (std::memcmp(m_snap.osd.data(), out.osd, m_snap.osd.size()) != 0 || m_snap.osdRows != out.osdRows ||
+        m_snap.osdCols != out.osdCols) {
         std::memcpy(m_snap.osd.data(), out.osd, m_snap.osd.size());
+        m_snap.osdRows = out.osdRows;
+        m_snap.osdCols = out.osdCols;
         m_snap.osdRevision++;
     }
     for (int i = 0; i < kChannelCount; i++) m_snap.channels[i] = m_input.rcData[i];

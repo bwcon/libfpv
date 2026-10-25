@@ -921,14 +921,13 @@ void Overlay::tabTuning() {
 void Overlay::tabOsd() {
     Lib &L = lib();
     m_bf.refresh(wallSeconds());
-    int style = L.settings.osdStyle;
-    if (ImGui::RadioButton("Analog look", style == FPV_OSD_STYLE_ANALOG)) style = FPV_OSD_STYLE_ANALOG;
+    // Betaflight's vcd_video_system: switching reboots it with the other canvas.
+    const int current = fpv_osd_get_style();
+    int style = current;
+    if (ImGui::RadioButton("Analog look (30x16)", style == FPV_OSD_STYLE_ANALOG)) style = FPV_OSD_STYLE_ANALOG;
     ImGui::SameLine();
-    if (ImGui::RadioButton("HD look", style == FPV_OSD_STYLE_HD)) style = FPV_OSD_STYLE_HD;
-    if (style != L.settings.osdStyle) {
-        L.settings.osdStyle = style;
-        saveSettings();
-    }
+    if (ImGui::RadioButton("HD look (53x20, DJI)", style == FPV_OSD_STYLE_HD)) style = FPV_OSD_STYLE_HD;
+    if (style != current) fpv_osd_set_style((fpv_osd_style)style);
     struct E {
         const char *label, *name;
     } static const elems[] = {
@@ -962,16 +961,19 @@ void Overlay::tabOsd() {
     ImGui::BeginGroup();
     ImGui::TextWrapped("Select an element, then click where it should go. Live preview:");
     // preview grid drawn with the OSD font texture
-    float cw = ImGui::GetFontSize() * 0.9f, chh = cw * 1.5f;
+    const fpv_frame &fr = L.lastFrame;
+    const int rows = fr.osd_rows ? (int)fr.osd_rows : FPV_OSD_ROWS, cols = fr.osd_cols ? (int)fr.osd_cols : FPV_OSD_COLS;
+    const uint8_t *chars = fr.osd_cols ? fr.osd_hd : fr.osd;
+    float cw = ImGui::GetFontSize() * 0.9f * FPV_OSD_COLS / cols, chh = cw * 1.5f;  // same width for both canvases
     ImVec2 p0 = ImGui::GetCursorScreenPos();
-    ImVec2 size(cw * FPV_OSD_COLS, chh * FPV_OSD_ROWS);
+    ImVec2 size(cw * cols, chh * rows);
     ImDrawList *dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(p0, ImVec2(p0.x + size.x, p0.y + size.y), IM_COL32(60, 70, 60, 255));
     const float aw = (float)OsdRenderer::kAtlasW, ah = (float)OsdRenderer::kAtlasH;
     int fontOff = style == FPV_OSD_STYLE_HD ? OsdRenderer::kGlyphW * 16 : 0;
-    for (int r = 0; r < FPV_OSD_ROWS; r++) {
-        for (int c = 0; c < FPV_OSD_COLS; c++) {
-            uint8_t g = L.lastFrame.osd[r * FPV_OSD_COLS + c];
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            uint8_t g = chars[r * cols + c];
             if (g == 0 || g == ' ') continue;
             ImVec2 a(p0.x + c * cw, p0.y + r * chh), b(a.x + cw, a.y + chh);
             ImVec2 uv0(((g % 16) * OsdRenderer::kGlyphW + fontOff) / aw, (g / 16) * OsdRenderer::kGlyphH / ah);
@@ -982,13 +984,14 @@ void Overlay::tabOsd() {
     ImGui::InvisibleButton("osdgrid", size);
     if (ImGui::IsItemClicked()) {
         ImVec2 m = ImGui::GetIO().MousePos;
-        int c = std::clamp((int)((m.x - p0.x) / cw), 0, FPV_OSD_COLS - 1);
-        int r = std::clamp((int)((m.y - p0.y) / chh), 0, FPV_OSD_ROWS - 1);
-        int pos = c | (r << 5) | 0x800;
+        int c = std::clamp((int)((m.x - p0.x) / cw), 0, cols - 1);
+        int r = std::clamp((int)((m.y - p0.y) / chh), 0, rows - 1);
+        // Betaflight's OSD_POS: 5 bits each, plus bit 10 for columns past 31 (HD)
+        int pos = (c & 31) | ((c << 5) & 0x400) | (r << 5) | 0x800;
         m_bf.set(elems[m_osdSelected].name, pos, true);
     }
     int pos = m_bf.num(elems[m_osdSelected].name, 0);
-    ImGui::Text("%s: column %d, row %d%s", elems[m_osdSelected].label, pos & 31, (pos >> 5) & 31,
+    ImGui::Text("%s: column %d, row %d%s", elems[m_osdSelected].label, (pos & 31) | ((pos & 0x400) >> 5), (pos >> 5) & 31,
                 (pos & 0x800) ? "" : " (hidden)");
     ImGui::EndGroup();
 }

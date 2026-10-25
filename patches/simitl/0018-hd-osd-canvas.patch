@@ -1,0 +1,215 @@
+diff --git a/extern/betaflightext/src/main/io/displayport_fake.c b/extern/betaflightext/src/main/io/displayport_fake.c
+index 06842d7..94b13f1 100644
+--- a/extern/betaflightext/src/main/io/displayport_fake.c
++++ b/extern/betaflightext/src/main/io/displayport_fake.c
+@@ -3,12 +3,15 @@
+ #include <stdbool.h>
+ #include <stdio.h>
+ 
++#include "platform.h"  // the target's USE_OSD_HD
+ #include "displayport_fake.h"
+ #include "drivers/display.h"
+ #include "common/utils.h"
+ #include "pg/vcd.h"
++#include "drivers/osd.h"  // VIDEO_SYSTEM_HD
+ 
+ uint8_t osdScreen[VIDEO_LINES][CHARS_PER_LINE];
++uint8_t osdRows = SD_VIDEO_LINES, osdCols = SD_CHARS_PER_LINE;
+ 
+ //combined buffer
+ static uint8_t osdBackBuffer[VIDEO_LINES][CHARS_PER_LINE];
+@@ -44,16 +47,16 @@ static int clearScreen(displayPort_t *displayPort, displayClearOption_e options)
+     UNUSED(options);
+     //printf("clearScreen\n");
+ 
+-    memset(osdBackBuffer, 0, 16 * 30);
+-    //memset(osdForeground, 0, 16 * 30);
+-    //memset(osdBackground, 0, 16 * 30);
++    memset(osdBackBuffer, 0, sizeof(osdBackBuffer));
++    //memset(osdForeground, 0, sizeof(osdForeground));
++    //memset(osdBackground, 0, sizeof(osdBackground));
+ 
+     switch(currentLayer){
+       case 0:
+-        memset(osdForeground, 0, 16 * 30);
++        memset(osdForeground, 0, sizeof(osdForeground));
+         break;
+       case 1:
+-        memset(osdBackground, 0, 16 * 30);
++        memset(osdBackground, 0, sizeof(osdBackground));
+         break;
+     }
+ 
+@@ -67,13 +70,13 @@ static bool drawScreen(displayPort_t *displayPort) {
+     // copies onto the foreground at the start of each normal OSD frame;
+     // compositing it here too would keep the static element text on top of
+     // the stats screen, the ARMED message and the CMS menus.
+-    memcpy(osdScreen, osdForeground, 16 * 30);
++    memcpy(osdScreen, osdForeground, sizeof(osdScreen));
+     return false;
+ }
+ 
+ static int screenSize(const displayPort_t *displayPort) {
+     UNUSED(displayPort);
+-    return 480;
++    return osdRows * osdCols;
+ }
+ 
+ static int writeSys (displayPort_t *displayPort, uint8_t x, uint8_t y, displayPortSystemElement_e systemElement){
+@@ -95,8 +98,8 @@ static int writeString(displayPort_t *displayPort, uint8_t x, uint8_t y, uint8_t
+     }
+ 
+     //printf("%d, %d: %s\n", x, y, s);
+-    if (y < VIDEO_LINES) {
+-        for (int i = 0; s[i] && x + i < CHARS_PER_LINE; i++) {
++    if (y < osdRows) {
++        for (int i = 0; s[i] && x + i < osdCols; i++) {
+             //osdBackBuffer[y][x + i] = s[i];
+             targetBuffer[(y * CHARS_PER_LINE) + (x + i)] = s[i];
+             //printf("%d, %d: %d\n", x, y, s[i]);
+@@ -119,7 +122,7 @@ static int writeChar(displayPort_t *displayPort, uint8_t x, uint8_t y, uint8_t a
+         break;
+     }
+ 
+-    if (x < CHARS_PER_LINE && y < VIDEO_LINES) {
++    if (x < osdCols && y < osdRows) {
+         //osdBackBuffer[y][x] = c;
+         targetBuffer[(y * CHARS_PER_LINE) +  x] = c;
+     }
+@@ -136,9 +139,18 @@ static bool isSynced(const displayPort_t *displayPort) {
+     return true;
+ }
+ 
++// The canvas follows vcd_video_system, read at Betaflight's init: HD gives
++// the 53 x 20 HD canvas (as on a DJI O3/O4 quad), anything else 30 x 16.
+ static void resync(displayPort_t *displayPort) {
+-    displayPort->rows = VIDEO_LINES;
+-    displayPort->cols = CHARS_PER_LINE;
++#ifdef USE_OSD_HD
++    const bool hd = vcdProfile()->video_system == VIDEO_SYSTEM_HD;
++#else
++    const bool hd = false;
++#endif
++    osdRows = hd ? VIDEO_LINES : SD_VIDEO_LINES;
++    osdCols = hd ? CHARS_PER_LINE : SD_CHARS_PER_LINE;
++    displayPort->rows = osdRows;
++    displayPort->cols = osdCols;
+ }
+ 
+ static int heartbeat(displayPort_t *displayPort) {
+@@ -180,12 +192,12 @@ static bool layerCopy(displayPort_t *displayPort, displayPortLayer_e destLayer,
+  
+   if((sourceLayer == DISPLAYPORT_LAYER_FOREGROUND) && (destLayer == DISPLAYPORT_LAYER_BACKGROUND)){
+     //     background  <---  foreground
+-    memcpy(osdBackground, osdForeground, 16 * 30);
++    memcpy(osdBackground, osdForeground, sizeof(osdBackground));
+     return true;
+   }
+   else if((sourceLayer == DISPLAYPORT_LAYER_BACKGROUND) && (destLayer == DISPLAYPORT_LAYER_FOREGROUND)){
+     //     foreground  <---  background
+-    memcpy(osdForeground, osdBackground, 16 * 30);
++    memcpy(osdForeground, osdBackground, sizeof(osdForeground));
+     return true;
+   }
+ 
+@@ -210,10 +222,10 @@ static void setBackgroundType(displayPort_t *displayPort, displayPortBackground_
+ /*
+   switch(currentLayer){
+     case 1:
+-      memset(osdForeground, 0, 16 * 30);
++      memset(osdForeground, 0, sizeof(osdForeground));
+       break;
+     case 0:
+-      memset(osdBackground, 0, 16 * 30);
++      memset(osdBackground, 0, sizeof(osdBackground));
+       break;
+   }
+ */
+diff --git a/extern/betaflightext/src/main/io/displayport_fake.h b/extern/betaflightext/src/main/io/displayport_fake.h
+index 3c34f5c..79349ec 100644
+--- a/extern/betaflightext/src/main/io/displayport_fake.h
++++ b/extern/betaflightext/src/main/io/displayport_fake.h
+@@ -2,6 +2,12 @@
+ 
+ #include <stdint.h>
+ 
+-#define CHARS_PER_LINE 30
+-#define VIDEO_LINES 16
++// The buffers hold the largest canvas, Betaflight's HD OSD (53 x 20). The
++// canvas in use is osdCols x osdRows: 30 x 16 (analog), or 53 x 20 when
++// vcd_video_system is HD. Rows keep the CHARS_PER_LINE stride.
++#define CHARS_PER_LINE 53
++#define VIDEO_LINES 20
++#define SD_CHARS_PER_LINE 30
++#define SD_VIDEO_LINES 16
+ extern uint8_t osdScreen[VIDEO_LINES][CHARS_PER_LINE];
++extern uint8_t osdRows, osdCols;
+diff --git a/extern/betaflightext/src/main/target/simITL/target.h b/extern/betaflightext/src/main/target/simITL/target.h
+index 6f147fa..e9c8c95 100644
+--- a/extern/betaflightext/src/main/target/simITL/target.h
++++ b/extern/betaflightext/src/main/target/simITL/target.h
+@@ -144,6 +144,7 @@ extern char* EEPROM_FILENAME;
+ // #undef USE_OSD
+ #define USE_OSD
+ #define USE_OSD_SD
++#define USE_OSD_HD  // vcd_video_system = HD: the 53 x 20 canvas of DJI O3/O4 goggles
+ #define USE_CMS
+ #define USE_MSP_DISPLAYPORT
+ #define USE_OSD_OVER_MSP_DISPLAYPORT
+diff --git a/src/network/packets.h b/src/network/packets.h
+index 7110f70..8d83b3a 100644
+--- a/src/network/packets.h
++++ b/src/network/packets.h
+@@ -190,7 +190,11 @@ struct StateOutput{
+   // beeper on (1) / off (0)
+   uint8_t beep = 0U;
+ 
+-  uint8_t osd[16*30] {};
++  // The OSD canvas, row major with osdCols per row: 30 x 16, or 53 x 20 when
++  // Betaflight's vcd_video_system is HD. (A larger packet than before for
++  // SimITL's network clients.)
++  uint8_t osd[20*53] {};
++  uint8_t osdRows = 16, osdCols = 30;
+ };
+ 
+ #endif
+\ No newline at end of file
+diff --git a/src/sim/bf.cpp b/src/sim/bf.cpp
+index f31b9fb..004f2e0 100644
+--- a/src/sim/bf.cpp
++++ b/src/sim/bf.cpp
+@@ -2,6 +2,7 @@
+ #include "bf.h"
+ #include "sitl.h" // access to bf internals
+ #include <array>
++#include <cstring>
+ 
+ namespace SimITL{
+   #define USE_QUAT_ORIENTATION
+@@ -124,11 +125,16 @@ namespace SimITL{
+ 
+     void updateOsd(SimState& simState){
+       bool osdChanged = false;
+-      for (int y = 0; y < VIDEO_LINES; y++) {
+-        for (int x = 0; x < CHARS_PER_LINE; x++) {
+-          simState.stateOutput.osd[y * CHARS_PER_LINE + x] = BF::osdScreen[y][x];
++      // packed at the canvas width: osdCols characters per row
++      const int rows = BF::osdRows, cols = BF::osdCols;
++      std::memset(simState.stateOutput.osd, 0, sizeof(simState.stateOutput.osd));
++      for (int y = 0; y < rows; y++) {
++        for (int x = 0; x < cols; x++) {
++          simState.stateOutput.osd[y * cols + x] = BF::osdScreen[y][x];
+         }
+       }
++      simState.stateOutput.osdRows = (uint8_t)rows;
++      simState.stateOutput.osdCols = (uint8_t)cols;
+     }
+ 
+     bool update(uint64_t dt, SimState& simState){
+@@ -193,4 +199,4 @@ namespace SimITL{
+       BF::rcFrameFailsafe = failsafe;
+     }
+   } // namespace bf
+-} // namespace SimITL
+\ No newline at end of file
++} // namespace SimITL

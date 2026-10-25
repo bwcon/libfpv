@@ -32,6 +32,8 @@
 #include "osd/osd_elements.h"
 #include "drivers/barometer/barometer_virtual.h"
 #include "pg/pg.h"
+#include "pg/vcd.h"
+#include "drivers/osd.h"
 #include "sensors/battery.h"
 #include "scheduler/scheduler.h"
 #include "config/feature.h"
@@ -304,6 +306,15 @@ void bfb_osd_set_host_message(int index, const char *text)
     osdHostCustomMsgSet[index] = text != NULL;
     strncpy(osdHostCustomMsg[index], text ? text : "", MAX_NAME_LENGTH);
     osdHostCustomMsg[index][MAX_NAME_LENGTH] = '\0';
+}
+
+int bfb_osd_hd(void)
+{
+#if defined(USE_OSD_HD)
+    return vcdProfile()->video_system == VIDEO_SYSTEM_HD ? 1 : 0;
+#else
+    return 0;
+#endif
 }
 
 int bfb_osd_disabled(void)

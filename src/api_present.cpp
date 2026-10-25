@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 
 #include "audio/synth.h"
@@ -81,6 +82,16 @@ FPV_API fpv_result fpv_texture_get(uint64_t id, fpv_texture *out) {
     return setError(FPV_ERROR_NOT_FOUND, "unknown texture id %llu", (unsigned long long)id);
 }
 
+// The frame's whole OSD canvas, or its 30 x 16 `osd` from a host built
+// before osd_rows / osd_cols / osd_hd were added.
+static void osdGrid(const fpv_frame *frame, const uint8_t *&osd, int &rows, int &cols) {
+    const bool hd = frame->struct_size >= offsetof(fpv_frame, osd_hd) + sizeof(frame->osd_hd) && frame->osd_rows &&
+                    frame->osd_cols && frame->osd_rows <= FPV_OSD_MAX_ROWS && frame->osd_cols <= FPV_OSD_MAX_COLS;
+    osd = hd ? frame->osd_hd : frame->osd;
+    rows = hd ? (int)frame->osd_rows : FPV_OSD_ROWS;
+    cols = hd ? (int)frame->osd_cols : FPV_OSD_COLS;
+}
+
 FPV_API const fpv_draw_data *fpv_osd_draw_data(const fpv_frame *frame, float width, float height,
                                               fpv_osd_style style) {
     Lib &L = lib();
@@ -89,7 +100,10 @@ FPV_API const fpv_draw_data *fpv_osd_draw_data(const fpv_frame *frame, float wid
         setError(FPV_ERROR_INVALID_ARGUMENT, "frame and a positive size are required");
         return nullptr;
     }
-    return osdRenderer().drawData(frame->osd, width, height, style);
+    const uint8_t *osd;
+    int rows, cols;
+    osdGrid(frame, osd, rows, cols);
+    return osdRenderer().drawData(osd, rows, cols, width, height, style);
 }
 
 FPV_API fpv_result fpv_osd_render_rgba(const fpv_frame *frame, uint8_t *rgba, uint32_t width, uint32_t height,
@@ -99,23 +113,11 @@ FPV_API fpv_result fpv_osd_render_rgba(const fpv_frame *frame, uint8_t *rgba, ui
     if (!frame || !rgba || !width || !height) return setError(FPV_ERROR_INVALID_ARGUMENT, "frame, buffer and size required");
     if (stride == 0) stride = width * 4;
     if (stride < width * 4) return setError(FPV_ERROR_INVALID_ARGUMENT, "stride smaller than width * 4");
-    osdRenderer().rasterize(frame->osd, rgba, width, height, stride, style);
+    const uint8_t *osd;
+    int rows, cols;
+    osdGrid(frame, osd, rows, cols);
+    osdRenderer().rasterize(osd, rows, cols, rgba, width, height, stride, style);
     return FPV_OK;
-}
-
-FPV_API fpv_osd_style fpv_osd_get_style(void) {
-    Lib &L = lib();
-    std::lock_guard<std::recursive_mutex> lock(L.mutex);
-    return L.settings.osdStyle == FPV_OSD_STYLE_HD ? FPV_OSD_STYLE_HD : FPV_OSD_STYLE_ANALOG;
-}
-
-FPV_API void fpv_osd_set_style(fpv_osd_style style) {
-    Lib &L = lib();
-    std::lock_guard<std::recursive_mutex> lock(L.mutex);
-    int s = style == FPV_OSD_STYLE_HD ? FPV_OSD_STYLE_HD : FPV_OSD_STYLE_ANALOG;
-    if (s == L.settings.osdStyle) return;
-    L.settings.osdStyle = s;
-    saveSettings();
 }
 
 FPV_API fpv_result fpv_audio_configure(uint32_t sampleRate, uint32_t channels) {
