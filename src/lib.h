@@ -31,6 +31,7 @@ struct Settings {
     int overlayToggleKey = FPV_KEY_F8;
     float audioVolume = 0.1f;
     int osdStyle = FPV_OSD_STYLE_ANALOG;
+    std::string osdFont;  // folder in <data_dir>/fonts, "" = built-in
     // camera overrides (< 0 = use the preset's value)
     float cameraUptilt = -1, cameraFov = -1;
     float cameraFisheye = 0.5f;  // lens strength 0..1, 0 = off (the preset's own k1/k2)

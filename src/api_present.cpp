@@ -10,6 +10,7 @@
 #include "lib.h"
 #include "osd/osd.h"
 #include "overlay/overlay.h"
+#include "util/fs.h"
 
 using namespace fpv;
 
@@ -68,11 +69,14 @@ FPV_API fpv_result fpv_texture_get(uint64_t id, fpv_texture *out) {
     std::lock_guard<std::recursive_mutex> lock(L.mutex);
     if (!out) return setError(FPV_ERROR_INVALID_ARGUMENT, "out is NULL");
     if (id == FPV_TEXTURE_OSD_FONT) {
+        // the sheet for the canvas in use: a goggle font's SD or HD sheet, or the built-in atlas
         OsdRenderer &r = osdRenderer();
-        out->width = OsdRenderer::kAtlasW;
-        out->height = OsdRenderer::kAtlasH;
-        out->rgba = r.atlas().data();
-        out->revision = 1;
+        const int style = fpv_osd_get_style();
+        int w, h;
+        r.texture(style, out->rgba, w, h);
+        out->width = (uint32_t)w;
+        out->height = (uint32_t)h;
+        out->revision = r.revision(style);
         return FPV_OK;
     }
     if (id == FPV_TEXTURE_OVERLAY_FONT) {
@@ -80,6 +84,30 @@ FPV_API fpv_result fpv_texture_get(uint64_t id, fpv_texture *out) {
         return o.fontTexture(*out) ? FPV_OK : setError(FPV_ERROR_INTERNAL, "overlay font unavailable");
     }
     return setError(FPV_ERROR_NOT_FOUND, "unknown texture id %llu", (unsigned long long)id);
+}
+
+FPV_API fpv_result fpv_osd_set_font(const char *name) {
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    std::string n = name ? name : "";
+    if (n.empty()) {
+        osdRenderer().clearPackage();
+    } else {
+        if (n.find_first_of("/\\") != std::string::npos || n == "." || n == "..")
+            return setError(FPV_ERROR_INVALID_ARGUMENT, "font name is a folder name in <data_dir>/fonts");
+        std::string err;
+        if (!osdRenderer().loadPackage(pathToUtf8(pathFromUtf8(L.dataDir) / "fonts" / pathFromUtf8(n)), err))
+            return setError(FPV_ERROR_NOT_FOUND, "%s", err.c_str());
+    }
+    L.settings.osdFont = n;
+    saveSettings();
+    return FPV_OK;
+}
+
+FPV_API const char *fpv_osd_get_font(void) {
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    return L.settings.osdFont.c_str();
 }
 
 // The frame's whole OSD canvas, or its 30 x 16 `osd` from a host built

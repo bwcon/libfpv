@@ -12,6 +12,7 @@
 #include "config/bf_config.h"
 #include "core/bf_bridge.h"
 #include "lib.h"
+#include "osd/osd.h"
 #include "nlohmann/json.hpp"
 #include "sim/sim.h"
 #include "util/embedded.h"
@@ -24,6 +25,8 @@ namespace fs = std::filesystem;
 using json = nlohmann::json;
 
 namespace fpv {
+
+OsdRenderer &osdRenderer();  // api_present.cpp
 
 Lib &lib() {
     // Never destroyed: internal threads may outlive static destruction.
@@ -59,6 +62,7 @@ void loadSettings() {
         s.overlayToggleKey = j.value("overlayToggleKey", s.overlayToggleKey);
         s.audioVolume = j.value("audioVolume", s.audioVolume);
         s.osdStyle = j.value("osdStyle", s.osdStyle);
+        s.osdFont = j.value("osdFont", s.osdFont);
         s.cameraUptilt = j.value("cameraUptilt", s.cameraUptilt);
         s.cameraFov = j.value("cameraFov", s.cameraFov);
         s.cameraFisheye = std::clamp(j.value("cameraFisheye", s.cameraFisheye), 0.0f, 1.0f);
@@ -104,6 +108,7 @@ void saveSettings() {
               {"overlayToggleKey", s.overlayToggleKey},
               {"audioVolume", s.audioVolume},
               {"osdStyle", s.osdStyle},
+              {"osdFont", s.osdFont},
               {"cameraUptilt", s.cameraUptilt},
               {"cameraFov", s.cameraFov},
               {"cameraFisheye", s.cameraFisheye},
@@ -631,6 +636,11 @@ FPV_API fpv_result fpv_global_init(const fpv_global_config *cfgIn) {
     for (auto &e : errors) FPV_LOGW("preset ignored: %s", e.c_str());
     if (L.presets.empty()) L.presets.push_back(builtinDefaultPreset());
     loadSettings();
+    if (!L.settings.osdFont.empty()) {
+        std::string err;
+        if (!osdRenderer().loadPackage(pathToUtf8(pathFromUtf8(L.dataDir) / "fonts" / pathFromUtf8(L.settings.osdFont)), err))
+            FPV_LOGW("OSD font: %s (using the built-in font)", err.c_str());
+    }
     L.input.setKeyboardHover(L.settings.keyboardHover);
     L.input.setKeyboardThrottleExpo(L.settings.keyboardThrottleExpo);
     L.input.setKeyboardYawExpo(L.settings.keyboardYawExpo);

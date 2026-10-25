@@ -85,6 +85,7 @@ private:
     bool m_showRawAxes = false;
 
     std::string m_importText, m_importReport;
+    std::string m_fontError;  // the last font that failed to load
     std::string m_cliInput, m_cliOutput;
     int m_osdSelected = 0;
     int m_rateAxis = 0;

@@ -262,6 +262,28 @@ void testOsdStyle() {
     }
 }
 
+// A goggle font package (here WTFOS .bin sheets) replaces the built-in OSD
+// font; the analog canvas uses its SD sheet.
+void testOsdFont() {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::path(g_dataDir) / "fonts" / "test";
+    fs::create_directories(dir);
+    std::ofstream(dir / "font_bf.bin", std::ios::binary) << std::string(36 * 54 * 4 * 256, '\xff');
+    std::ofstream(dir / "font_bf_hd.bin", std::ios::binary) << std::string(24 * 36 * 4 * 256, '\xff');
+    fpv_texture t{};
+    CHECK(fpv_osd_set_font("test") == FPV_OK, "set font: %s", fpv_last_error());
+    CHECK(std::strcmp(fpv_osd_get_font(), "test") == 0, "font name %s", fpv_osd_get_font());
+    CHECK(fpv_texture_get(FPV_TEXTURE_OSD_FONT, &t) == FPV_OK && t.width == 36 && t.height == 54 * 256,
+          "SD sheet %ux%u", t.width, t.height);
+    const uint32_t rev = t.revision;
+    CHECK(fpv_osd_set_font("missing") == FPV_ERROR_NOT_FOUND, "missing font must fail");
+    CHECK(fpv_osd_set_font("../test") == FPV_ERROR_INVALID_ARGUMENT, "a path must fail");
+    CHECK(fpv_osd_set_font(nullptr) == FPV_OK && fpv_osd_get_font()[0] == 0, "back to built-in");
+    CHECK(fpv_texture_get(FPV_TEXTURE_OSD_FONT, &t) == FPV_OK && t.width == 384 && t.height == 288 && t.revision != rev,
+          "built-in atlas %ux%u rev %u", t.width, t.height, t.revision);
+    fs::remove_all(dir);
+}
+
 void testArmDisarm() {
     Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
     loadWorld(makeLevel(h, 100, 0));
@@ -2075,6 +2097,7 @@ int main(int argc, char **argv) {
         {"gps", testGps},
         {"osd_audio_overlay", testOsdAudioOverlay},
         {"osd_style", testOsdStyle},
+        {"osd_font", testOsdFont},
         {"pinned", testPinned},
         {"terminate_reinit", testTerminateReinit},
         {"threaded", testThreadedMode},
