@@ -546,6 +546,21 @@ FPV_API fpv_coord_system fpv_coords_preset(fpv_coords_preset_id preset, float up
     return c;
 }
 
+FPV_API fpv_result fpv_shared_data_dir(char *out, uint32_t outSize) {
+    std::string dir = envUtf8("LIBFPV_DATA_DIR");
+#if defined(__EMSCRIPTEN__)
+    if (dir.empty()) return setError(FPV_ERROR_NOT_FOUND, "no shared data folder in a browser: use FPV_WEB_DATA_DIR");
+#else
+    if (dir.empty() && !userConfigDir().empty()) dir = pathToUtf8(pathFromUtf8(userConfigDir()) / "libfpv");
+#endif
+    if (dir.empty()) return setError(FPV_ERROR_NOT_FOUND, "no home folder for the shared data folder");
+    if (!out || outSize < dir.size() + 1)
+        return setError(FPV_ERROR_INVALID_ARGUMENT, "out_size %u is too small, %u bytes needed", outSize,
+                        uint32_t(dir.size() + 1));
+    memcpy(out, dir.c_str(), dir.size() + 1);
+    return FPV_OK;
+}
+
 FPV_API void fpv_global_config_defaults(fpv_global_config *c) {
     if (!c) return;
     memset(c, 0, sizeof(*c));

@@ -619,7 +619,9 @@ int main(int argc, char **argv) {
 #if defined(__EMSCRIPTEN__)
     std::string dataDir = FPV_WEB_DATA_DIR, screenshot;  // kept by the browser
 #else
-    std::string dataDir = "data", screenshot;
+    // the folder every libfpv game shares (--data picks another)
+    char shared[1024];
+    std::string dataDir = fpv_shared_data_dir(shared, sizeof shared) == FPV_OK ? shared : "data", screenshot;
 #endif
     int frames = 0, width = 1280, height = 720, camMode = 0;
     bool autopilot = false, openOverlay = false;
