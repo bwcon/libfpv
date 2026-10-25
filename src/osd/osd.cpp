@@ -82,20 +82,21 @@ void OsdRenderer::viewport(float width, float height, int style, float &x, float
 
 static bool blank(uint8_t c) { return c == 0 || c == ' '; }
 
-const fpv_draw_data *OsdRenderer::drawData(const uint8_t *osd, float width, float height, int style) {
+const fpv_draw_data *OsdRenderer::drawData(const uint8_t *osd, int rows, int cols, float width, float height,
+                                           int style) {
     m_buffer.clear();
     float vx, vy, vw, vh;
     viewport(width, height, style, vx, vy, vw, vh);
-    // Analog keeps the PAL character cell; HD uses a margin and bigger cells
-    // the way HD goggles render the same 30x16 Betaflight canvas.
-    float marginX = style == FPV_OSD_STYLE_HD ? vw * 0.06f : vw * 0.03f;
-    float marginY = vh * 0.04f;
-    float cw = (vw - 2 * marginX) / FPV_OSD_COLS, ch = (vh - 2 * marginY) / FPV_OSD_ROWS;
+    // Analog keeps the PAL character cell inside a small margin; the HD
+    // canvas (53 x 20) spans the 16:9 picture the way DJI goggles draw it.
+    float marginX = cols > FPV_OSD_COLS ? vw * 0.015f : style == FPV_OSD_STYLE_HD ? vw * 0.06f : vw * 0.03f;
+    float marginY = cols > FPV_OSD_COLS ? vh * 0.02f : vh * 0.04f;
+    float cw = (vw - 2 * marginX) / cols, ch = (vh - 2 * marginY) / rows;
     DrawListStorage &l = m_buffer.newList();
     int font = style == FPV_OSD_STYLE_HD ? 1 : 0;
-    for (int r = 0; r < FPV_OSD_ROWS; r++) {
-        for (int c = 0; c < FPV_OSD_COLS; c++) {
-            uint8_t g = osd[r * FPV_OSD_COLS + c];
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            uint8_t g = osd[r * cols + c];
             if (blank(g)) continue;
             float x0 = vx + marginX + c * cw, y0 = vy + marginY + r * ch;
             float u0 = (float)((g % 16) * kGlyphW + font * kGlyphW * 16) / kAtlasW;
@@ -124,10 +125,10 @@ const fpv_draw_data *OsdRenderer::drawData(const uint8_t *osd, float width, floa
     return m_buffer.finish(width, height);
 }
 
-void OsdRenderer::rasterize(const uint8_t *osd, uint8_t *rgba, uint32_t width, uint32_t height, uint32_t stride,
-                            int style) {
+void OsdRenderer::rasterize(const uint8_t *osd, int rows, int cols, uint8_t *rgba, uint32_t width, uint32_t height,
+                            uint32_t stride, int style) {
     for (uint32_t y = 0; y < height; y++) std::memset(rgba + (size_t)y * stride, 0, (size_t)width * 4);
-    const fpv_draw_data *dd = drawData(osd, (float)width, (float)height, style);
+    const fpv_draw_data *dd = drawData(osd, rows, cols, (float)width, (float)height, style);
     if (!dd->list_count) return;
     const fpv_draw_list &l = dd->lists[0];
     // every glyph is an axis-aligned quad: 4 vertices

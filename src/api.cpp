@@ -1001,6 +1001,42 @@ FPV_API fpv_result fpv_cli_exec(const char *commands, char **outOutput) {
     return FPV_OK;
 }
 
+// The OSD look follows Betaflight's own vcd_video_system, as on a real quad:
+// HD is the 53 x 20 canvas of DJI O3/O4 goggles, anything else the analog
+// 30 x 16 one. The Configurator, the overlay and a host hotkey all change
+// the same setting.
+FPV_API fpv_osd_style fpv_osd_get_style(void) {
+    return lib().initialized && bfb_osd_hd() ? FPV_OSD_STYLE_HD : FPV_OSD_STYLE_ANALOG;
+}
+
+FPV_API void fpv_osd_set_style(fpv_osd_style style) {
+    Lib &L = lib();
+    if (!L.initialized) return;
+    const bool hd = style == FPV_OSD_STYLE_HD;
+    if ((bfb_osd_hd() != 0) == hd) return;
+    if (L.droneExists && L.flight.snapshot().armed) {
+        FPV_LOGW("disarm before switching the OSD between analog and HD");
+        return;
+    }
+    std::string out;
+    if (runCli(hd ? "set vcd_video_system = HD\nsave noreboot\n" : "set vcd_video_system = AUTO\nsave noreboot\n", out) ==
+        BFB_CLI_BUSY) {
+        FPV_LOGW("the Betaflight Configurator is using the CLI: OSD style unchanged");
+        return;
+    }
+    // Betaflight sets the OSD canvas up at boot.
+    L.runner.call([] {
+        bfb_reboot();
+        warmUpBetaflight();
+    });
+    {
+        std::lock_guard<std::recursive_mutex> lock(L.mutex);
+        L.settings.osdStyle = hd ? FPV_OSD_STYLE_HD : FPV_OSD_STYLE_ANALOG;  // the overlay's radio buttons
+        saveSettings();
+    }
+    FPV_LOGI("OSD canvas: %s", hd ? "HD 53x20" : "analog 30x16");
+}
+
 FPV_API fpv_result fpv_import_betaflight_diff(const char *diff, char **outReport) {
     REQUIRE_INIT();
     if (outReport) *outReport = nullptr;

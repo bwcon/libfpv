@@ -434,6 +434,9 @@ typedef struct fpv_impact {
 #define FPV_MAX_IMPACTS 16
 #define FPV_OSD_ROWS 16
 #define FPV_OSD_COLS 30
+/* The HD canvas (Betaflight's vcd_video_system = HD, DJI O3/O4 goggles). */
+#define FPV_OSD_MAX_ROWS 20
+#define FPV_OSD_MAX_COLS 53
 #if defined(LIBFPV_KAMIKAZE)
 /* AETR + AUX1..AUX8 (AUX7 bomb arm, AUX8 explode) */
 #define FPV_CHANNEL_COUNT 12
@@ -488,6 +491,14 @@ typedef struct fpv_frame {
      * AUX6 OSD disable; kamikaze builds add AUX7 bomb arm and AUX8
      * explode. */
     float channels[FPV_CHANNEL_COUNT];
+
+    /* The OSD canvas in use: 30 x 16 (analog) or 53 x 20 (HD), and its
+     * characters row major with osd_cols per row. `osd` above holds the
+     * top-left 30 x 16 of it for hosts built before these fields; pass the
+     * whole frame to fpv_osd_draw_data either way. */
+    uint32_t osd_rows;
+    uint32_t osd_cols;
+    uint8_t osd_hd[FPV_OSD_MAX_ROWS * FPV_OSD_MAX_COLS];
 } fpv_frame;
 
 /* Advances presentation by frame_dt seconds of host time and fills `frame`.
@@ -871,10 +882,13 @@ FPV_API const fpv_draw_data *fpv_osd_draw_data(const fpv_frame *frame, float wid
 FPV_API fpv_result fpv_osd_render_rgba(const fpv_frame *frame, uint8_t *rgba, uint32_t width,
                                        uint32_t height, uint32_t stride_bytes, fpv_osd_style style);
 
-/* The player's OSD look, as picked in the overlay's OSD tab and saved in
- * settings.json (FPV_OSD_STYLE_ANALOG until changed). Hosts pass it to
- * fpv_osd_draw_data. The setter is for a host's own hotkey or menu; it
- * saves the choice and the overlay shows it. Any thread. */
+/* The OSD look, which follows Betaflight's vcd_video_system as on a real
+ * quad: HD is the 53 x 20 canvas of DJI O3/O4 goggles (fpv_frame.osd_hd),
+ * anything else the analog 30 x 16 one. The overlay's OSD tab, the
+ * Configurator and the setter all change that setting. Hosts pass the
+ * getter's result to fpv_osd_draw_data. The setter saves and reboots
+ * Betaflight in-process (the canvas is set up at boot); it does nothing
+ * while the drone is armed or the Configurator holds the CLI. Any thread. */
 FPV_API fpv_osd_style fpv_osd_get_style(void);
 FPV_API void fpv_osd_set_style(fpv_osd_style style);
 

@@ -213,13 +213,53 @@ void testSharedDataDir() {
     setEnv("LIBFPV_DATA_DIR", "");
 }
 
+// HD (Betaflight's vcd_video_system = HD) is the 53 x 20 canvas of DJI
+// goggles: elements can sit past the analog grid's 30 columns.
 void testOsdStyle() {
-    fpv_osd_style before = fpv_osd_get_style();
-    fpv_osd_set_style(FPV_OSD_STYLE_HD);
-    CHECK(fpv_osd_get_style() == FPV_OSD_STYLE_HD, "set HD");
     fpv_osd_set_style(FPV_OSD_STYLE_ANALOG);
-    CHECK(fpv_osd_get_style() == FPV_OSD_STYLE_ANALOG, "set analog");
-    fpv_osd_set_style(before);
+    CHECK(fpv_osd_get_style() == FPV_OSD_STYLE_ANALOG, "analog style");
+    fpv_osd_set_style(FPV_OSD_STYLE_HD);
+    CHECK(fpv_osd_get_style() == FPV_OSD_STYLE_HD, "HD style");
+    // battery voltage at column 45, row 2: OSD_POS with the HD column bit, visible
+    const int col = 45, row = 2, pos = (col & 31) | ((col << 5) & 0x400) | (row << 5) | 0x800;
+    char cmd[96];
+    std::snprintf(cmd, sizeof cmd, "set osd_vbat_pos = %d\nsave\n", pos);
+    char *o = nullptr;
+    CHECK(fpv_cli_exec(cmd, &o) == FPV_OK, "set osd_vbat_pos: %s", o ? o : fpv_last_error());
+    fpv_free(o);
+    {
+        Session s;
+        float p[3] = {0, 0, 0};
+        s.spawn(p);
+        s.run(6.0f);  // past the 4 s boot logo pause after the reboot (osd.c resumeRefreshAt)
+        CHECK(s.f.osd_cols == 53 && s.f.osd_rows == 20, "HD canvas (%ux%u)", s.f.osd_cols, s.f.osd_rows);
+        int past = 0;
+        for (uint32_t r = 0; r < s.f.osd_rows; r++)
+            for (uint32_t c = FPV_OSD_COLS; c < s.f.osd_cols; c++) {
+                uint8_t g = s.f.osd_hd[r * s.f.osd_cols + c];
+                past += g != 0 && g != ' ';
+            }
+        int all = 0;
+        for (uint32_t i = 0; i < s.f.osd_rows * s.f.osd_cols; i++) all += s.f.osd_hd[i] != 0 && s.f.osd_hd[i] != ' ';
+        CHECK(past > 0, "characters past column 30 (%d of %d)", past, all);
+        const fpv_draw_data *dd = fpv_osd_draw_data(&s.f, 1920, 1080, FPV_OSD_STYLE_HD);
+        CHECK(dd && dd->list_count == 1 && dd->total_index_count > 0, "HD OSD quads");
+        s.destroy();
+    }
+    // back to analog for the tests after this one (the canvas is set at boot)
+    fpv_osd_set_style(FPV_OSD_STYLE_ANALOG);
+    CHECK(fpv_osd_get_style() == FPV_OSD_STYLE_ANALOG, "analog again");
+    {
+        Session s;
+        float p[3] = {0, 0, 0};
+        s.spawn(p);
+        s.run(3.0f);
+        int all = 0;
+        for (uint8_t c : s.f.osd) all += c != 0 && c != ' ';
+        CHECK(s.f.osd_cols == FPV_OSD_COLS && s.f.osd_rows == FPV_OSD_ROWS && all > 10,
+              "analog canvas (%ux%u, %d characters)", s.f.osd_cols, s.f.osd_rows, all);
+        s.destroy();
+    }
 }
 
 void testArmDisarm() {

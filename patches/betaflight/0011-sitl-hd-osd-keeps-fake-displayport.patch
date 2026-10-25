@@ -1,0 +1,58 @@
+diff --git a/src/main/fc/init.c b/src/main/fc/init.c
+index 4396ab1a0..e88ba6d47 100644
+--- a/src/main/fc/init.c
++++ b/src/main/fc/init.c
+@@ -944,11 +944,17 @@ void initPhase3(void)
+     if (featureIsEnabled(FEATURE_OSD)) {
+         osdDisplayPortDevice_e device;
+ 
++#if defined(SIMULATOR_BUILD)
++        // The simulator's in-memory display (SimITL displayport_fake) also
++        // serves the HD canvas: MSP would send the OSD out over a serial port.
++        device = OSD_DISPLAYPORT_DEVICE_AUTO;
++#else
+         if (vcdProfile()->video_system == VIDEO_SYSTEM_HD) {
+             device = OSD_DISPLAYPORT_DEVICE_MSP;
+         } else {
+             device = osdConfig()->displayPortDevice;
+         }
++#endif
+ 
+         switch(device) {
+ 
+diff --git a/src/main/osd/osd.c b/src/main/osd/osd.c
+index 46c54a593..d13de5cdc 100644
+--- a/src/main/osd/osd.c
++++ b/src/main/osd/osd.c
+@@ -416,7 +416,7 @@ void pgResetFn_osdConfig(osdConfig_t *osdConfig)
+     osdConfig->aux_symbol = 'A';
+ 
+     // Make it obvious on the configurator that the FC doesn't support HD
+-#ifdef USE_OSD_HD
++#if defined(USE_OSD_HD) && !defined(SIMULATOR_BUILD)
+     osdConfig->displayPortDevice = OSD_DISPLAYPORT_DEVICE_MSP;
+     osdConfig->canvas_cols = OSD_HD_COLS;
+     osdConfig->canvas_rows = OSD_HD_ROWS;
+@@ -438,7 +438,7 @@ void pgResetFn_osdConfig(osdConfig_t *osdConfig)
+ void pgResetFn_osdElementConfig(osdElementConfig_t *osdElementConfig)
+ {
+ // If user includes OSD_HD in the build assume they want to use it as default
+-#ifdef USE_OSD_HD
++#if defined(USE_OSD_HD) && !defined(SIMULATOR_BUILD)
+     uint8_t midRow = 10;
+     uint8_t midCol = 26;
+ #else
+diff --git a/src/main/pg/vcd.c b/src/main/pg/vcd.c
+index c0a8b6af9..d7ee118dc 100644
+--- a/src/main/pg/vcd.c
++++ b/src/main/pg/vcd.c
+@@ -33,7 +33,8 @@ PG_REGISTER_WITH_RESET_FN(vcdProfile_t, vcdProfile, PG_VCD_CONFIG, 0);
+ void pgResetFn_vcdProfile(vcdProfile_t *vcdProfile)
+ {
+     // Make it obvious on the configurator that the FC doesn't support HD
+-#ifdef USE_OSD_HD
++    // (the simulator offers HD but starts analog, like most quads)
++#if defined(USE_OSD_HD) && !defined(SIMULATOR_BUILD)
+     vcdProfile->video_system = VIDEO_SYSTEM_HD;
+ #else
+     vcdProfile->video_system = VIDEO_SYSTEM_AUTO;
