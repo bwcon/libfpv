@@ -184,10 +184,12 @@ target_include_directories(simitl_core
 target_compile_options(simitl_core PRIVATE
   "$<$<COMPILE_LANGUAGE:C>:-include;${PROJECT_SOURCE_DIR}/src/core/bf_log_redirect.h>"
   $<$<COMPILE_LANGUAGE:C>:-w>)
-if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+if(CMAKE_C_COMPILER_ID MATCHES "Clang" OR
+   (CMAKE_C_COMPILER_ID STREQUAL "GNU" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 14))
   # Betaflight/SimITL C code relies on implicit declarations (target.c calls
-  # init()), which Clang 16+ rejects, and on mismatched pointer types
-  # (cms_menu_blackbox.c), which newer Clang rejects; GCC only warns.
+  # init()), which Clang 16+ and GCC 14+ reject, and on mismatched pointer
+  # types (cms_menu_blackbox.c and the other CMS menus), which newer Clang and
+  # GCC 14+ reject; older GCC only warns.
   target_compile_options(simitl_core PRIVATE
     $<$<COMPILE_LANGUAGE:C>:-Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types>)
 endif()

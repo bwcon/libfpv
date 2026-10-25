@@ -18,6 +18,10 @@ int libfpv_bf_fprintf(FILE *stream, const char *fmt, ...);
 #if defined(_WIN32)
 /* not in msvcrt; provided by src/core/bf_compat.c */
 char *strcasestr(const char *haystack, const char *needle);
+/* not in msvcrt either; provided by SimITL's target.c. Without this
+ * prototype cli.c calls it as an implicit int function, and the returned
+ * pointer is cut to 32 bits on 64-bit Windows (the serial CLI commands). */
+char *strsep(char **stringp, const char *delim);
 #endif
 
 /* Function-like macros so `__attribute__((format(printf, 1, 2)))` is untouched. */
