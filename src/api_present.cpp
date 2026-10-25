@@ -103,6 +103,21 @@ FPV_API fpv_result fpv_osd_render_rgba(const fpv_frame *frame, uint8_t *rgba, ui
     return FPV_OK;
 }
 
+FPV_API fpv_osd_style fpv_osd_get_style(void) {
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    return L.settings.osdStyle == FPV_OSD_STYLE_HD ? FPV_OSD_STYLE_HD : FPV_OSD_STYLE_ANALOG;
+}
+
+FPV_API void fpv_osd_set_style(fpv_osd_style style) {
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    int s = style == FPV_OSD_STYLE_HD ? FPV_OSD_STYLE_HD : FPV_OSD_STYLE_ANALOG;
+    if (s == L.settings.osdStyle) return;
+    L.settings.osdStyle = s;
+    saveSettings();
+}
+
 FPV_API fpv_result fpv_audio_configure(uint32_t sampleRate, uint32_t channels) {
     if (sampleRate < 8000 || channels < 1) return setError(FPV_ERROR_INVALID_ARGUMENT, "bad audio format");
     audioSynth().configure(sampleRate, channels);

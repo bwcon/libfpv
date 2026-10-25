@@ -213,6 +213,15 @@ void testSharedDataDir() {
     setEnv("LIBFPV_DATA_DIR", "");
 }
 
+void testOsdStyle() {
+    fpv_osd_style before = fpv_osd_get_style();
+    fpv_osd_set_style(FPV_OSD_STYLE_HD);
+    CHECK(fpv_osd_get_style() == FPV_OSD_STYLE_HD, "set HD");
+    fpv_osd_set_style(FPV_OSD_STYLE_ANALOG);
+    CHECK(fpv_osd_get_style() == FPV_OSD_STYLE_ANALOG, "set analog");
+    fpv_osd_set_style(before);
+}
+
 void testArmDisarm() {
     Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
     loadWorld(makeLevel(h, 100, 0));
@@ -1979,6 +1988,7 @@ int main(int argc, char **argv) {
         {"axes_z_up_right_in", [] { testAxes(FPV_COORDS_Z_UP_RIGHT_HANDED, 39.37f, "Z-up right-handed (in)"); }},
         {"gps", testGps},
         {"osd_audio_overlay", testOsdAudioOverlay},
+        {"osd_style", testOsdStyle},
         {"pinned", testPinned},
         {"terminate_reinit", testTerminateReinit},
         {"threaded", testThreadedMode},
