@@ -90,7 +90,8 @@ set(BF_MAIN_SOURCES
   config/config.c config/feature.c config/config_streamer.c
   config/config_eeprom.c config/simplified_tuning.c
   drivers/accgyro/accgyro_virtual.c drivers/accgyro/gyro_sync.c
-  drivers/barometer/barometer_virtual.c drivers/timer_common.c
+  drivers/barometer/barometer_virtual.c drivers/compass/compass_virtual.c
+  drivers/timer_common.c
   drivers/motor.c drivers/bus.c drivers/dshot.c drivers/serial.c
   drivers/buf_writer.c drivers/stack_check.c drivers/io.c drivers/display.c
   drivers/light_led.c drivers/rx/rx_pwm.c drivers/pinio.c drivers/resource.c
@@ -101,7 +102,7 @@ set(BF_MAIN_SOURCES
   sensors/initialisation.c sensors/compass.c sensors/acceleration.c
   sensors/acceleration_init.c sensors/gyro.c sensors/gyro_init.c
   sensors/boardalignment.c sensors/barometer.c sensors/voltage.c
-  sensors/current.c sensors/adcinternal.c sensors/esc_sensor.c
+  sensors/current.c sensors/adcinternal.c sensors/esc_sensor.c sensors/sensors.c
   fc/core.c fc/runtime_config.c fc/rc_controls.c fc/tasks.c fc/rc_modes.c
   fc/controlrate_profile.c fc/rc.c fc/rc_adjustments.c fc/board_info.c
   fc/stats.c fc/dispatch.c
@@ -109,6 +110,10 @@ set(BF_MAIN_SOURCES
   flight/mixer_tricopter.c flight/servos.c flight/servos_tricopter.c
   flight/imu.c flight/pid.c flight/pid_init.c flight/position.c
   flight/gps_rescue_multirotor.c flight/autopilot_multirotor.c
+  flight/alt_hold_multirotor.c flight/pos_hold_multirotor.c
+  flight/position_estimator.c flight/position_filter.c flight/position_nav.c
+  flight/nav_trail.c
+  flight/flight_plan_nav.c flight/flight_plan_capture.c
   io/beeper.c io/statusindicator.c io/rcdevice_cam.c io/rcdevice.c io/gps.c
   io/displayport_msp.c io/serial_resource.c io/gps_virtual.c
   cms/cms.c cms/cms_menu_blackbox.c cms/cms_menu_failsafe.c
@@ -118,7 +123,7 @@ set(BF_MAIN_SOURCES
   cms/cms_menu_power.c cms/cms_menu_saveexit.c cms/cms_menu_vtx_common.c
   cms/cms_menu_vtx_msp.c cms/cms_menu_vtx_rtc6705.c
   cms/cms_menu_vtx_smartaudio.c cms/cms_menu_vtx_tramp.c
-  osd/osd.c osd/osd_elements.c osd/osd_warnings.c
+  osd/osd.c osd/osd_elements.c osd/osd_warnings.c osd/osd_nav_map.c
   msp/msp.c msp/msp_box.c msp/msp_serial.c msp/msp_build_info.c
   cli/cli.c
   blackbox/blackbox.c blackbox/blackbox_encoding.c
@@ -172,6 +177,7 @@ target_include_directories(simitl_core
     ${BFEXT_DIR}/src/main
     ${BFEXT_DIR}/src/main/target/simITL
     ${BF_DIR}/lib/main/dyad
+    ${BF_DIR}/lib/main/MAVLink
     ${BF_DIR}/src/main
     ${BF_DIR}/src/platform/SIMULATOR/include
     ${SIMITL_DIR}/extern
@@ -215,3 +221,11 @@ endif()
 # ELF and PE need the SITL linker script to emit the start/end symbols;
 # Mach-O gets them natively from section$start$/section$end$ (see pg.h).
 set(SIMITL_LINKER_SCRIPT ${BF_DIR}/src/platform/SIMULATOR/link/sitl.ld)
+if(MINGW)
+  # Betaflight 2026.6 inserts the registry before .fini_array, which PE does
+  # not have; place it after .text as earlier releases did.
+  file(READ ${SIMITL_LINKER_SCRIPT} _ld)
+  string(REPLACE "INSERT BEFORE .fini_array;" "INSERT AFTER .text;" _ld "${_ld}")
+  set(SIMITL_LINKER_SCRIPT ${CMAKE_BINARY_DIR}/sitl_pe.ld)
+  file(WRITE ${SIMITL_LINKER_SCRIPT} "${_ld}")
+endif()

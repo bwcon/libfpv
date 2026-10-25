@@ -1,7 +1,8 @@
 diff --git a/src/main/pg/pg.h b/src/main/pg/pg.h
+index 8159a443d..4f8a5f129 100644
 --- a/src/main/pg/pg.h
 +++ b/src/main/pg/pg.h
-@@ -72,6 +72,20 @@
+@@ -72,6 +72,20 @@ extern const pgRegistry_t __pg_registry_end[] __asm("section$end$__DATA$__pg_reg
  extern const uint8_t __pg_resetdata_start[] __asm("section$start$__DATA$__pg_resetdata");
  extern const uint8_t __pg_resetdata_end[] __asm("section$end$__DATA$__pg_resetdata");
  #define PG_RESETDATA_ATTRIBUTES __attribute__ ((section("__DATA,__pg_resetdata"), used, aligned(2)))

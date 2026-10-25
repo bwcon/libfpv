@@ -1,0 +1,48 @@
+diff --git a/src/sim/physics.cpp b/src/sim/physics.cpp
+--- a/src/sim/physics.cpp
++++ b/src/sim/physics.cpp
+@@ -85,6 +85,9 @@
+ 
+     copy(mSimState->stateInput.angularVelocity, newAngularVelocity);
+     copy(mSimState->stateInput.linearVelocity, newLinearVelocity);
++
++    mSimState->contactAcceleration = (state.delta > 0.0f)
++        ? (newLinearVelocity - currentLinearVelocity) * (1.0f / state.delta) : vec3{0, 0, 0};
+   }
+ 
+   void Physics::updateGyro(double dt){
+@@ -112,9 +115,11 @@
+ 
+     mSimState->gyro = xform_inv(basis, angularVelocity);
+ 
+-    //todo: validate and fix gyro attitude setup.
++    // an accelerometer measures the specific force: the acceleration the
++    // body really has (contacts included) minus gravity. Betaflight 2026.6's
++    // position estimator integrates it.
+     auto gravity_acceleration = vec3{0, -9.81f, 0};
+-    mSimState->acc = xform_inv(basis, mSimState->acceleration + gravity_acceleration);
++    mSimState->acc = xform_inv(basis, mSimState->acceleration + mSimState->contactAcceleration - gravity_acceleration);
+   }
+ 
+   void Physics::updatePhysics(double dt){
+@@ -970,6 +975,7 @@
+ 
+   void Physics::reset(){
+     mSimState->acceleration = {0.0f, 0.0f, 0.0f};
++    mSimState->contactAcceleration = {0.0f, 0.0f, 0.0f};
+     mSimState->stateInput.linearVelocity = {0.0f, 0.0f, 0.0f};
+     mSimState->stateInput.angularVelocity = {0.0f, 0.0f, 0.0f};
+   }
+diff --git a/src/sim/state.h b/src/sim/state.h
+--- a/src/sim/state.h
++++ b/src/sim/state.h
+@@ -119,6 +119,9 @@
+     BatteryState batteryState {};
+ 
+     vec3 acceleration{0, 0, 0};
++    // libfpv: the velocity change of the host's contacts over the last host
++    // frame, as an acceleration (the ground holding the quad up)
++    vec3 contactAcceleration{0, 0, 0};
+ 
+     vec3 gyroNoise{0, 0, 0};
+     vec3 motorNoise{0, 0, 0};

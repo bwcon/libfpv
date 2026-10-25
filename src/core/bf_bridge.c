@@ -25,6 +25,7 @@
 #include "fc/runtime_config.h"
 #include "flight/failsafe.h"
 #include "flight/mixer.h"
+#include "flight/position_estimator.h"
 #include "io/beeper.h"
 #include "io/gps.h"
 #include "io/gps_virtual.h"
@@ -240,16 +241,49 @@ bfbRates_t bfb_get_rates(void)
 extern char *EEPROM_FILENAME;
 extern bool loadEEPROMFromFile(void);
 
+int bfb_eeprom_matches(const char *path)
+{
+    static uint8_t buf[EEPROM_SIZE];
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        return 0;
+    }
+    const size_t n = fread(buf, 1, sizeof(buf), f);
+    fclose(f);
+    /* readEEPROM() succeeds only if every parameter group has a system
+     * record of its current version: header {version, 0xBE}, then records
+     * {u16 size, u16 pgn, u8 version, u8 flags, data} up to size 0. */
+    if (n < 2 || buf[1] != 0xBE) {
+        return 0;
+    }
+    PG_FOREACH(reg) {
+        bool found = false;
+        for (size_t p = 2; p + 6 <= n;) {
+            const uint16_t size = buf[p] | (buf[p + 1] << 8);
+            if (size < 6 || p + size > n) {
+                break;
+            }
+            if ((buf[p + 2] | (buf[p + 3] << 8)) == pgN(reg) && (buf[p + 5] & 3) == 0) {
+                found = buf[p + 4] == pgVersion(reg);
+                break;
+            }
+            p += size;
+        }
+        if (!found) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int bfb_switch_eeprom(const char *path)
 {
     if (isConfigDirty()) {
         writeEEPROM();  /* keep the previous quad's pending changes */
     }
-    FILE *probe = fopen(path, "rb");
-    int existed = probe != NULL;
-    if (probe) {
-        fclose(probe);
-    }
+    /* Betaflight resets a file written by another Betaflight version
+     * (readEEPROM() fails below): it is as good as new */
+    int existed = bfb_eeprom_matches(path);
     size_t n = strlen(path);
     char *name = (char *)malloc(n + 1);
     if (!name) {
@@ -314,6 +348,11 @@ int bfb_osd_disabled(void)
 void bfb_battery_reset(void)
 {
     batteryInit();
+}
+
+void bfb_position_reseed(void)
+{
+    positionEstimatorReseed();
 }
 
 int bfb_calibrating(void)
@@ -394,7 +433,10 @@ void bfb_gps_update(float east, float north, float up, float vEast, float vNorth
     if (course < 0) {
         course += 360.0f;
     }
-    setVirtualGPS(north / kMetresPerDegree, east / kMetresPerDegree, up, ground, speed3d, course);
+    // NED velocity feeds the 2026.6 position estimator; zero would drag it
+    // toward standstill.
+    setVirtualGPS(north / kMetresPerDegree, east / kMetresPerDegree, up, ground, speed3d, course,
+                  vNorth, vEast, -vUp);
 }
 
 void bfb_gps_set_home(float east, float north, float up)

@@ -400,6 +400,51 @@ void testDefaultDiff() {
     fs::remove(eeprom / (std::string(tuned) + ".eeprom.upgrade"));
 }
 
+// Betaflight resets an EEPROM written by another Betaflight version (a
+// 2025.12 one after the 2026.6 upgrade) to its own defaults: libfpv sets the
+// quad up again, or it would have no arm switch.
+void testEepromOtherBetaflight() {
+    namespace fs = std::filesystem;
+    auto cli = [](const char *cmd) {
+        char *o = nullptr;
+        fpv_cli_exec(cmd, &o);
+        std::string r = o ? o : "";
+        fpv_free(o);
+        return r;
+    };
+    auto activate = [](const char *preset) {
+        Session s;
+        float p[3] = {0, 0, 0};
+        s.spawn(p, preset);
+        s.run(0.05f);
+        s.destroy();
+    };
+    const char *quad = "betafpv-air65-ii", *other = "freestyler-5";
+    activate(quad);
+    cli("aux 0 0 0 900 900 0 0\nsave");
+    activate(other);
+    // every parameter group record {u16 size, u16 pgn, u8 version, u8 flags}
+    // gets another version
+    fs::path file = fs::path(g_dataDir) / "eeprom" / (std::string(quad) + ".eeprom");
+    std::string b;
+    {
+        std::ifstream in(file, std::ios::binary);
+        b.assign(std::istreambuf_iterator<char>(in), {});
+    }
+    for (size_t p = 2; p + 6 <= b.size();) {
+        size_t size = (uint8_t)b[p] | (uint8_t)b[p + 1] << 8;
+        if (size < 6) break;
+        b[p + 4] ^= 0x40;
+        p += size;
+    }
+    std::ofstream(file, std::ios::binary | std::ios::trunc) << b;
+    activate(quad);
+    CHECK(cli("aux").find("aux 0 0 0 1700 2100") != std::string::npos, "ARM back on AUX1");
+    CHECK(cli("get crashflip_auto_rearm").find("= ON") != std::string::npos, "libfpv's turtle setup back");
+    CHECK(cli("get gyro_lpf2_static_hz").find("= 600") != std::string::npos, "preset tune back");
+    activate(other);
+}
+
 void testSecondDroneRejected() {
     Session a;
     float p[3] = {0, 0, 0};
@@ -1958,6 +2003,7 @@ int main(int argc, char **argv) {
         {"turtle", testTurtle},
         {"eeprom_upgrade", testEepromUpgrade},
         {"default_diff", testDefaultDiff},
+        {"eeprom_other_betaflight", testEepromOtherBetaflight},
         {"second_drone_rejected", testSecondDroneRejected},
         {"hover", testHover},
         {"keyboard_hover", testKeyboardHover},

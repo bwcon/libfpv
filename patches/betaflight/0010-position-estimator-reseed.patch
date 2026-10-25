@@ -1,0 +1,66 @@
+diff --git a/src/main/flight/position_estimator.c b/src/main/flight/position_estimator.c
+--- a/src/main/flight/position_estimator.c
++++ b/src/main/flight/position_estimator.c
+@@ -185,6 +185,7 @@
+ 
+ static timeUs_t lastXYMeasurementUs = 0;
+ static timeUs_t lastZMeasurementUs = 0;
++static timeUs_t reseedUntilUs = 0;  // see positionEstimatorReseed()
+ 
+ static sensorCalEntry_t zCal[CAL_Z_COUNT];
+ 
+@@ -617,11 +618,15 @@
+         kalmanPredict(&kfNorth, dt, accelNorth);
+     }
+ 
+-    // Feed sensor measurements (order does not matter)
+-    feedGPSMeasurements(nowUs);
+-    feedBaroMeasurements(nowUs);
+-    feedRangefinderMeasurements(nowUs);
+-    feedOpticalFlowMeasurements(nowUs);
++    // Feed sensor measurements (order does not matter), unless they still
++    // describe the place before a teleport (positionEstimatorReseed)
++    if (!reseedUntilUs || cmpTimeUs(nowUs, reseedUntilUs) >= 0) {
++        reseedUntilUs = 0;
++        feedGPSMeasurements(nowUs);
++        feedBaroMeasurements(nowUs);
++        feedRangefinderMeasurements(nowUs);
++        feedOpticalFlowMeasurements(nowUs);
++    }
+ 
+     // Calibrate drifting sensor offsets against KF estimate anchored by non-drifting sources
+     crossCalibrateOffsets(zCal, CAL_Z_COUNT, kalmanGetPosition(&kfUp));
+@@ -728,6 +733,21 @@
+     initZCalEntries();
+ }
+ 
++// A simulator moved the craft (a teleport): restart the filters at rest,
++// at an unknown position. The baro and GPS still report the old place for
++// a while, so measurements wait until they caught up; then the first one
++// places the filters without disturbing the velocity. The arming
++// references (sensor offsets, origin) are kept.
++#define RESEED_POS_VAR      1e10f    // cm^2
++#define RESEED_SETTLE_US    200000   // > GPS period plus baro latency
++void positionEstimatorReseed(void)
++{
++    kalmanInit(&kfUp, kalmanGetPosition(&kfUp), 0.0f, RESEED_POS_VAR, INITIAL_VEL_VAR, Q_ACCEL_Z);
++    kalmanInit(&kfEast, kalmanGetPosition(&kfEast), 0.0f, RESEED_POS_VAR, INITIAL_VEL_VAR, qaccelXY);
++    kalmanInit(&kfNorth, kalmanGetPosition(&kfNorth), 0.0f, RESEED_POS_VAR, INITIAL_VEL_VAR, qaccelXY);
++    reseedUntilUs = micros() + RESEED_SETTLE_US;
++}
++
+ void positionEstimatorResetXY(void)
+ {
+     kalmanInit(&kfEast, 0.0f, 0.0f, INITIAL_POS_VAR, INITIAL_VEL_VAR, Q_ACCEL_XY);
+diff --git a/src/main/flight/position_estimator.h b/src/main/flight/position_estimator.h
+index 4d52654c3..e336e459d 100644
+--- a/src/main/flight/position_estimator.h
++++ b/src/main/flight/position_estimator.h
+@@ -60,6 +60,7 @@ bool positionEstimatorIsHeadingRequired(void);
+ // Reset (e.g. on arm/disarm)
+ void positionEstimatorResetZ(void);
+ void positionEstimatorResetXY(void);
++void positionEstimatorReseed(void);
+ 
+ // Returns the GPS location captured when XY estimation became active (arm point).
+ // Returns false if no GPS origin has been captured yet.

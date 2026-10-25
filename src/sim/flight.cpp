@@ -191,6 +191,7 @@ void Flight::teleport(Vec3 pos, Quat rot) {
     m_angVel = {};
     simitl_command(CommandType::Reset);
     m_lastGroundContact = -1;
+    if (m_bfReady) bfb_position_reseed();
 }
 
 void Flight::repair() {

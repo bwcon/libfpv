@@ -46,9 +46,13 @@ void bfb_write_eeprom(void);
 int bfb_cli_mode(void);
 bfbRates_t bfb_get_rates(void);
 
+/* 1 if Betaflight loads `path` as it is; 0 if it is missing or written by
+ * another Betaflight version, which Betaflight resets to its defaults. */
+int bfb_eeprom_matches(const char *path);
 /* Saves pending changes, then makes `path` the active EEPROM (one file per
- * quad preset). A missing file is created with Betaflight defaults.
- * Returns 1 if the file existed, 0 if created, -1 on error. */
+ * quad preset). A missing file, or one from another Betaflight version, is
+ * created with Betaflight defaults.
+ * Returns 1 if the file was loaded, 0 if created, -1 on error. */
 int bfb_switch_eeprom(const char *path);
 /* Betaflight's own reboot path (re-runs init in-process, like the
  * Configurator's "Save and Reboot"). */
@@ -57,6 +61,9 @@ int bfb_reboot_required(void);
 /* Forgets the battery so Betaflight detects it again on the next update:
  * the warning and critical voltages follow the new pack's cell count. */
 void bfb_battery_reset(void);
+/* The quad was moved (teleport): the position estimate restarts at rest
+ * from the next sensor readings instead of flying over from the old place. */
+void bfb_position_reseed(void);
 
 /* Gyro/accelerometer/baro calibration after boot still running. */
 int bfb_calibrating(void);
