@@ -194,6 +194,25 @@ void testVersionAndErrors() {
     CHECK(fpv_global_init(&bad) == FPV_ERROR_INVALID_ARGUMENT, "degenerate axes must fail");
 }
 
+static void setEnv(const char *name, const char *value) {
+#if defined(_WIN32)
+    _putenv_s(name, value);  // "" removes it
+#else
+    if (*value) setenv(name, value, 1); else unsetenv(name);
+#endif
+}
+
+void testSharedDataDir() {
+    char buf[1024];
+    setEnv("LIBFPV_DATA_DIR", "");
+    CHECK(fpv_shared_data_dir(buf, sizeof buf) == FPV_OK, "default: %s", fpv_last_error());
+    CHECK(std::strstr(buf, "libfpv") != nullptr, "default folder is named libfpv: %s", buf);
+    CHECK(fpv_shared_data_dir(buf, 3) == FPV_ERROR_INVALID_ARGUMENT, "a too small buffer must fail");
+    setEnv("LIBFPV_DATA_DIR", g_dataDir.c_str());
+    CHECK(fpv_shared_data_dir(buf, sizeof buf) == FPV_OK && g_dataDir == buf, "LIBFPV_DATA_DIR override: %s", buf);
+    setEnv("LIBFPV_DATA_DIR", "");
+}
+
 void testArmDisarm() {
     Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
     loadWorld(makeLevel(h, 100, 0));
@@ -1931,6 +1950,7 @@ int main(int argc, char **argv) {
     std::string corpus = LIBFPV_TEST_DIFF_DIR;
 
     testVersionAndErrors();
+    testSharedDataDir();
     if (!init(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1))) return 1;
 
     std::vector<Test> tests = {

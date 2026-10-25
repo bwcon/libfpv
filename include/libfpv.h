@@ -213,6 +213,20 @@ typedef struct fpv_global_config {
 
 FPV_API void fpv_global_config_defaults(fpv_global_config *config);
 
+/* A per-user folder that every libfpv game can pass as data_dir, so the
+ * radio mappings, the Betaflight tune (EEPROM) and the settings follow the
+ * pilot from game to game:
+ *   Windows  %APPDATA%\libfpv
+ *   macOS    ~/Library/Application Support/libfpv
+ *   others   $XDG_CONFIG_HOME/libfpv (default ~/.config/libfpv)
+ * The LIBFPV_DATA_DIR environment variable overrides it. Writes the UTF-8
+ * path with its terminating zero into out. FPV_ERROR_INVALID_ARGUMENT when
+ * out_size is too small, FPV_ERROR_NOT_FOUND when no home folder is known
+ * (and in web builds: use FPV_WEB_DATA_DIR). Games that share the folder
+ * should ship the same libfpv version, because each one upgrades the shared
+ * EEPROM to its own Betaflight. Does not need fpv_global_init. */
+FPV_API fpv_result fpv_shared_data_dir(char *out, uint32_t out_size);
+
 /* Web builds: the folder kept in the browser's IndexedDB, mounted and loaded
  * before main() runs (Module.libfpvDataDir changes it). */
 #define FPV_WEB_DATA_DIR "/libfpv"
