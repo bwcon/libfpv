@@ -205,10 +205,15 @@ static void setEnv(const char *name, const char *value) {
 void testSharedDataDir() {
     char buf[1024];
     setEnv("LIBFPV_DATA_DIR", "");
+#if defined(__EMSCRIPTEN__)
+    CHECK(fpv_shared_data_dir(buf, sizeof buf) == FPV_ERROR_NOT_FOUND, "no default folder in a browser");
+#else
     CHECK(fpv_shared_data_dir(buf, sizeof buf) == FPV_OK, "default: %s", fpv_last_error());
     CHECK(std::strstr(buf, "libfpv") != nullptr, "default folder is named libfpv: %s", buf);
     CHECK(fpv_shared_data_dir(buf, 3) == FPV_ERROR_INVALID_ARGUMENT, "a too small buffer must fail");
+#endif
     setEnv("LIBFPV_DATA_DIR", g_dataDir.c_str());
+    CHECK(fpv_shared_data_dir(buf, 3) == FPV_ERROR_INVALID_ARGUMENT, "a too small buffer must fail");
     CHECK(fpv_shared_data_dir(buf, sizeof buf) == FPV_OK && g_dataDir == buf, "LIBFPV_DATA_DIR override: %s", buf);
     setEnv("LIBFPV_DATA_DIR", "");
 }
