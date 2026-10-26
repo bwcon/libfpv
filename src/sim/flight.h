@@ -82,6 +82,7 @@ public:
     void step(float dt, const float channels[kChannelCount], bool radioLost);
 
     const FlightSnapshot &snapshot() const { return m_snap; }
+    Vec3 position() const { return m_pos; }  // live, unlike the snapshot before the next step
     // Impacts accumulated since the last call.
     void takeImpacts(std::vector<ImpactEvent> &out);
 

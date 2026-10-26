@@ -27,6 +27,15 @@ using json = nlohmann::json;
 namespace fpv {
 
 OsdRenderer &osdRenderer();  // api_present.cpp
+void refreshRaycastProxies(const FlightSnapshot &s);  // frame.cpp
+// Collision planes around a drone placed at `at` (internal units), before the
+// sim has stepped it: the flight snapshot still holds the old state then.
+static void proxiesAt(Vec3 at) {
+    FlightSnapshot s;
+    s.active = true;
+    s.pos = at;
+    refreshRaycastProxies(s);
+}
 
 Lib &lib() {
     // Never destroyed: internal threads may outlive static destruction.
@@ -849,6 +858,11 @@ FPV_API void fpv_world_set_raycast_callback(fpv_raycast_fn cb, void *user) {
     L.raycast = cb;
     L.raycastUser = user;
     if (!cb) L.world.setProxyPlanes({});
+    else if (L.droneExists) {
+        Vec3 at;
+        L.runner.call([&] { at = L.flight.position(); });
+        proxiesAt(at);
+    }
 }
 
 // --- drone -----------------------------------------------------------------
@@ -886,16 +900,22 @@ FPV_API fpv_result fpv_drone_create(const fpv_drone_desc *descIn, fpv_drone **ou
     Vec3 pilotH{desc.pilot_position[0], desc.pilot_position[1], desc.pilot_position[2]};
     Vec3 pilot = length2(pilotH) > 0 ? L.conv.posToInternal(pilotH) : pos;
     const DronePreset preset = currentPreset();
+    Vec3 at;
     L.runner.call([&] {
         activateEepromFor(preset);
         L.flight.spawn(preset, {0, 0, 0}, rot, pilot);
-        L.flight.teleport(pos + rotate(rot, Vec3{0, L.flight.restHeight() + 0.002f, 0}), rot);
+        at = pos + rotate(rot, Vec3{0, L.flight.restHeight() + 0.002f, 0});
+        L.flight.teleport(at, rot);
     });
     L.droneExists = true;
     L.spawnPos = pos;
     L.spawnRot = rot;
     L.drone.magic = 0xF9D0u;
     L.chaseValid = false;
+    // ground under the new drone before the sim steps: the first fpv_drone_tick
+    // can come late (the host loads its camera, the game hitches), and a drone
+    // that falls through meanwhile never finds the ground again
+    proxiesAt(at);
     L.runner.heartbeat();
     *out = &L.drone;
     return FPV_OK;
@@ -922,8 +942,13 @@ FPV_API fpv_result fpv_drone_reset(fpv_drone *d, const float position[3], const 
         fwd.y = 0;
         rot = lookRotation(length2(fwd) > 1e-6f ? fwd : Vec3{0, 0, 1}, {0, 1, 0});
     }
-    L.runner.call([&] { L.flight.teleport(pos + rotate(rot, Vec3{0, L.flight.restHeight() + 0.002f, 0}), rot); });
+    Vec3 at;
+    L.runner.call([&] {
+        at = pos + rotate(rot, Vec3{0, L.flight.restHeight() + 0.002f, 0});
+        L.flight.teleport(at, rot);
+    });
     L.chaseValid = false;
+    proxiesAt(at);  // the old planes belong to where the drone was
     return FPV_OK;
 }
 
