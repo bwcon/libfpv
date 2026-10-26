@@ -74,6 +74,7 @@ public:
     bool active() const { return m_active; }
     void teleport(Vec3 pos, Quat rot);
     void repair();
+    void replaceProps();  // new propellers only
     void applyPreset(const DronePreset &preset);
     const DronePreset &preset() const { return m_preset; }
 

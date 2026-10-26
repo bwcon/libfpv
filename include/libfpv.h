@@ -345,6 +345,9 @@ FPV_API fpv_result fpv_drone_delete(fpv_drone *drone);
 FPV_API fpv_result fpv_drone_reset(fpv_drone *drone, const float position[3], const float rotation[4]);
 /* Fresh battery, cool undamaged motors and new propellers. */
 FPV_API fpv_result fpv_drone_repair(fpv_drone *drone);
+/* New propellers only, as after a crash in the field: the battery and the
+ * motors stay as they are. */
+FPV_API fpv_result fpv_drone_replace_props(fpv_drone *drone);
 /* Switches the physical preset (frame, motors, props, battery, camera). */
 FPV_API fpv_result fpv_drone_set_preset(fpv_drone *drone, const char *preset);
 

@@ -1037,6 +1037,35 @@ void testAxes(fpv_coords_preset_id preset, float upm, const char *name) {
     CHECK(std::fabs(r[0] * u[0] + r[1] * u[1] + r[2] * u[2]) < 1e-3f, "%s: camera axes orthogonal", name);
 }
 
+// After a crash, new propellers fly like new; the battery keeps its charge.
+void testReplaceProps() {
+    Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    loadWorld(makeLevel(h, 300, 40));
+    Session s;
+    float p[3];
+    h.pos(0, 3, 0, p);
+    s.spawn(p);
+    s.arm();
+    s.rc.ch[5] = 1;     // ANGLE
+    s.rc.ch[1] = 1.0f;  // full forward into the wall
+    s.rc.ch[2] = 0.6f;
+    auto damage = [&] {
+        float d = 0;
+        for (const fpv_motor_state &m : s.f.motors) d = std::max(d, m.prop_damage);
+        return d;
+    };
+    s.run(6.0f);
+    const float bent = damage(), mah = s.f.battery.mah_drawn;
+    CHECK(bent > 0, "the crash bent a prop (%.2f)", bent);
+    CHECK(fpv_drone_replace_props(s.drone) == FPV_OK, "replace props: %s", fpv_last_error());
+    s.rc.ch[1] = 0;
+    s.rc.ch[2] = -1;
+    s.run(0.1f);
+    CHECK(damage() == 0, "new props (%.2f)", damage());
+    CHECK(s.f.battery.mah_drawn >= mah, "battery kept: %.0f mAh drawn, %.0f before", s.f.battery.mah_drawn, mah);
+    s.destroy();
+}
+
 void testWallCrash() {
     Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
     loadWorld(makeLevel(h, 300, 40));
@@ -2228,6 +2257,7 @@ int main(int argc, char **argv) {
         {"osd_style", testOsdStyle},
         {"osd_layout_per_style", testOsdLayoutPerStyle},
         {"osd_font", testOsdFont},
+        {"replace_props", testReplaceProps},
         {"camera_fov", testCameraFov},
         {"rssi", testRssi},
         {"raycast_ground_at_spawn", testRaycastGroundAtSpawn},
