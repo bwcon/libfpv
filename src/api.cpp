@@ -80,6 +80,9 @@ void loadSettings() {
         s.cameraFov = j.value("cameraFov", s.cameraFov);
         s.cameraFisheye = std::clamp(j.value("cameraFisheye", s.cameraFisheye), 0.0f, 1.0f);
         s.chaseSmoothing = j.value("chaseSmoothing", s.chaseSmoothing);
+        s.chaseDistance = j.value("chaseDistance", s.chaseDistance);
+        s.chaseHeight = j.value("chaseHeight", s.chaseHeight);
+        s.chaseFollow = j.value("chaseFollow", s.chaseFollow);
         // "auto", "on" or "off"; older versions stored a bool (off by default)
         auto hover = j.find("keyboardHover");
         if (hover != j.end() && hover->is_string()) {
@@ -128,6 +131,9 @@ void saveSettings() {
               {"cameraFov", s.cameraFov},
               {"cameraFisheye", s.cameraFisheye},
               {"chaseSmoothing", s.chaseSmoothing},
+              {"chaseDistance", s.chaseDistance},
+              {"chaseHeight", s.chaseHeight},
+              {"chaseFollow", s.chaseFollow},
               {"keyboardHover", s.keyboardHover == KeyboardHover::On    ? "on"
                                 : s.keyboardHover == KeyboardHover::Off ? "off"
                                                                         : "auto"},
