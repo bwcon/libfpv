@@ -262,6 +262,39 @@ void testOsdStyle() {
     }
 }
 
+static int cliNum(const char *name) {
+    char cmd[64], *o = nullptr;
+    std::snprintf(cmd, sizeof cmd, "get %s\n", name);
+    fpv_cli_exec(cmd, &o);
+    std::string out = o ? o : "";
+    fpv_free(o);
+    size_t at = out.find(" = ");
+    return at == std::string::npos ? -1 : std::atoi(out.c_str() + at + 3);
+}
+
+// Each canvas keeps its own layout: switching restores it exactly.
+void testOsdLayoutPerStyle() {
+    auto setPos = [](int col, int row) {
+        char cmd[96], *o = nullptr;
+        std::snprintf(cmd, sizeof cmd, "set osd_vbat_pos = %d\nsave\n",
+                      (col & 31) | ((col << 5) & 0x400) | (row << 5) | 0x800);
+        fpv_cli_exec(cmd, &o);
+        fpv_free(o);
+        return cliNum("osd_vbat_pos");
+    };
+    fpv_osd_set_style(FPV_OSD_STYLE_ANALOG);
+    const int analog = setPos(2, 3);
+    fpv_osd_set_style(FPV_OSD_STYLE_HD);
+    const int scaled = cliNum("osd_vbat_pos");
+    CHECK((scaled & 31) + ((scaled & 0x400) >> 5) < 53, "HD position on the canvas: %d", scaled);
+    const int hd = setPos(40, 15);
+    fpv_osd_set_style(FPV_OSD_STYLE_ANALOG);
+    CHECK(cliNum("osd_vbat_pos") == analog, "analog layout restored: %d, want %d", cliNum("osd_vbat_pos"), analog);
+    fpv_osd_set_style(FPV_OSD_STYLE_HD);
+    CHECK(cliNum("osd_vbat_pos") == hd, "HD layout restored: %d, want %d", cliNum("osd_vbat_pos"), hd);
+    fpv_osd_set_style(FPV_OSD_STYLE_ANALOG);
+}
+
 // A goggle font package (here WTFOS .bin sheets) replaces the built-in OSD
 // font; the analog canvas uses its SD sheet.
 void testOsdFont() {
@@ -2193,6 +2226,7 @@ int main(int argc, char **argv) {
         {"gps", testGps},
         {"osd_audio_overlay", testOsdAudioOverlay},
         {"osd_style", testOsdStyle},
+        {"osd_layout_per_style", testOsdLayoutPerStyle},
         {"osd_font", testOsdFont},
         {"camera_fov", testCameraFov},
         {"rssi", testRssi},
