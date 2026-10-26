@@ -287,6 +287,31 @@ void testOsdFont() {
     CHECK(fpv_texture_get(FPV_TEXTURE_OSD_FONT, &t) == FPV_OK && t.width == 384 && t.height == 288 && t.revision != rev,
           "built-in atlas %ux%u rev %u", t.width, t.height, t.revision);
     fs::remove_all(dir);
+
+    // A boot logo image replaces Betaflight's 24 x 4 glyph logo block.
+    const fs::path png = fs::path(g_dataDir) / "logo.png";
+    std::ofstream(png, std::ios::binary)
+        << std::string("\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x02\x00\x00\x00"
+                       "\x01\x08\x06\x00\x00\x00\xf4\x22\x7f\x8a\x00\x00\x00\x0b\x49\x44\x41\x54\x78\x9c\x63\xf8\x0f"
+                       "\x05\x00\x23\xe5\x07\xf9\x8a\x34\x78\xb3\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82",
+                       68);
+    fpv_frame f{};
+    f.struct_size = sizeof f;
+    f.osd_rows = FPV_OSD_ROWS;
+    f.osd_cols = FPV_OSD_COLS;
+    for (int g = 0; g < 96; g++) f.osd_hd[(3 + g / 24) * FPV_OSD_COLS + 3 + g % 24] = (uint8_t)(160 + g);
+    f.osd_hd[10 * FPV_OSD_COLS] = 'A';
+    CHECK(fpv_osd_set_logo(png.string().c_str()) == FPV_OK, "set logo: %s", fpv_last_error());
+    CHECK(fpv_texture_get(FPV_TEXTURE_OSD_LOGO, &t) == FPV_OK && t.width == 2 && t.height == 1, "logo texture");
+    const fpv_draw_data *dd = fpv_osd_draw_data(&f, 1280, 720, FPV_OSD_STYLE_ANALOG);
+    CHECK(dd && dd->list_count == 1 && dd->lists[0].command_count == 2 &&
+              dd->lists[0].commands[1].texture_id == FPV_TEXTURE_OSD_LOGO && dd->lists[0].vertex_count == 8,
+          "one glyph and the logo quad");
+    CHECK(fpv_osd_set_logo(nullptr) == FPV_OK, "clear logo");
+    dd = fpv_osd_draw_data(&f, 1280, 720, FPV_OSD_STYLE_ANALOG);
+    CHECK(dd && dd->lists[0].command_count == 1 && dd->lists[0].vertex_count == 97 * 4, "glyph logo without the image");
+    CHECK(fpv_texture_get(FPV_TEXTURE_OSD_LOGO, &t) == FPV_ERROR_NOT_FOUND, "no logo texture");
+    fs::remove(png);
 }
 
 void testArmDisarm() {

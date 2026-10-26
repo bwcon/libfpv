@@ -825,6 +825,7 @@ typedef struct fpv_draw_data {
 /* Texture ids that can appear in draw commands. */
 #define FPV_TEXTURE_OVERLAY_FONT 1u
 #define FPV_TEXTURE_OSD_FONT 2u
+#define FPV_TEXTURE_OSD_LOGO 3u
 
 typedef struct fpv_texture {
     uint32_t width;
@@ -903,6 +904,14 @@ FPV_API void fpv_osd_set_style(fpv_osd_style style);
 FPV_API fpv_result fpv_osd_set_font(const char *name);
 /* The selected font folder's name, "" for the built-in fonts. */
 FPV_API const char *fpv_osd_get_font(void);
+/* A custom boot logo: a PNG of any size, straight alpha (white art on a
+ * transparent background suits the OSD). It replaces Betaflight's 24 x 4
+ * glyph logo (glyphs 160 to 255) wherever that block shows: at boot, and on
+ * arming with osd_logo_on_arming. It keeps its own aspect, centred on the
+ * block and rising from the block's bottom row toward the top of the canvas.
+ * Drawn with FPV_TEXTURE_OSD_LOGO. NULL or "" removes it. Not saved: set it
+ * after each fpv_global_init. Any thread. */
+FPV_API fpv_result fpv_osd_set_logo(const char *png_path_utf8);
 
 /* ===========================================================================
  * Audio

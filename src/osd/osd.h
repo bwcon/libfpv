@@ -37,6 +37,11 @@ public:
     // The image FPV_TEXTURE_OSD_FONT holds for `style`, and its revision.
     void texture(int style, const uint8_t *&rgba, int &w, int &h) const;
     uint32_t revision(int style) const { return m_revision * 2 + (style ? 1 : 0); }
+    // A boot logo image (PNG bytes), drawn over Betaflight's glyph logo block.
+    bool loadLogo(const std::string &png, std::string &error);
+    void clearLogo();
+    const Sheet &logo() const { return m_logo; }
+    uint32_t logoRevision() const { return m_logoRevision; }
     // Texture coordinates of glyph g for `style`.
     void glyphUv(uint8_t g, int style, float &u0, float &v0, float &u1, float &v1) const;
 
@@ -56,6 +61,8 @@ private:
     std::vector<uint8_t> m_atlas;  // RGBA, the built-in fonts
     Sheet m_sd, m_hd;              // the package's, empty without one
     uint32_t m_revision = 1;
+    Sheet m_logo;  // glyphW/glyphH unused
+    uint32_t m_logoRevision = 1;
     DrawBuffer m_buffer;
 };
 

@@ -79,6 +79,15 @@ FPV_API fpv_result fpv_texture_get(uint64_t id, fpv_texture *out) {
         out->revision = r.revision(style);
         return FPV_OK;
     }
+    if (id == FPV_TEXTURE_OSD_LOGO) {
+        const OsdRenderer::Sheet &s = osdRenderer().logo();
+        if (!s.w) return setError(FPV_ERROR_NOT_FOUND, "no OSD logo set");
+        out->rgba = s.rgba.data();
+        out->width = (uint32_t)s.w;
+        out->height = (uint32_t)s.h;
+        out->revision = osdRenderer().logoRevision();
+        return FPV_OK;
+    }
     if (id == FPV_TEXTURE_OVERLAY_FONT) {
         Overlay &o = overlay();
         return o.fontTexture(*out) ? FPV_OK : setError(FPV_ERROR_INTERNAL, "overlay font unavailable");
@@ -101,6 +110,19 @@ FPV_API fpv_result fpv_osd_set_font(const char *name) {
     }
     L.settings.osdFont = n;
     saveSettings();
+    return FPV_OK;
+}
+
+FPV_API fpv_result fpv_osd_set_logo(const char *path) {
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    if (!path || !*path) {
+        osdRenderer().clearLogo();
+        return FPV_OK;
+    }
+    std::string bytes, err;
+    if (!readTextFile(pathFromUtf8(path), bytes)) return setError(FPV_ERROR_NOT_FOUND, "cannot read %s", path);
+    if (!osdRenderer().loadLogo(bytes, err)) return setError(FPV_ERROR_INVALID_ARGUMENT, "%s: %s", path, err.c_str());
     return FPV_OK;
 }
 

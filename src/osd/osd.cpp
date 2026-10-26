@@ -147,6 +147,27 @@ bool OsdRenderer::loadPackage(const std::string &dirUtf8, std::string &error) {
     return true;
 }
 
+bool OsdRenderer::loadLogo(const std::string &png, std::string &error) {
+    int w, h, n;
+    stbi_uc *px = stbi_load_from_memory((const stbi_uc *)png.data(), (int)png.size(), &w, &h, &n, 4);
+    if (!px) {
+        error = std::string("not a PNG: ") + stbi_failure_reason();
+        return false;
+    }
+    m_logo = Sheet{};
+    m_logo.rgba.assign(px, px + (size_t)w * h * 4);
+    m_logo.w = w;
+    m_logo.h = h;
+    stbi_image_free(px);
+    m_logoRevision++;
+    return true;
+}
+
+void OsdRenderer::clearLogo() {
+    m_logo = Sheet{};
+    m_logoRevision++;
+}
+
 void OsdRenderer::clearPackage() {
     m_hd = Sheet{};
     m_sd = Sheet{};
@@ -222,11 +243,22 @@ const fpv_draw_data *OsdRenderer::drawData(const uint8_t *osd, int rows, int col
     float marginX = cols > FPV_OSD_COLS ? vw * 0.015f : style == FPV_OSD_STYLE_HD ? vw * 0.06f : vw * 0.03f;
     float marginY = cols > FPV_OSD_COLS ? vh * 0.02f : vh * 0.04f;
     float cw = (vw - 2 * marginX) / cols, ch = (vh - 2 * marginY) / rows;
+    // Betaflight's logo: glyphs 160 to 255 as 24 x 4 cells, row by row (osdDrawLogo)
+    int logoR = -1, logoC = -1;
+    if (m_logo.w) {
+        for (int r = 0; r + 3 < rows && logoR < 0; r++)
+            for (int c = 0; c + 23 < cols; c++)
+                if (osd[r * cols + c] == 160 && osd[r * cols + c + 1] == 161 && osd[(r + 3) * cols + c] == 232) {
+                    logoR = r, logoC = c;
+                    break;
+                }
+    }
     DrawListStorage &l = m_buffer.newList();
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
             uint8_t g = osd[r * cols + c];
             if (blank(g)) continue;
+            if (logoR >= 0 && r >= logoR && r < logoR + 4 && c >= logoC && c < logoC + 24) continue;
             float x0 = vx + marginX + c * cw, y0 = vy + marginY + r * ch;
             float u0, v0, u1, v1;
             glyphUv(g, style, u0, v0, u1, v1);
@@ -250,6 +282,29 @@ const fpv_draw_data *OsdRenderer::drawData(const uint8_t *osd, int rows, int col
         cmd.index_count = (uint32_t)l.indices.size();
         l.commands.push_back(cmd);
     }
+    if (logoR >= 0) {
+        // from the top of the grid down to the block's bottom row, at the image's aspect
+        float h = (logoR + 4) * ch, w = h * m_logo.w / m_logo.h;
+        if (w > cols * cw) w = cols * cw, h = w * m_logo.h / m_logo.w;
+        float x0 = vx + marginX + (logoC + 12) * cw - w * 0.5f, y0 = vy + marginY + (logoR + 4) * ch - h;
+        uint32_t base = (uint32_t)l.vertices.size(), first = (uint32_t)l.indices.size();
+        const uint32_t white = 0xFFFFFFFFu;
+        l.vertices.push_back({{x0, y0}, {0, 0}, white});
+        l.vertices.push_back({{x0 + w, y0}, {1, 0}, white});
+        l.vertices.push_back({{x0 + w, y0 + h}, {1, 1}, white});
+        l.vertices.push_back({{x0, y0 + h}, {0, 1}, white});
+        uint32_t q[6] = {base, base + 1, base + 2, base, base + 2, base + 3};
+        l.indices.insert(l.indices.end(), q, q + 6);
+        fpv_draw_cmd cmd{};
+        cmd.clip_rect[0] = vx;
+        cmd.clip_rect[1] = vy;
+        cmd.clip_rect[2] = vx + vw;
+        cmd.clip_rect[3] = vy + vh;
+        cmd.texture_id = FPV_TEXTURE_OSD_LOGO;
+        cmd.index_offset = first;
+        cmd.index_count = 6;
+        l.commands.push_back(cmd);
+    }
     return m_buffer.finish(width, height);
 }
 
@@ -258,12 +313,15 @@ void OsdRenderer::rasterize(const uint8_t *osd, int rows, int cols, uint8_t *rgb
     for (uint32_t y = 0; y < height; y++) std::memset(rgba + (size_t)y * stride, 0, (size_t)width * 4);
     const fpv_draw_data *dd = drawData(osd, rows, cols, (float)width, (float)height, style);
     if (!dd->list_count) return;
+    const fpv_draw_list &l = dd->lists[0];
+    // every glyph (and the logo) is an axis-aligned quad: 4 vertices, 6 indices
+    for (uint32_t k = 0; k < l.command_count; k++) {
+    const fpv_draw_cmd &cmd = l.commands[k];
     const uint8_t *tex;
     int tw, th;
-    texture(style, tex, tw, th);
-    const fpv_draw_list &l = dd->lists[0];
-    // every glyph is an axis-aligned quad: 4 vertices
-    for (uint32_t q = 0; q + 3 < l.vertex_count; q += 4) {
+    if (cmd.texture_id == FPV_TEXTURE_OSD_LOGO) tex = m_logo.rgba.data(), tw = m_logo.w, th = m_logo.h;
+    else texture(style, tex, tw, th);
+    for (uint32_t q = cmd.index_offset / 6 * 4; q < (cmd.index_offset + cmd.index_count) / 6 * 4; q += 4) {
         const fpv_draw_vertex &a = l.vertices[q], &c = l.vertices[q + 2];
         int x0 = (int)std::floor(a.pos[0]), y0 = (int)std::floor(a.pos[1]);
         int x1 = (int)std::ceil(c.pos[0]), y1 = (int)std::ceil(c.pos[1]);
@@ -279,6 +337,7 @@ void OsdRenderer::rasterize(const uint8_t *osd, int rows, int cols, uint8_t *rgb
                 if (s[3]) std::memcpy(rgba + (size_t)y * stride + (size_t)x * 4, s, 4);
             }
         }
+    }
     }
 }
 
