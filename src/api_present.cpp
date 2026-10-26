@@ -126,6 +126,23 @@ FPV_API fpv_result fpv_osd_set_logo(const char *path) {
     return FPV_OK;
 }
 
+FPV_API float fpv_camera_get_fov(void) {
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    return L.settings.cameraFov > 0 ? L.settings.cameraFov : currentPreset().camera.fovYDeg;
+}
+
+FPV_API fpv_result fpv_camera_set_fov(float degrees) {
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    if (degrees != 0 && !(degrees >= 60 && degrees <= 150))
+        return setError(FPV_ERROR_INVALID_ARGUMENT, "field of view %.1f outside 60..150", degrees);
+    if (degrees == L.settings.cameraFov || (degrees == 0 && L.settings.cameraFov < 0)) return FPV_OK;
+    L.settings.cameraFov = degrees == 0 ? -1 : degrees;
+    saveSettings();
+    return FPV_OK;
+}
+
 FPV_API const char *fpv_osd_get_font(void) {
     Lib &L = lib();
     std::lock_guard<std::recursive_mutex> lock(L.mutex);

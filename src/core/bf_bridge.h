@@ -75,6 +75,9 @@ int bfb_crash_flip_active(void);
 int bfb_osd_disabled(void);
 // vcd_video_system is HD: the OSD canvas is 53 x 20 after the next boot.
 int bfb_osd_hd(void);
+/* The radio link's strength, 0..1: Betaflight's RSSI (percent) and RSSI dBm.
+ * Only when no RSSI source (ADC, channel) is configured. */
+void bfb_set_link(float signal);
 /* Text of OSD custom message element `index` (0..3, "Custom message N" in
  * the Configurator), drawn wherever the player put that element; up to 16
  * characters, "" draws nothing, NULL gives the element back to Betaflight. */

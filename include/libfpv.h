@@ -913,6 +913,12 @@ FPV_API const char *fpv_osd_get_font(void);
  * after each fpv_global_init. Any thread. */
 FPV_API fpv_result fpv_osd_set_logo(const char *png_path_utf8);
 
+/* The FPV camera's vertical field of view in degrees: the player's setting
+ * (the overlay's Camera page) or the quad preset's. The setter takes 60 to
+ * 150 and saves it in settings.json; 0 goes back to the preset's. Any thread. */
+FPV_API float fpv_camera_get_fov(void);
+FPV_API fpv_result fpv_camera_set_fov(float degrees);
+
 /* ===========================================================================
  * Audio
  * ======================================================================== */

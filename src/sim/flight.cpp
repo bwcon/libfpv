@@ -646,6 +646,8 @@ void Flight::step(float dt, const float channels[kChannelCount], bool radioLost)
         m_snap.crashed = true;
     }
 #endif
+    // the radio link follows the video link: one transmitter site, the pilot
+    if (m_active && m_bfReady) bfb_set_link(m_snap.videoSignal);
 }
 
 }  // namespace fpv
