@@ -631,6 +631,7 @@ void Flight::step(float dt, const float channels[kChannelCount], bool radioLost)
         m_snap.osdCols = out.osdCols;
         m_snap.osdRevision++;
     }
+    m_snap.ledCount = bfb_led_strip(m_snap.ledRgb.data(), m_snap.ledXy.data(), FlightSnapshot::kMaxLeds);
     for (int i = 0; i < kChannelCount; i++) m_snap.channels[i] = m_input.rcData[i];
     if (m_active) {
         float t;

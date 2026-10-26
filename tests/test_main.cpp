@@ -383,6 +383,32 @@ void testRssi() {
     s.destroy();
 }
 
+// The LED strip Betaflight drives reaches the frame: colours and grid cells.
+void testLedStrip() {
+    char *o = nullptr;
+    // colour 2 is red, 10 is blue (Betaflight's default palette)
+    CHECK(fpv_cli_exec("feature LED_STRIP\nled 0 1,2::C:2\nled 1 14,13::C:10\nsave\n", &o) == FPV_OK, "LEDs: %s",
+          o ? o : fpv_last_error());
+    fpv_free(o);
+    Session s;
+    float p[3] = {0, 0, 0};
+    s.spawn(p);
+    s.run(5.0f);  // past the reboot after the save, which turns the strip on
+    CHECK(s.f.led_count == 2, "2 LEDs, got %u", s.f.led_count);
+    if (s.f.led_count == 2) {
+        const uint8_t *a = s.f.led_rgb[0], *b = s.f.led_rgb[1];
+        std::printf("    LED 0 (%d,%d) rgb %d %d %d, LED 1 (%d,%d) rgb %d %d %d\n", s.f.led_grid[0][0],
+                    s.f.led_grid[0][1], a[0], a[1], a[2], s.f.led_grid[1][0], s.f.led_grid[1][1], b[0], b[1], b[2]);
+        CHECK(s.f.led_grid[0][0] == 1 && s.f.led_grid[0][1] == 2 && s.f.led_grid[1][0] == 14 &&
+                  s.f.led_grid[1][1] == 13, "grid cells");
+        CHECK(a[0] > 100 && a[1] < 60 && a[2] < 60, "LED 0 red");
+        CHECK(b[2] > 100 && b[0] < 60, "LED 1 blue");
+    }
+    s.destroy();
+    CHECK(fpv_cli_exec("led 0 0,0::C:0\nled 1 0,0::C:0\nfeature -LED_STRIP\nsave\n", &o) == FPV_OK, "LEDs off");
+    fpv_free(o);
+}
+
 // Host ground at y = 50 (Y up), only through the raycast callback.
 static int raycastLedge(void *, const float o[3], const float d[3], float maxDist, fpv_raycast_hit *hit) {
     if (d[1] >= 0 || o[1] < 50) return 0;
@@ -2260,6 +2286,7 @@ int main(int argc, char **argv) {
         {"replace_props", testReplaceProps},
         {"camera_fov", testCameraFov},
         {"rssi", testRssi},
+        {"led_strip", testLedStrip},
         {"raycast_ground_at_spawn", testRaycastGroundAtSpawn},
         {"pinned", testPinned},
         {"terminate_reinit", testTerminateReinit},

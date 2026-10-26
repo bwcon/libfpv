@@ -435,6 +435,7 @@ typedef struct fpv_impact {
 } fpv_impact;
 
 #define FPV_MAX_IMPACTS 16
+#define FPV_MAX_LEDS 32 /* Betaflight's LED_STRIP_MAX_LENGTH */
 #define FPV_OSD_ROWS 16
 #define FPV_OSD_COLS 30
 /* The HD canvas (Betaflight's vcd_video_system = HD, DJI O3/O4 goggles). */
@@ -502,6 +503,16 @@ typedef struct fpv_frame {
     uint32_t osd_rows;
     uint32_t osd_cols;
     uint8_t osd_hd[FPV_OSD_MAX_ROWS * FPV_OSD_MAX_COLS];
+
+    /* The flight controller's LED strip (Betaflight's LED_STRIP feature, set
+     * up in the Configurator's LED Strip tab or with the `led` CLI command):
+     * led_count LEDs in strip order, each with the colour Betaflight shows
+     * now and its cell on Betaflight's 16 x 16 LED grid. On the grid, seen
+     * from above, x runs 0..15 left to right and y 0..15 front to back.
+     * led_count is 0 when the feature is off or no LED is configured. */
+    uint32_t led_count;
+    uint8_t led_rgb[FPV_MAX_LEDS][3];
+    uint8_t led_grid[FPV_MAX_LEDS][2]; /* x, y */
 } fpv_frame;
 
 /* Advances presentation by frame_dt seconds of host time and fills `frame`.
@@ -941,7 +952,9 @@ FPV_API void fpv_audio_set_volume(float volume);
  * ======================================================================== */
 
 /* Runs Betaflight CLI commands (newline separated) and returns the output.
- * "save" is applied without reboot. "defaults", "exit", "bl", "dfu" and
+ * "save" is applied without reboot, except that a changed feature (LED_STRIP,
+ * AIRMODE) reboots Betaflight to take effect, when the drone is not armed.
+ * "defaults", "exit", "bl", "dfu" and
  * "msc" are refused. Returns FPV_ERROR_BUSY while the Configurator is in
  * CLI mode. */
 FPV_API fpv_result fpv_cli_exec(const char *commands, char **out_output);

@@ -86,7 +86,7 @@ set(BF_MAIN_SOURCES
   common/maths.c common/streambuf.c common/crc.c common/filter.c
   common/sensor_alignment.c common/bitarray.c common/printf.c
   common/printf_serial.c common/time.c common/typeconversion.c
-  common/encoding.c common/vector.c common/gps_conversion.c
+  common/encoding.c common/vector.c common/gps_conversion.c common/colorconversion.c
   config/config.c config/feature.c config/config_streamer.c
   config/config_eeprom.c config/simplified_tuning.c
   drivers/accgyro/accgyro_virtual.c drivers/accgyro/gyro_sync.c
@@ -96,7 +96,7 @@ set(BF_MAIN_SOURCES
   drivers/buf_writer.c drivers/stack_check.c drivers/io.c drivers/display.c
   drivers/light_led.c drivers/rx/rx_pwm.c drivers/pinio.c drivers/resource.c
   drivers/bus_i2c_busdev.c drivers/bus_i2c_soft.c drivers/vtx_common.c
-  drivers/vtx_table.c drivers/pwm_output.c
+  drivers/vtx_table.c drivers/pwm_output.c drivers/light_ws2811strip.c
   fc/init.c
   rx/rx.c rx/msp.c rx/msp_override.c rx/rc_stats.c
   sensors/initialisation.c sensors/compass.c sensors/acceleration.c
@@ -115,7 +115,7 @@ set(BF_MAIN_SOURCES
   flight/nav_trail.c
   flight/flight_plan_nav.c flight/flight_plan_capture.c
   io/beeper.c io/statusindicator.c io/rcdevice_cam.c io/rcdevice.c io/gps.c
-  io/displayport_msp.c io/serial_resource.c io/gps_virtual.c
+  io/displayport_msp.c io/serial_resource.c io/gps_virtual.c io/ledstrip.c
   cms/cms.c cms/cms_menu_blackbox.c cms/cms_menu_failsafe.c
   cms/cms_menu_firmware.c cms/cms_menu_gps_rescue_multirotor.c
   cms/cms_menu_imu.c cms/cms_menu_ledstrip.c cms/cms_menu_main.c
@@ -145,6 +145,7 @@ file(GLOB BFEXT_SOURCES
 list(FILTER BFEXT_SOURCES EXCLUDE REGEX "string_light\\.c$")
 list(APPEND BFEXT_SOURCES
   "${PROJECT_SOURCE_DIR}/src/core/bf_compat.c"
+  "${PROJECT_SOURCE_DIR}/src/core/bf_ledstrip.c"
   "${BFEXT_DIR}/src/main/drivers/pwm_output_fake.c"
   "${BFEXT_DIR}/src/main/drivers/sound_beeper.c"
   "${BF_DIR}/lib/main/google/olc/olc.c"

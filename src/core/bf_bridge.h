@@ -75,6 +75,11 @@ int bfb_crash_flip_active(void);
 int bfb_osd_disabled(void);
 // vcd_video_system is HD: the OSD canvas is 53 x 20 after the next boot.
 int bfb_osd_hd(void);
+/* The LED strip's last frame (src/core/bf_ledstrip.c): for each configured
+ * LED, in strip order, its colour (3 bytes RGB) and its position on
+ * Betaflight's 16 x 16 LED grid (x << 4 | y). Returns the LED count, 0 when
+ * the LED_STRIP feature is off. */
+int bfb_led_strip(uint8_t *rgb, uint8_t *xy, int max);
 /* The radio link's strength, 0..1: Betaflight's RSSI (percent) and RSSI dBm.
  * Only when no RSSI source (ADC, channel) is configured. */
 void bfb_set_link(float signal);

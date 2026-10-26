@@ -275,6 +275,12 @@ extern "C" FPV_API fpv_result fpv_drone_tick(fpv_drone *d, float frameDt, fpv_fr
     for (uint32_t r = 0; r < FPV_OSD_ROWS && r < f.osd_rows; r++)
         for (uint32_t c = 0; c < FPV_OSD_COLS && c < f.osd_cols; c++) f.osd[r * FPV_OSD_COLS + c] = f.osd_hd[r * f.osd_cols + c];
     f.osd_revision = cur.osdRevision;
+    f.led_count = (uint32_t)std::min(cur.ledCount, (int)FPV_MAX_LEDS);
+    for (uint32_t i = 0; i < f.led_count; i++) {
+        memcpy(f.led_rgb[i], &cur.ledRgb[i * 3], 3);
+        f.led_grid[i][0] = cur.ledXy[i] >> 4;
+        f.led_grid[i][1] = cur.ledXy[i] & 15;
+    }
 #if defined(LIBFPV_KAMIKAZE)
     // SIGNAL LOST is the goggles', not the flight controller's: it ignores the OSD disable switch
     if (cur.active && L.settings.kamikazeOsd && cur.warhead.state == WarheadState::Detonated) drawSignalLost(f.osd);

@@ -52,6 +52,11 @@ struct FlightSnapshot {
     std::array<uint8_t, 20 * 53> osd{};
     uint8_t osdRows = 16, osdCols = 30;
     uint32_t osdRevision = 0;
+    // LED strip in strip order: colour (RGB) and Betaflight grid cell (x << 4 | y).
+    static constexpr int kMaxLeds = 32;
+    std::array<uint8_t, kMaxLeds * 3> ledRgb{};
+    std::array<uint8_t, kMaxLeds> ledXy{};
+    int ledCount = 0;
     std::array<float, kChannelCount> channels{};
 #if defined(LIBFPV_KAMIKAZE)
     WarheadSnapshot warhead;

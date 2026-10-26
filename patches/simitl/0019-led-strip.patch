@@ -1,0 +1,14 @@
+diff --git a/extern/betaflightext/src/main/target/simITL/target.h b/extern/betaflightext/src/main/target/simITL/target.h
+index e9c8c95..52851b3 100644
+--- a/extern/betaflightext/src/main/target/simITL/target.h
++++ b/extern/betaflightext/src/main/target/simITL/target.h
+@@ -161,7 +161,8 @@ extern char* EEPROM_FILENAME;
+ #undef USE_SERIALRX_SUMD
+ #undef USE_SERIALRX_SUMH
+ #undef USE_SERIALRX_XBUS
+-#undef USE_LED_STRIP
++#define USE_LED_STRIP  // libfpv captures the strip: src/core/bf_ledstrip.c
++#define USE_LED_STRIP_STATUS_MODE
+ //#undef USE_PWM_OUTPUT
+ #undef USE_TELEMETRY_FRSKY_HUB
+ #undef USE_TELEMETRY_HOTT

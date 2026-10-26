@@ -1051,6 +1051,15 @@ FPV_API fpv_result fpv_cli_exec(const char *commands, char **outOutput) {
     if (outOutput) *outOutput = dupString(output);
     if (rc == BFB_CLI_BUSY) return setError(FPV_ERROR_BUSY, "the Betaflight Configurator is using the CLI");
     if (rc != BFB_CLI_OK) return setError(FPV_ERROR_INTERNAL, "CLI session failed");
+    // A feature turned on or off (LED_STRIP, AIRMODE) only takes effect at
+    // boot; a real "save" reboots for it. Not in flight: then at the next boot.
+    if (!(L.droneExists && L.flight.snapshot().armed) &&
+        L.runner.call([] { return bfb_features_pending() != 0; })) {
+        L.runner.call([] {
+            bfb_reboot();
+            warmUpBetaflight();
+        });
+    }
     return FPV_OK;
 }
 
