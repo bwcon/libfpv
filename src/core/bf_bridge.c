@@ -32,6 +32,7 @@
 #include "osd/osd_elements.h"
 #include "drivers/barometer/barometer_virtual.h"
 #include "pg/pg.h"
+#include "rx/rx.h"
 #include "sensors/battery.h"
 #include "scheduler/scheduler.h"
 #include "config/feature.h"
@@ -304,6 +305,20 @@ void bfb_osd_set_host_message(int index, const char *text)
     osdHostCustomMsgSet[index] = text != NULL;
     strncpy(osdHostCustomMsg[index], text ? text : "", MAX_NAME_LENGTH);
     osdHostCustomMsg[index][MAX_NAME_LENGTH] = '\0';
+}
+
+void bfb_set_link(float signal)
+{
+    // the sim's link plays the receiver protocol's part (CRSF, ELRS)
+    if (rssiSource == RSSI_SOURCE_NONE) rssiSource = RSSI_SOURCE_RX_PROTOCOL;
+    if (rssiSource != RSSI_SOURCE_RX_PROTOCOL) return;
+    if (!(signal > 0.0f)) signal = 0.0f;
+    if (signal > 1.0f) signal = 1.0f;
+    setRssiDirect((uint16_t)lrintf(signal * RSSI_MAX_VALUE), RSSI_SOURCE_RX_PROTOCOL);
+#if defined(USE_RX_RSSI_DBM)
+    // -40 dBm up close down to -115 dBm, where an ELRS link drops
+    setRssiDbmDirect((int16_t)lrintf(-40.0f - (1.0f - signal) * 75.0f), RSSI_SOURCE_RX_PROTOCOL);
+#endif
 }
 
 int bfb_osd_disabled(void)

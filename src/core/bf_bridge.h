@@ -68,6 +68,9 @@ int bfb_yaw_motors_reversed(void);
 int bfb_crash_flip_active(void);
 /* The OSD DISABLE mode is on: Betaflight clears the OSD. */
 int bfb_osd_disabled(void);
+/* The radio link's strength, 0..1: Betaflight's RSSI (percent) and RSSI dBm.
+ * Only when no RSSI source (ADC, channel) is configured. */
+void bfb_set_link(float signal);
 /* Text of OSD custom message element `index` (0..3, "Custom message N" in
  * the Configurator), drawn wherever the player put that element; up to 16
  * characters, "" draws nothing, NULL gives the element back to Betaflight. */

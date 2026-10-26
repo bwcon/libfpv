@@ -218,6 +218,47 @@ void testSharedDataDir() {
     setEnv("LIBFPV_DATA_DIR", "");
 }
 
+void testCameraFov() {
+    const float preset = fpv_camera_get_fov();
+    CHECK(preset >= 60 && preset <= 150, "preset FOV %.1f", preset);
+    CHECK(fpv_camera_set_fov(100) == FPV_OK && fpv_camera_get_fov() == 100, "set 100: %.1f", fpv_camera_get_fov());
+    CHECK(fpv_camera_set_fov(200) == FPV_ERROR_INVALID_ARGUMENT && fpv_camera_get_fov() == 100, "200 rejected");
+    CHECK(fpv_camera_set_fov(0) == FPV_OK && fpv_camera_get_fov() == preset, "0 back to the preset's");
+}
+
+// Betaflight's RSSI follows the link model: strong next to the pilot, weak far away.
+void testRssi() {
+    const int col = 2, row = 2;
+    char cmd[96];
+    std::snprintf(cmd, sizeof cmd, "set osd_rssi_pos = %d\nsave\n", col | (row << 5) | 0x800);
+    char *o = nullptr;
+    CHECK(fpv_cli_exec(cmd, &o) == FPV_OK, "show RSSI: %s", o ? o : fpv_last_error());
+    fpv_free(o);
+    Session s;
+    float p[3] = {0, 0, 0};
+    s.spawn(p);
+    auto rssi = [&] {
+        s.run(1.5f);
+        int v = 0;
+        for (int c = col; c < col + 4; c++) {
+            uint8_t g = s.f.osd[row * FPV_OSD_COLS + c];
+            if (g >= '0' && g <= '9') v = v * 10 + (g - '0');
+        }
+        return v;
+    };
+    s.run(5.0f);  // past the boot logo after the save
+    s.rc.ch[1] = 1;  // pitch up leaves a post-flight STATS screen an earlier test left
+    s.run(0.3f);
+    s.rc.ch[1] = 0;
+    int nearPilot = rssi();
+    float distant[3] = {0, 0, 3000};
+    fpv_drone_reset(s.drone, distant, nullptr);
+    int farAway = rssi();
+    std::printf("    RSSI %d next to the pilot, %d at 3 km\n", nearPilot, farAway);
+    CHECK(nearPilot >= 80 && farAway < nearPilot - 20, "RSSI %d next to the pilot, %d at 3 km", nearPilot, farAway);
+    s.destroy();
+}
+
 void testArmDisarm() {
     Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
     loadWorld(makeLevel(h, 100, 0));
@@ -2007,6 +2048,8 @@ int main(int argc, char **argv) {
         {"axes_z_up_right_in", [] { testAxes(FPV_COORDS_Z_UP_RIGHT_HANDED, 39.37f, "Z-up right-handed (in)"); }},
         {"gps", testGps},
         {"osd_audio_overlay", testOsdAudioOverlay},
+        {"camera_fov", testCameraFov},
+        {"rssi", testRssi},
         {"pinned", testPinned},
         {"terminate_reinit", testTerminateReinit},
         {"threaded", testThreadedMode},
