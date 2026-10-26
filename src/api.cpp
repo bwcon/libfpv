@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <iterator>
+#include <sstream>
 
 #include "config/bf_config.h"
 #include "core/bf_bridge.h"
@@ -63,6 +65,8 @@ void loadSettings() {
         s.audioVolume = j.value("audioVolume", s.audioVolume);
         s.osdStyle = j.value("osdStyle", s.osdStyle);
         s.osdFont = j.value("osdFont", s.osdFont);
+        s.osdLayoutHd = j.value("osdLayoutHd", s.osdLayoutHd);
+        s.osdLayoutSd = j.value("osdLayoutSd", s.osdLayoutSd);
         s.cameraUptilt = j.value("cameraUptilt", s.cameraUptilt);
         s.cameraFov = j.value("cameraFov", s.cameraFov);
         s.cameraFisheye = std::clamp(j.value("cameraFisheye", s.cameraFisheye), 0.0f, 1.0f);
@@ -109,6 +113,8 @@ void saveSettings() {
               {"audioVolume", s.audioVolume},
               {"osdStyle", s.osdStyle},
               {"osdFont", s.osdFont},
+              {"osdLayoutHd", s.osdLayoutHd},
+              {"osdLayoutSd", s.osdLayoutSd},
               {"cameraUptilt", s.cameraUptilt},
               {"cameraFov", s.cameraFov},
               {"cameraFisheye", s.cameraFisheye},
@@ -1019,6 +1025,38 @@ FPV_API fpv_osd_style fpv_osd_get_style(void) {
     return lib().initialized && bfb_osd_hd() ? FPV_OSD_STYLE_HD : FPV_OSD_STYLE_ANALOG;
 }
 
+// Betaflight's OSD_POS: column bits 0-4 plus bit 10 (columns past 31), row
+// bits 5-9, the visibility profiles from bit 11. Scales a position from one
+// canvas to another, cell centres to cell centres; crosshairs stay centred.
+static int scaleOsdPos(const std::string &name, int v, int fromCols, int fromRows, int toCols, int toRows) {
+    int col = (v & 31) | ((v & 0x400) >> 5), row = (v >> 5) & 31;
+    int c = (int)std::lround((col + 0.5) * toCols / fromCols - 0.5);
+    int r = (int)std::lround(row * double(toRows - 1) / (fromRows - 1));
+    if (name == "osd_crosshairs_pos") c = toCols / 2 - 1, r = toRows / 2 - 1;  // 3 wide
+    c = std::clamp(c, 0, toCols - 1);
+    r = std::clamp(r, 0, toRows - 1);
+    return (c & 31) | ((c << 5) & 0x400) | (r << 5) | (v & ~0x7FF);
+}
+
+// The current OSD layout as CLI lines, and the same layout scaled to the
+// other canvas. False when the CLI is busy.
+static bool osdLayouts(bool fromHd, std::string &current, std::string &scaled) {
+    std::string out;
+    if (runCli("get _pos\n", out) != BFB_CLI_OK) return false;
+    const int fc = fromHd ? 53 : 30, fr = fromHd ? 20 : 16, tc = fromHd ? 30 : 53, tr = fromHd ? 16 : 20;
+    std::istringstream lines(out);
+    for (std::string line; std::getline(lines, line);) {
+        char name[64];
+        int v;
+        if (std::sscanf(line.c_str(), "%63s = %d", name, &v) != 2) continue;
+        std::string n = name;
+        if (n.rfind("osd_", 0) != 0 || n.size() < 8 || n.compare(n.size() - 4, 4, "_pos") != 0) continue;
+        current += "set " + n + " = " + std::to_string(v) + "\n";
+        scaled += "set " + n + " = " + std::to_string(scaleOsdPos(n, v, fc, fr, tc, tr)) + "\n";
+    }
+    return true;
+}
+
 FPV_API void fpv_osd_set_style(fpv_osd_style style) {
     Lib &L = lib();
     if (!L.initialized) return;
@@ -1028,9 +1066,22 @@ FPV_API void fpv_osd_set_style(fpv_osd_style style) {
         FPV_LOGW("disarm before switching the OSD between analog and HD");
         return;
     }
-    std::string out;
-    if (runCli(hd ? "set vcd_video_system = HD\nsave noreboot\n" : "set vcd_video_system = AUTO\nsave noreboot\n", out) ==
-        BFB_CLI_BUSY) {
+    // Each canvas keeps its own layout: save this one's, then restore the
+    // other's, or scale this one over the first time that canvas is used.
+    std::string current, scaled, out;
+    if (!osdLayouts(!hd, current, scaled)) {
+        FPV_LOGW("the Betaflight Configurator is using the CLI: OSD style unchanged");
+        return;
+    }
+    std::string next;
+    {
+        std::lock_guard<std::recursive_mutex> lock(L.mutex);
+        (hd ? L.settings.osdLayoutSd : L.settings.osdLayoutHd) = current;
+        next = hd ? L.settings.osdLayoutHd : L.settings.osdLayoutSd;
+    }
+    if (next.empty()) next = scaled;
+    next += hd ? "set vcd_video_system = HD\nsave noreboot\n" : "set vcd_video_system = AUTO\nsave noreboot\n";
+    if (runCli(next, out) == BFB_CLI_BUSY) {
         FPV_LOGW("the Betaflight Configurator is using the CLI: OSD style unchanged");
         return;
     }
