@@ -923,6 +923,12 @@ FPV_API fpv_result fpv_drone_repair(fpv_drone *d) {
     return FPV_OK;
 }
 
+FPV_API fpv_result fpv_drone_replace_props(fpv_drone *d) {
+    REQUIRE_DRONE(d);
+    L.runner.call([&] { L.flight.replaceProps(); });
+    return FPV_OK;
+}
+
 FPV_API fpv_result fpv_drone_set_preset(fpv_drone *d, const char *preset) {
     REQUIRE_DRONE(d);
     if (!preset) return setError(FPV_ERROR_INVALID_ARGUMENT, "preset is NULL");

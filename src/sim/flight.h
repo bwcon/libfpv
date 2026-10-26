@@ -74,6 +74,7 @@ public:
     void repair();
     // Zeroes Betaflight's total armed time, the OSD flight timer.
     void resetFlightTime();
+    void replaceProps();  // new propellers only
     void applyPreset(const DronePreset &preset);
     const DronePreset &preset() const { return m_preset; }
 

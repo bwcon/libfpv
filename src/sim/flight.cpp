@@ -206,6 +206,13 @@ void Flight::repair() {
 #endif
 }
 
+void Flight::replaceProps() {
+#if defined(LIBFPV_KAMIKAZE)
+    if (m_warhead.detonated()) return;  // the drone is gone, not its props
+#endif
+    for (float &d : m_propDamage) d = 0;
+}
+
 #if defined(LIBFPV_KAMIKAZE)
 // The blast destroys the drone: the props are gone, the motors stop, and it
 // stays where it exploded (frozen) until it is repaired.
