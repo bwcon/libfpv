@@ -543,7 +543,7 @@ FPV_API fpv_result fpv_gps_set_home(const float position[3]);
  *     explodes; the explode switch only shows "NOT ARMED".
  *   - A switch that is already on when the drone spawns or is repaired
  *     must be turned off first.
- *   - After the explosion (OSD "SIGNAL LOST") the drone is destroyed: frame.flags
+ *   - After the explosion (OSD blank) the drone is destroyed: frame.flags
  *     has FPV_DRONE_DETONATED and FPV_DRONE_CRASHED, the wreck stays where
  *     it exploded, the motors stop, frame.video reports no signal (noise 1,
  *     signal_strength 0), and it does not arm. fpv_drone_repair() gives a
@@ -626,14 +626,14 @@ FPV_API int fpv_kamikaze_is_installed(void);
 FPV_API fpv_result fpv_kamikaze_detonate(fpv_drone *drone, int even_if_safe);
 
 enum fpv_kamikaze_config_flags {
-    /* Do not draw the warhead state (nor SIGNAL LOST) into frame.osd; the
-     * game shows it. */
+    /* Do not draw the warhead state into frame.osd nor blank it after the
+     * explosion; the game shows it. */
     FPV_KAMIKAZE_NO_OSD = 1u << 0
 };
 
 /* What the game shows right after the explosion (ending_view). */
 typedef enum fpv_kamikaze_ending_view {
-    FPV_KAMIKAZE_VIEW_SIGNAL_LOST = 0,  /* default: full static + SIGNAL LOST (OSD) */
+    FPV_KAMIKAZE_VIEW_SIGNAL_LOST = 0,  /* default: full static, OSD blank */
     FPV_KAMIKAZE_VIEW_CUTSCENE = 1      /* external game camera on the blast */
 } fpv_kamikaze_ending_view;
 

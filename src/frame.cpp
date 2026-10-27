@@ -16,19 +16,10 @@ void updatePresentation(const fpv_frame &f);  // api_present.cpp
 static_assert(FPV_CHANNEL_COUNT == kChannelCount, "fpv_frame.channels matches the input channels");
 
 #if defined(LIBFPV_KAMIKAZE)
-static void osdText(uint8_t *osd, int row, const char *text) {
-    int n = (int)std::strlen(text);
-    int col = std::max(0, (FPV_OSD_COLS - n) / 2);
-    for (int i = 0; i < n && col + i < FPV_OSD_COLS; i++) osd[row * FPV_OSD_COLS + col + i] = (uint8_t)text[i];
-}
-
 // After the explosion the camera and the transmitter are gone: the goggles
-// show only their own message, over nothing, until repaired. The warhead
-// state before that is Betaflight's custom message 1 element (Flight::step).
-static void drawSignalLost(uint8_t *osd) {
-    std::memset(osd, ' ', FPV_OSD_ROWS * FPV_OSD_COLS);
-    osdText(osd, 7, "SIGNAL LOST");
-}
+// show only static, with no OSD, until repaired. The warhead state before
+// that is Betaflight's custom message 1 element (Flight::step).
+static void clearOsd(uint8_t *osd) { std::memset(osd, ' ', FPV_OSD_ROWS * FPV_OSD_COLS); }
 #endif
 
 static void put3(float out[3], Vec3 v) {
@@ -271,9 +262,9 @@ extern "C" FPV_API fpv_result fpv_drone_tick(fpv_drone *d, float frameDt, fpv_fr
     memcpy(f.osd, cur.osd.data(), sizeof(f.osd));
     f.osd_revision = cur.osdRevision;
 #if defined(LIBFPV_KAMIKAZE)
-    // SIGNAL LOST is the goggles', not the flight controller's: it ignores the OSD disable switch
-    if (cur.active && L.settings.kamikazeOsd && cur.warhead.state == WarheadState::Detonated) drawSignalLost(f.osd);
-    // Betaflight's revision cannot see SIGNAL LOST: count changes here
+    // no flight controller OSD over the lost feed, whatever the OSD disable switch
+    if (cur.active && L.settings.kamikazeOsd && cur.warhead.state == WarheadState::Detonated) clearOsd(f.osd);
+    // Betaflight's revision cannot see the cleared grid: count changes here
     if (memcmp(L.kamikazeOsd, f.osd, sizeof(f.osd)) != 0) {
         memcpy(L.kamikazeOsd, f.osd, sizeof(f.osd));
         L.kamikazeOsdRevision++;

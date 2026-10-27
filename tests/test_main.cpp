@@ -1454,6 +1454,12 @@ bool osdHas(const fpv_frame &f, const char *text) {
     return false;
 }
 
+bool osdBlank(const fpv_frame &f) {
+    for (int i = 0; i < FPV_OSD_ROWS * FPV_OSD_COLS; i++)
+        if (f.osd[i] != ' ') return false;
+    return true;
+}
+
 fpv_kamikaze_state warhead(fpv_drone *d) {
     fpv_kamikaze_state k{};
     k.struct_size = sizeof k;
@@ -1574,7 +1580,7 @@ void testKamikazeImpact() {
     CHECK(s.f.video.signal_strength == 0 && s.f.video.noise == 1, "no video signal");
     CHECK(s.f.motors[0].rpm < 1, "motors stopped (%.0f rpm)", s.f.motors[0].rpm);
     CHECK(warhead(s.drone).detonation_count >= 1, "counted");
-    CHECK(osdHas(s.f, "SIGNAL LOST"), "OSD shows SIGNAL LOST");
+    CHECK(osdBlank(s.f), "OSD blank after the explosion");
     float frozen[3];
     std::memcpy(frozen, s.f.position, sizeof frozen);
     s.rc.ch[4] = 1;
@@ -1626,12 +1632,11 @@ void testKamikazeExplodeSwitch() {
     CHECK(warhead(s.drone).warhead == FPV_WARHEAD_ARMED, "live after the 1 s delay");
     s.rc.ch[kExplode] = 1;
     bool boom = false;
-    s.run(0.2f, [&](float) { boom |= osdHas(s.f, "SIGNAL LOST"); });
+    s.run(0.2f, [&](float) { boom |= osdBlank(s.f); });
     fpv_detonation d{};
     CHECK(drainDetonations(&d) == 1 && d.cause == FPV_DETONATION_SWITCH, "explode switch detonates (cause %d)", d.cause);
     CHECK(h.up(d.position) > 1, "in the air, %.1f m", h.up(d.position));
-    CHECK(boom, "OSD shows SIGNAL LOST");
-    CHECK(!osdHas(s.f, "BOMB_ARMED"), "rest of the OSD gone");
+    CHECK(boom, "OSD blank after the explosion");
 
     // forced host detonation of a safe warhead
     fpv_drone_repair(s.drone);

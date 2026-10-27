@@ -193,7 +193,7 @@ while (fpv_kamikaze_poll_detonation(&d)) {
 
 While destroyed (`frame.flags & FPV_DRONE_DETONATED`), the wreck sits frozen
 where it exploded, the props are broken, `frame.video` reports no signal,
-the OSD shows only `SIGNAL LOST` (even with the OSD disable switch on), and
+the OSD is blank (whatever the OSD disable switch), and
 the drone does not arm. Don't draw the drone model.
 
 Then comes the **ending**, which the player chooses in F8 > Kamikaze (saved
@@ -202,11 +202,11 @@ moment `fpv_kamikaze_poll_detonation` returns the detonation:
 
 1. **View** (`c.ending_view`), what the screen shows:
    - `FPV_KAMIKAZE_VIEW_SIGNAL_LOST` (default): the FPV view, with full
-     static while `FPV_DRONE_DETONATED` is set and `SIGNAL LOST` over it
-     from the OSD, like a real lost feed. Consider hiding the game's own UI
+     static while `FPV_DRONE_DETONATED` is set and a blank OSD, like a
+     real lost feed. Consider hiding the game's own UI
      too, as while `FPV_DRONE_OSD_DISABLED` is set
      ([OSD disable switch](#osd-disable-switch)), so the screen shows only
-     the static and `SIGNAL LOST`.
+     the static.
    - `FPV_KAMIKAZE_VIEW_CUTSCENE`: the game camera shows the explosion from
      another angle (an external shot of the blast).
 2. **Duration** (`c.ending_duration`, 0..30 s, default 3): how long the view

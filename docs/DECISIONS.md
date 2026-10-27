@@ -769,11 +769,11 @@ X (explode, held), the gamepad West (toggle) and the right shoulder.
 **After the explosion** the drone is destroyed but not deleted, so every
 kind of game can build on it: the wreck stays frozen where it exploded,
 the props are broken (CRASHED), the motors are stopped, AUX1 is held low,
-the video reports no signal (noise 1, signal 0), and the OSD shows only
-"SIGNAL LOST" until the repair, the way goggles do when the video drops. It
-is the goggles' message, not the flight controller's, so the OSD disable
-switch doesn't hide it; games can still draw their own with
-`FPV_KAMIKAZE_NO_OSD`. `fpv_drone_repair` is the new drone with a
+the video reports no signal (noise 1, signal 0), and the OSD is blank
+until the repair: with the video transmitter gone, the goggles show only
+static. libfpv used to write "SIGNAL LOST" in the middle of it; that was
+dropped so the screen is just the static. Games can still draw their own
+OSD with `FPV_KAMIKAZE_NO_OSD`. `fpv_drone_repair` is the new drone with a
 new, safe warhead. libfpv never respawns on its own: whether the game
 cuts to a cutscene, respawns at once, or leaves the pilot on static until
 they take the next drone is the game's choice (INTEGRATION.md, "Kamikaze
@@ -799,10 +799,9 @@ patch 0003. The text is centred in a 10-character field so it stays put as
 it changes, the field defaults to columns 10..19 of row 3, and EEPROM
 upgrade `bomb-osd-4` shows it there unless the player already placed it.
 Blinking is 1 Hz because Betaflight redraws the simulated OSD only every
-~0.3 s. `SIGNAL LOST` (row 7) is still drawn by libfpv over a blank grid:
-it is the goggles' message, not the flight controller's. Both can be
+~0.3 s. After the blast libfpv blanks the grid itself. Both can be
 turned off (`FPV_KAMIKAZE_NO_OSD`) for games that draw their own, and
-since Betaflight's `osd_revision` cannot see `SIGNAL LOST`, kamikaze
+since Betaflight's `osd_revision` cannot see the blanked grid, kamikaze
 builds count revisions of the composed grid instead.
 
 **Payload.** The warhead is real weight. Its mass is added to the quad's
