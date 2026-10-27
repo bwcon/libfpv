@@ -1,6 +1,6 @@
 <p><img src="docs/img/libfpv-logo.svg" alt="libfpv" width=250></p>
 
-# Turn any game into an FPV simulator
+# FPV Drone in Any Game
 
 <p><img src="https://raw.githubusercontent.com/hammerill/sm64ex-fpv/nightly/sm64-fpv.gif" alt="SM64 FPV" width=512></p>
 
