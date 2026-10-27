@@ -39,7 +39,6 @@ set osd_current_pos = 2166
 set osd_mah_drawn_pos = 2200
 set osd_craft_name_pos = 2081
 set osd_pilot_name_pos = 2538
-set osd_custom_msg0_pos = 2528
 set osd_gps_speed_pos = 2444
 set osd_home_dir_pos = 2478
 set osd_home_dist_pos = 2508
