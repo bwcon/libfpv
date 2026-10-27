@@ -41,6 +41,9 @@ struct ChannelBinding {
     float min = -1, center = 0, max = 1;  // calibrated raw endpoints
     // switches can also be bound to buttons: value = +1 while pressed
     int button = -1;
+    // a push button (or momentary switch) that stands in for a switch: each
+    // press flips the channel on or off
+    bool toggle = false;
     // AUX switches on an axis are positions: "on" at one raw value, "off" at
     // rest. Several switches can share one multi-position switch.
     float switchOn() const { return inverted ? min : max; }
@@ -203,6 +206,9 @@ private:
     bool m_padBomb = false, m_padBombPrev = false;
 #endif
     float m_lastOut[kChannelCount];
+    // toggle bindings of the active radio: pressed last update, and on/off
+    std::array<bool, kChannelCount> m_togglePressed{}, m_toggleOn{};
+    std::string m_toggleGuid;
 
     InputStatus m_status;
     std::string m_activeGuid;

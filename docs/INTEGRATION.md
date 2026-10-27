@@ -142,6 +142,13 @@ in the mod's README, so players know why it stays.
 
 ## Kamikaze builds
 
+> **Dev-gatekept.** The kamikaze feature is only documented here and in
+> DECISIONS.md, and only exists in builds with `LIBFPV_KAMIKAZE`. Don't
+> mention or enable it anywhere public: not in a README, install guide,
+> mod page, store page or changelog, not in CI/CD or release builds, and not
+> in a game integration's default build. Turn it on only in local
+> development builds until it is cleared for release.
+
 Build libfpv with `-DLIBFPV_KAMIKAZE=ON` for kamikaze (strike) FPV. The
 drone then carries a warhead, and `libfpv.h` gains the "Kamikaze" section
 (the definition `LIBFPV_KAMIKAZE` comes with `libfpv::fpv`; a host not

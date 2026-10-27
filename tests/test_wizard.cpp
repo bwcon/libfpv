@@ -228,9 +228,62 @@ void testSkipOptionalSwitches() {
 #endif
 }
 
+// Push buttons stand in for switches: pressed and released before Next, the
+// wizard still knows them, and the binding toggles.
+void testPushButtons() {
+    FakeRadio r;
+    RadioWizard w;
+    w.start(r.d);
+    step(w, r);
+    for (int a : {2, 3, 1, 0}) {
+        r.d.axes[a] = 1;
+        step(w, r);
+        r.d.axes[a] = a == 2 ? -1 : 0;
+    }
+    for (float v : {-1.0f, 1.0f, 0.0f}) {
+        for (int a = 0; a < 4; a++) r.d.axes[a] = v;
+        w.update(r.d);
+    }
+    r.d.axes[0] = r.d.axes[1] = r.d.axes[3] = 0;
+    r.d.axes[2] = -1;
+    step(w, r);
+    CHECK(w.isSwitchStep() && !w.momentary(), "arm step, a switch by default");
+    // a switch released before Next is forgotten
+    r.d.axes[4] = 1;
+    w.update(r.d);
+    r.d.axes[4] = -1;
+    CHECK(!step(w, r), "a released switch is not taken");
+    // a momentary switch on an axis: pressed half way, then all the way, then released
+    w.setMomentary(true);
+    r.d.axes[4] = 0.5f;
+    w.update(r.d);
+    r.d.axes[4] = 1;
+    w.update(r.d);
+    r.d.axes[4] = -1;
+    w.update(r.d);
+    CHECK(w.detected(), "the press is kept after the release");
+    CHECK(step(w, r), "arm on a push button axis");
+    const ChannelBinding &arm = w.mapping().channels[kAux1];
+    CHECK(arm.axis == 4 && arm.toggle && arm.switchOn() == 1, "arm: axis %d, toggle %d, on at %.1f", arm.axis,
+          arm.toggle, arm.switchOn());
+    CHECK(!w.momentary(), "the next step is a switch again");
+    // a real button, pressed and released
+    w.setMomentary(true);
+    r.d.buttons[1] = 1;
+    w.update(r.d);
+    r.d.buttons[1] = 0;
+    CHECK(step(w, r), "angle on a button");
+    const ChannelBinding &angle = w.mapping().channels[kAux2];
+    CHECK(angle.button == 1 && angle.toggle && !angle.inverted, "angle: button %d, toggle %d, inverted %d",
+          angle.button, angle.toggle, angle.inverted);
+    w.back();
+    CHECK(w.mapping().channels[kAux2].button < 0 && !w.momentary(), "back clears the button");
+}
+
 int main() {
     testSharedThreePositionSwitch();
     testSkipOptionalSwitches();
+    testPushButtons();
     testMiddleOnly();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;

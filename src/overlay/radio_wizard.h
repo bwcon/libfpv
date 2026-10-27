@@ -69,6 +69,14 @@ public:
 
     const DeviceMapping &mapping() const { return m_mapping; }
 
+    // Switch steps: the control is a push button (or a momentary switch),
+    // pressed rather than held. Detection keeps what it saw after the
+    // release, and the channel toggles on each press (the explode switch
+    // stays on while pressed).
+    bool isSwitchStep() const { return m_step >= Step::ArmSwitch && m_step <= lastSwitch(); }
+    bool momentary() const { return m_momentary; }
+    void setMomentary(bool on);
+
 private:
     struct Candidate {
         int axis = -1, button = -1;
@@ -93,6 +101,7 @@ private:
     std::vector<float> m_min, m_max;
     int m_candidate = -1;  // axis index, or 1000 + button
     float m_candidateValue = 0;
+    bool m_momentary = false;  // the current switch step is a push button
 };
 
 }  // namespace fpv

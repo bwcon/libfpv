@@ -53,15 +53,6 @@ engine or mod loader.
   web page. The game and libfpv compile to WebAssembly, and players fly from
   a link with nothing to install. Radio, keys, overlay, OSD, sound and saved
   settings all work in the browser ([docs/WEB.md](docs/WEB.md)).
-- **Kamikaze builds** (optional, `-DLIBFPV_KAMIKAZE=ON`). The drone can
-  carry a warhead with real weight, installed from the overlay or by the
-  game, on a bomb arm switch (AUX7) and an explode switch (AUX8). The motors
-  won't arm with the bomb switch on, and an arming delay can be set. Once
-  live, a contact fuse sets it off on any touch. A movable OSD element shows
-  `BOMB_SAFE`, `BOMB_ARMED` and the like, the screen shows only static after the
-  blast, and the game gets the detonation to play its own explosion, then
-  the ending the player picks in the overlay's Kamikaze tab (signal lost or
-  a cutscene, for how long, then respawn, recall or nothing).
 
 ## Building
 
@@ -98,7 +89,6 @@ The default build type is `Release`. Outputs in the build directory:
 | `LIBFPV_WITH_OVERLAY` | `ON` | Build the Dear ImGui overlay |
 | `LIBFPV_BUILD_TESTS` | `ON` | Build the test suite |
 | `LIBFPV_BUILD_EXAMPLES` | `ON` | Build the examples |
-| `LIBFPV_KAMIKAZE` | `OFF` | Kamikaze FPV: a warhead with bomb arm and explode switches ([details](docs/INTEGRATION.md#kamikaze-builds)) |
 
 ### Windows
 
@@ -207,11 +197,7 @@ throttle rises exponentially to full; its speed is set there too), S cuts
 the throttle, and no key (or both) hovers at a throttle learned in flight
 for each drone. T toggles turtle mode: to
 flip a crashed drone back over, turn it on, arm, hold an arrow key until
-it lands upright, then turn turtle off to fly away. In a kamikaze build, K
-is the bomb arm switch, X explodes and R also skips the ending; the ending
-is set in F8 > Kamikaze or with `--view signal|cutscene`, `--duration S`
-and `--then respawn|nothing`, and `--kamikaze-demo` flies a scripted strike
-that checks every rule and the ending options.
+it lands upright, then turn turtle off to fly away.
 Settings, EEPROMs and the
 selected preset are stored in `./data` (change it with
 `--data <dir>`).

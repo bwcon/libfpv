@@ -103,6 +103,7 @@ void InputManager::loadMappings() {
                 b.axis = chs[i].value("axis", -1);
                 b.button = chs[i].value("button", -1);
                 b.inverted = chs[i].value("inverted", false);
+                b.toggle = chs[i].value("toggle", false);
                 b.min = chs[i].value("min", -1.0f);
                 b.center = chs[i].value("center", 0.0f);
                 b.max = chs[i].value("max", 1.0f);
@@ -127,7 +128,7 @@ void InputManager::saveMappings() {
         jm["channels"] = json::array();
         for (auto &b : m.channels) {
             jm["channels"].push_back({{"axis", b.axis}, {"button", b.button}, {"inverted", b.inverted},
-                                      {"min", b.min}, {"center", b.center}, {"max", b.max}});
+                                      {"toggle", b.toggle}, {"min", b.min}, {"center", b.center}, {"max", b.max}});
         }
         j["devices"].push_back(jm);
     }
@@ -153,6 +154,7 @@ void InputManager::setMapping(const DeviceMapping &mapping) {
     } else {
         m_mappings.push_back(mapping);
     }
+    m_toggleGuid.clear();  // toggles start off with the new mapping
     saveMappings();
 }
 
@@ -185,6 +187,11 @@ static float applyCalibration(const ChannelBinding &b, float raw) {
 }
 
 bool InputManager::mapRadio(const RawDevice &d, const DeviceMapping &m, float out[kChannelCount]) {
+    if (m_toggleGuid != m.guid) {
+        m_toggleGuid = m.guid;
+        m_togglePressed.fill(false);
+        m_toggleOn.fill(false);
+    }
     for (int c = 0; c < kChannelCount; c++) {
         const ChannelBinding &b = m.channels[c];
         float v = (c == kThrottle || c >= kAux1) ? -1.0f : 0.0f;
@@ -193,6 +200,13 @@ bool InputManager::mapRadio(const RawDevice &d, const DeviceMapping &m, float ou
         } else if (b.button >= 0 && b.button < (int)d.buttons.size()) {
             bool pressed = d.buttons[b.button] != 0;
             v = (pressed != b.inverted) ? 1.0f : -1.0f;
+        }
+        if (b.toggle && c >= kAux1) {
+            // a press (not the release) flips the switch
+            bool pressed = v > 0;
+            if (pressed && !m_togglePressed[c]) m_toggleOn[c] = !m_toggleOn[c];
+            m_togglePressed[c] = pressed;
+            v = m_toggleOn[c] ? 1.0f : -1.0f;
         }
         out[c] = v;
     }
@@ -395,6 +409,8 @@ void InputManager::update(double wallTime, float dt, float out[kChannelCount], b
         ch[kRoll] = ch[kPitch] = ch[kYaw] = 0;
         ch[kThrottle] = -1;
         ch[kAux1] = -1;
+        // presses while setting up do not flip toggles for the flight after
+        m_toggleGuid.clear();
     }
     std::copy(ch, ch + kChannelCount, out);
     if (!radioLost) std::copy(ch, ch + kChannelCount, m_lastOut);

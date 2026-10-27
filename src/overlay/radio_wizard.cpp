@@ -23,6 +23,12 @@ void RadioWizard::start(const RawDevice &dev) {
     m_min = dev.axes;
     m_max = dev.axes;
     m_candidate = -1;
+    m_momentary = false;
+}
+
+void RadioWizard::setMomentary(bool on) {
+    m_momentary = on;
+    m_candidate = -1;
 }
 
 #if defined(LIBFPV_KAMIKAZE)
@@ -163,7 +169,18 @@ void RadioWizard::update(const RawDevice &dev) {
     }
     if (channelForStep(m_step) >= 0) {
         bool sw = m_step >= Step::ArmSwitch;
+        int prev = m_candidate;
+        float prevValue = m_candidateValue;
         detectAxis(dev, sw);
+        if (sw && m_momentary && prev >= 0) {
+            // a button springs back: keep what was pressed, at its furthest
+            if (m_candidate < 0 ||
+                (m_candidate == prev && prev < 1000 &&
+                 std::fabs(prevValue - m_rest[prev]) > std::fabs(m_candidateValue - m_rest[prev]))) {
+                m_candidate = prev;
+                m_candidateValue = prevValue;
+            }
+        }
         // keep endpoints up to date for sticks while they are moved
         for (size_t i = 0; i < dev.axes.size() && i < m_min.size(); i++) {
             m_min[i] = std::min(m_min[i], dev.axes[i]);
@@ -218,12 +235,18 @@ bool RadioWizard::next(std::string &hint) {
     int ch = channelForStep(m_step);
     if (ch < 0) return false;
     if (m_candidate < 0) {
-        hint = m_step >= Step::ArmSwitch ? "Flip the switch first (the wizard has not seen it move yet)."
+        hint = m_step >= Step::ArmSwitch ? (m_momentary ? "Press the button first (the wizard has not seen it yet)."
+                                                        : "Flip the switch first (the wizard has not seen it move yet).")
                                          : "Move the stick as shown and hold it there.";
         return false;
     }
     ChannelBinding &b = m_mapping.channels[ch];
     b = ChannelBinding{};
+#if defined(LIBFPV_KAMIKAZE)
+    b.toggle = m_momentary && m_step != Step::ExplodeSwitch;
+#else
+    b.toggle = m_momentary;
+#endif
     if (m_candidate >= 1000) {
         b.button = m_candidate - 1000;
         // the switch is "on" in its current (flipped) position
@@ -247,6 +270,7 @@ bool RadioWizard::next(std::string &hint) {
         }
     }
     m_candidate = -1;
+    m_momentary = false;
     switch (m_step) {
     case Step::Throttle: m_step = Step::Yaw; break;
     case Step::Yaw: m_step = Step::Pitch; break;
@@ -273,6 +297,7 @@ void RadioWizard::skip() {
     if (!canSkip()) return;
     m_mapping.channels[channelForStep(m_step)] = ChannelBinding{};
     m_candidate = -1;
+    m_momentary = false;
     if (m_step == lastSwitch()) {
         m_step = Step::Done;
         m_mapping.complete = true;
@@ -294,6 +319,7 @@ void RadioWizard::back() {
     int ch = channelForStep(m_step);
     if (ch >= 0) m_mapping.channels[ch] = ChannelBinding{};
     m_candidate = -1;
+    m_momentary = false;
     m_mapping.complete = false;
 }
 
@@ -379,6 +405,7 @@ const char *RadioWizard::instruction() const {
 std::string RadioWizard::detectedLabel() const {
     if (m_candidate < 0) return "";
     if (m_candidate >= 1000) return "button " + std::to_string(m_candidate - 1000 + 1);
+    if (m_momentary) return "axis " + std::to_string(m_candidate + 1) + ", button";
     float rest = m_rest[m_candidate];
     std::string label = "axis " + std::to_string(m_candidate + 1);
     if (m_step >= Step::ArmSwitch) {

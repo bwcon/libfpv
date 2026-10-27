@@ -402,6 +402,22 @@ void Overlay::wizardUi(const std::vector<RawDevice> &devs) {
         else
             ImGui::TextDisabled("Waiting for movement...");
     }
+    if (m_wizard.isSwitchStep()) {
+        bool momentary = m_wizard.momentary();
+        if (ImGui::Checkbox("It's a button, not a switch (press it, don't hold it)", &momentary))
+            m_wizard.setMomentary(momentary);
+        if (ImGui::IsItemHovered()) {
+#if defined(LIBFPV_KAMIKAZE)
+            if (m_wizard.step() == RadioWizard::Step::ExplodeSwitch)
+                ImGui::SetTooltip("For a push button or a spring-loaded switch: press it once and let go, the wizard "
+                                  "remembers it. It explodes while pressed.");
+            else
+#endif
+                ImGui::SetTooltip("For a push button or a spring-loaded switch, which only reads as flipped while "
+                                  "held: press it once and let go, the wizard remembers it. In flight each press "
+                                  "turns this switch on or off.");
+        }
+    }
     if (m_wizard.step() == RadioWizard::Step::Done) {
         if (!m_wizardSaved) {
             // persisted once; flight input switches to the mapped radio
