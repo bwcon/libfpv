@@ -93,6 +93,7 @@ private:
     std::string m_fontError;  // the last font that failed to load
     std::string m_cliInput, m_cliOutput;
     int m_osdSelected = 0;
+    std::string m_osdDefaultMsg;  // the default layout buttons' result
     struct LedState {
         bool on = false;
         std::vector<std::string> leds;  // "x,y:dirs:functions" of each configured LED

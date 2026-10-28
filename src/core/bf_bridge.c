@@ -357,6 +357,11 @@ void bfb_set_link(float signal)
 #endif
 }
 
+void bfb_osd_restart(void)
+{
+    osdRestart();
+}
+
 int bfb_osd_hd(void)
 {
 #if defined(USE_OSD_HD)

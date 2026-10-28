@@ -76,6 +76,10 @@ void loadSettings() {
         s.osdFont = j.value("osdFont", s.osdFont);
         s.osdLayoutHd = j.value("osdLayoutHd", s.osdLayoutHd);
         s.osdLayoutSd = j.value("osdLayoutSd", s.osdLayoutSd);
+        s.osdDefaultHd = j.value("osdDefaultHd", s.osdDefaultHd);
+        s.osdDefaultSd = j.value("osdDefaultSd", s.osdDefaultSd);
+        s.ledGlowBrightness = std::clamp(j.value("ledGlowBrightness", s.ledGlowBrightness), 0.0f, 3.0f);
+        s.ledGlowReach = std::clamp(j.value("ledGlowReach", s.ledGlowReach), 0.25f, 3.0f);
         s.cameraUptilt = j.value("cameraUptilt", s.cameraUptilt);
         s.cameraFov = j.value("cameraFov", s.cameraFov);
         s.cameraFisheye = std::clamp(j.value("cameraFisheye", s.cameraFisheye), 0.0f, 1.0f);
@@ -127,6 +131,10 @@ void saveSettings() {
               {"osdFont", s.osdFont},
               {"osdLayoutHd", s.osdLayoutHd},
               {"osdLayoutSd", s.osdLayoutSd},
+              {"osdDefaultHd", s.osdDefaultHd},
+              {"osdDefaultSd", s.osdDefaultSd},
+              {"ledGlowBrightness", s.ledGlowBrightness},
+              {"ledGlowReach", s.ledGlowReach},
               {"cameraUptilt", s.cameraUptilt},
               {"cameraFov", s.cameraFov},
               {"cameraFisheye", s.cameraFisheye},
@@ -227,6 +235,13 @@ static void applyFirstRunConfig(const DronePreset &p) {
     char *out = nullptr;
     bfb_cli_run(script.c_str(), &out);
     bfb_free(out);
+    // the pilot's default OSD layout, for the canvas the new model has now
+    const Settings &st = lib().settings;
+    const std::string &layout = bfb_osd_hd() ? st.osdDefaultHd : st.osdDefaultSd;
+    if (!layout.empty()) {
+        bfb_cli_run((layout + "save noreboot\n").c_str(), &out);
+        bfb_free(out);
+    }
     writeFileAtomic(upgradeMarker(eepromPathFor(p)), kEepromUpgrade);
     FPV_LOGI("created Betaflight configuration for \"%s\" (%s)", p.name.c_str(), eepromPathFor(p).c_str());
 }
@@ -516,6 +531,7 @@ static void warmUpBetaflight() {
         steps++;
     }
     FPV_LOGD("Betaflight warm-up: %.2f s simulated in %.0f ms", steps * dt, (wallSeconds() - t0) * 1000.0);
+    bfb_osd_restart();  // the warm-up used up the boot logo's seconds: show it again
 }
 
 // --- exit handling -----------------------------------------------------------
@@ -951,6 +967,7 @@ FPV_API fpv_result fpv_drone_create(const fpv_drone_desc *descIn, fpv_drone **ou
         L.flight.spawn(preset, {0, 0, 0}, rot, pilot);
         at = pos + rotate(rot, Vec3{0, L.flight.restHeight() + 0.002f, 0});
         L.flight.teleport(at, rot);
+        bfb_osd_restart();  // a new drone powers up: the boot logo
     });
     L.droneExists = true;
     L.input.takeRespawnRequest();  // a flip with no drone does not respawn the new one
@@ -1105,13 +1122,22 @@ FPV_API fpv_osd_style fpv_osd_get_style(void) {
     return lib().initialized && bfb_osd_hd() ? FPV_OSD_STYLE_HD : FPV_OSD_STYLE_ANALOG;
 }
 
+// One axis of an OSD position, from a canvas `from` cells long to one `to`
+// cells long. Within `edge` cells of a border an element keeps its distance
+// to it, so what lines up with the left or right (top or bottom) still does;
+// the middle scales, cell centres to cell centres.
+static int scaleOsdAxis(int v, int from, int to, int edge) {
+    if (v < edge) return v;
+    if (v >= from - edge) return v - from + to;
+    return edge + (int)std::lround((v - edge + 0.5) * (to - 2 * edge) / double(from - 2 * edge) - 0.5);
+}
+
 // Betaflight's OSD_POS: column bits 0-4 plus bit 10 (columns past 31), row
 // bits 5-9, the visibility profiles from bit 11. Scales a position from one
-// canvas to another, cell centres to cell centres; crosshairs stay centred.
+// canvas to another; crosshairs stay centred.
 static int scaleOsdPos(const std::string &name, int v, int fromCols, int fromRows, int toCols, int toRows) {
     int col = (v & 31) | ((v & 0x400) >> 5), row = (v >> 5) & 31;
-    int c = (int)std::lround((col + 0.5) * toCols / fromCols - 0.5);
-    int r = (int)std::lround(row * double(toRows - 1) / (fromRows - 1));
+    int c = scaleOsdAxis(col, fromCols, toCols, 8), r = scaleOsdAxis(row, fromRows, toRows, 4);
     if (name == "osd_crosshairs_pos") c = toCols / 2 - 1, r = toRows / 2 - 1;  // 3 wide
     c = std::clamp(c, 0, toCols - 1);
     r = std::clamp(r, 0, toRows - 1);
@@ -1125,6 +1151,7 @@ static bool osdLayouts(bool fromHd, std::string &current, std::string &scaled) {
     if (runCli("get _pos\n", out) != BFB_CLI_OK) return false;
     const int fc = fromHd ? 53 : 30, fr = fromHd ? 20 : 16, tc = fromHd ? 30 : 53, tr = fromHd ? 16 : 20;
     std::istringstream lines(out);
+    std::vector<int> taken;  // start cells of the visible scaled elements, row * 64 + column
     for (std::string line; std::getline(lines, line);) {
         char name[64];
         int v;
@@ -1132,10 +1159,66 @@ static bool osdLayouts(bool fromHd, std::string &current, std::string &scaled) {
         std::string n = name;
         if (n.rfind("osd_", 0) != 0 || n.size() < 8 || n.compare(n.size() - 4, 4, "_pos") != 0) continue;
         current += "set " + n + " = " + std::to_string(v) + "\n";
-        scaled += "set " + n + " = " + std::to_string(scaleOsdPos(n, v, fc, fr, tc, tr)) + "\n";
+        int s = scaleOsdPos(n, v, fc, fr, tc, tr);
+        if (v & 0x3800) {
+            // two visible elements on one start cell: the later one moves up
+            // or down a row, towards the middle first
+            int c = (s & 31) | ((s & 0x400) >> 5), r = (s >> 5) & 31;
+            int dir = r < tr / 2 ? 1 : -1;
+            for (int k = 0; k <= 4; k++) {
+                int rr = r + (k % 2 ? dir : -dir) * ((k + 1) / 2);
+                if (rr < 0 || rr >= tr || std::find(taken.begin(), taken.end(), rr * 64 + c) != taken.end()) continue;
+                s = (s & ~(31 << 5)) | (rr << 5);
+                taken.push_back(rr * 64 + c);
+                break;
+            }
+        }
+        scaled += "set " + n + " = " + std::to_string(s) + "\n";
     }
     return true;
 }
+
+// declared in lib.h: C++ linkage inside this extern "C" block
+extern "C++" {
+bool fpv::saveDefaultOsdLayout() {
+    Lib &L = lib();
+    const bool hd = bfb_osd_hd() != 0;
+    std::string current, scaled;
+    if (!osdLayouts(hd, current, scaled)) return false;
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    Settings &s = L.settings;
+    s.osdDefaultHd = s.osdLayoutHd = hd ? current : scaled;
+    s.osdDefaultSd = s.osdLayoutSd = hd ? scaled : current;
+    saveSettings();
+    return true;
+}
+
+int fpv::applyDefaultOsdLayoutToAll() {
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    if (L.droneExists && L.flight.snapshot().armed) return -1;
+    if (L.settings.osdDefaultHd.empty() && L.settings.osdDefaultSd.empty()) return 0;
+    const DronePreset current = currentPreset();
+    int done = 0;
+    // one model's EEPROM after the other, then back to the current model's
+    L.runner.call([&] {
+        for (const DronePreset &p : L.presets) {
+            std::error_code ec;
+            if (!std::filesystem::exists(pathFromUtf8(eepromPathFor(p)), ec)) continue;
+            activateEepromFor(p);
+            const std::string &layout = bfb_osd_hd() ? L.settings.osdDefaultHd : L.settings.osdDefaultSd;
+            if (layout.empty()) continue;
+            char *out = nullptr;
+            bfb_cli_run((layout + "save noreboot\n").c_str(), &out);
+            bfb_free(out);
+            done++;
+        }
+        activateEepromFor(current);
+    });
+    FPV_LOGI("default OSD layout written to %d models", done);
+    return done;
+}
+}  // extern "C++"
 
 FPV_API void fpv_osd_set_style(fpv_osd_style style) {
     Lib &L = lib();
@@ -1202,6 +1285,13 @@ FPV_API fpv_result fpv_import_betaflight_diff(const char *diff, char **outReport
     FPV_LOGI("imported Betaflight diff: %zu applied, %zu skipped", imp.applied.size(), imp.skipped.size());
     if (outReport) *outReport = dupString(report);
     return rc == BFB_CLI_OK ? FPV_OK : setError(FPV_ERROR_INTERNAL, "CLI session failed");
+}
+
+FPV_API void fpv_led_get_light(float *brightness, float *reach) {
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    if (brightness) *brightness = L.settings.ledGlowBrightness;
+    if (reach) *reach = L.settings.ledGlowReach;
 }
 
 FPV_API void fpv_led_set_default_color(int index) {

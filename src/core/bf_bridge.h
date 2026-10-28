@@ -87,6 +87,8 @@ void bfb_set_link(float signal);
  * the Configurator), drawn wherever the player put that element; up to 16
  * characters, "" draws nothing, NULL gives the element back to Betaflight. */
 void bfb_osd_set_host_message(int index, const char *text);
+/* Shows the boot logo again for its few seconds, as after a power-up. */
+void bfb_osd_restart(void);
 /* Calibration, RX recovery or boot grace still pending. */
 int bfb_settling(void);
 

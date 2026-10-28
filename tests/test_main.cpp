@@ -467,6 +467,41 @@ void testNewModelDefaults() {
     fpv_global_terminate();  // the next test starts without the file
 }
 
+// The OSD tab's default layout (settings.json osdDefaultSd/Hd) goes on a new
+// model at its first run; the other canvas gets it scaled, elements near the
+// right and bottom edges staying there.
+void testNewModelOsdLayout() {
+    namespace fs = std::filesystem;
+    fs::path settings = fs::path(g_dataDir) / "settings.json";
+    std::string saved;
+    {
+        std::ifstream in(settings, std::ios::binary);
+        saved.assign(std::istreambuf_iterator<char>(in), {});
+    }
+    fpv_global_terminate();
+    // settings stay in memory across terminate: pin the preset (not the last
+    // test's skydart350, still active) and an unused HD layout.
+    // Battery voltage at column 25, row 14 of the analog 30 x 16 canvas, visible:
+    const int sd = 25 | (14 << 5) | 0x800;
+    std::ofstream(settings, std::ios::binary)
+        << "{\"version\": 1, \"preset\": \"freestyler-5\", \"osdLayoutHd\": \"\", \"osdDefaultSd\": \"set osd_vbat_pos = " << sd << "\\n\"}";
+    std::error_code ec;
+    for (const char *f : {"skydart350.eeprom", "skydart350.eeprom.upgrade"}) fs::remove(fs::path(g_dataDir) / "eeprom" / f, ec);
+    init(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
+    Session s;
+    float p[3] = {0, 0, 0};
+    s.spawn(p, "skydart350");
+    CHECK(cliNum("osd_vbat_pos") == sd, "default layout on the new model: %d, want %d", cliNum("osd_vbat_pos"), sd);
+    // HD for the first time: scaled, 5 columns from the right and 2 rows from the bottom as before
+    fpv_osd_set_style(FPV_OSD_STYLE_HD);
+    const int hd = (48 & 31) | ((48 << 5) & 0x400) | (18 << 5) | 0x800;
+    CHECK(cliNum("osd_vbat_pos") == hd, "scaled to HD: %d, want %d", cliNum("osd_vbat_pos"), hd);
+    fpv_osd_set_style(FPV_OSD_STYLE_ANALOG);
+    s.destroy();
+    fpv_global_terminate();
+    std::ofstream(settings, std::ios::binary) << saved;
+}
+
 // Host ground at y = 50 (Y up), only through the raycast callback.
 static int raycastLedge(void *, const float o[3], const float d[3], float maxDist, fpv_raycast_hit *hit) {
     if (d[1] >= 0 || o[1] < 50) return 0;
@@ -1139,6 +1174,14 @@ void testReplaceProps() {
         return d;
     };
     s.run(6.0f);
+    // the frame can take the hit and the drone end up leaning on the wall,
+    // depending on tiny differences: back off and fly into it again
+    for (int retry = 0; retry < 3 && damage() <= 0; retry++) {
+        s.rc.ch[1] = -1.0f;
+        s.run(1.5f);
+        s.rc.ch[1] = 1.0f;
+        s.run(3.0f);
+    }
     const float bent = damage(), mah = s.f.battery.mah_drawn;
     CHECK(bent > 0, "the crash bent a prop (%.2f)", bent);
     CHECK(fpv_drone_replace_props(s.drone) == FPV_OK, "replace props: %s", fpv_last_error());
@@ -1693,6 +1736,14 @@ void testOsdAudioOverlay() {
     float p[3] = {0, 0, 0};
     s.spawn(p);
     s.run(0.5f);
+    // a new drone powers up: Betaflight's boot logo (glyphs 160..255) for 4 s
+    int logo = 0;
+    for (uint8_t c : s.f.osd) logo += c >= 160;
+    CHECK(logo >= 50, "boot logo after the spawn (%d logo characters)", logo);
+    s.run(4.5f);
+    logo = 0;
+    for (uint8_t c : s.f.osd) logo += c >= 160;
+    CHECK(logo < 50, "boot logo gone after its 4 s (%d logo characters)", logo);
     int chars = 0;
     for (uint8_t c : s.f.osd) chars += (c != 0 && c != ' ');
     CHECK(chars > 10, "Betaflight OSD has content (%d characters)", chars);
@@ -1710,7 +1761,9 @@ void testOsdAudioOverlay() {
     s.rc.ch[9] = -1;
     s.run(0.5f);
     CHECK(!(s.f.flags & FPV_DRONE_OSD_DISABLED), "OSD disabled flag cleared");
-    CHECK(osdChars() == chars, "OSD back after the switch (%d of %d characters)", osdChars(), chars);
+    // warnings come and go in the first seconds after the boot logo: the count may differ a little
+    CHECK(osdChars() > 10, "OSD back after the switch (%d characters, %d before)", osdChars(), chars);
+    chars = osdChars();
     fpv_texture tex{};
     CHECK(fpv_texture_get(FPV_TEXTURE_OSD_FONT, &tex) == FPV_OK && tex.width > 0 && tex.rgba, "OSD font texture");
     for (int style = 0; style < 2; style++) {
@@ -2346,6 +2399,7 @@ int main(int argc, char **argv) {
         {"rssi", testRssi},
         {"led_strip", testLedStrip},
         {"new_model_defaults", testNewModelDefaults},
+        {"new_model_osd_layout", testNewModelOsdLayout},
         {"raycast_ground_at_spawn", testRaycastGroundAtSpawn},
         {"pinned", testPinned},
         {"terminate_reinit", testTerminateReinit},

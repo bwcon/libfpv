@@ -35,6 +35,11 @@ struct Settings {
     // Each canvas's element positions ("set osd_*_pos = N" lines): Betaflight
     // keeps one layout, so fpv_osd_set_style swaps them. "" = never used yet.
     std::string osdLayoutHd, osdLayoutSd;
+    // The pilot's default layout for each canvas (the OSD tab's "Use this
+    // layout as the default"): new models get it. "" = none.
+    std::string osdDefaultHd, osdDefaultSd;
+    // fpv_led_get_light: the games scale their LED lights by these
+    float ledGlowBrightness = 1.0f, ledGlowReach = 1.0f;
     // camera overrides (< 0 = use the preset's value)
     float cameraUptilt = -1, cameraFov = -1;
     float cameraFisheye = 0.5f;  // lens strength 0..1, 0 = off (the preset's own k1/k2)
@@ -132,6 +137,12 @@ void saveSettings();
 const DronePreset &currentPreset();
 // Betaflight's fpv_mix_degrees from the camera uptilt setting. Disarm first.
 void syncBetaflightCameraAngle();
+// The current model's OSD layout becomes the default of its canvas, and
+// scaled, of the other one. False when the CLI is busy.
+bool saveDefaultOsdLayout();
+// Writes the default layout into every model's EEPROM that exists; returns
+// how many, or -1 when armed or the CLI is busy.
+int applyDefaultOsdLayoutToAll();
 fpv_result selectPreset(const std::string &nameOrFile, bool applyToFlight);
 std::string eepromPathFor(const DronePreset &p);
 // Erases the current quad's Betaflight EEPROM and restores its shipped preset

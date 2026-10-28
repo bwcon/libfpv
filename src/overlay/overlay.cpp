@@ -995,6 +995,29 @@ void Overlay::tabOsd() {
         ImGui::TextDisabled("(copy font folders to %s\\fonts)", L.dataDir.c_str());
         if (!m_fontError.empty()) ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "%s", m_fontError.c_str());
     }
+    // the pilot's own layout for every model: new ones get it at their first run
+    {
+        const bool armed = L.droneExists && L.flight.snapshot().armed;
+        if (ImGui::Button("Use this layout as the default")) {
+            m_osdDefaultMsg = saveDefaultOsdLayout()
+                                  ? std::string("Default saved for both looks (the other one scaled). New models get it.")
+                                  : "The Betaflight Configurator is using the CLI: try again.";
+        }
+        ImGui::SameLine();
+        bool none = L.settings.osdDefaultHd.empty() && L.settings.osdDefaultSd.empty();
+        ImGui::BeginDisabled(armed || none);
+        if (ImGui::Button("Apply default layout to all models")) {
+            int n = applyDefaultOsdLayoutToAll();
+            m_osdDefaultMsg = n < 0 ? "Disarm first." : "Written to " + std::to_string(n) + " models.";
+            m_bf.invalidate();
+        }
+        ImGui::EndDisabled();
+        if (armed) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(disarm to apply)");
+        }
+        if (!m_osdDefaultMsg.empty()) ImGui::TextWrapped("%s", m_osdDefaultMsg.c_str());
+    }
     struct E {
         const char *label, *name;
     } static const elems[] = {
@@ -1209,6 +1232,15 @@ void Overlay::tabLeds() {
     } else {
         colorList("Top", m_led.top, 0);
         colorList("Bottom", m_led.bottom, 1);
+    }
+    // libfpv's own: the games scale their LED lights by these (fpv_led_get_light)
+    {
+        Settings &st = L.settings;
+        ImGui::SliderFloat("Glow brightness", &st.ledGlowBrightness, 0.0f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        bool save = ImGui::IsItemDeactivatedAfterEdit();  // saved once the slider is let go
+        ImGui::SliderFloat("Glow reach", &st.ledGlowReach, 0.25f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        save |= ImGui::IsItemDeactivatedAfterEdit();
+        if (save) saveSettings();
     }
     if (ImGui::Button("Default layout")) {
         int top = m_led.top > 0 ? m_led.top : L.ledDefaultColor;

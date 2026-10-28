@@ -515,7 +515,8 @@ typedef struct fpv_frame {
      * now and its cell on Betaflight's 16 x 16 LED grid. On the grid, seen
      * from above, x runs 0..15 left to right and y 0..15 front to back.
      * led_count is 0 when the feature is off or no LED is configured.
-     * fpv_led_set_default_color picks the overlay's default colour. */
+     * fpv_led_set_default_color picks the overlay's default colour, and
+     * fpv_led_get_light how bright and far the game's LED lights shine. */
     uint32_t led_count;
     uint8_t led_rgb[FPV_MAX_LEDS][3];
     uint8_t led_grid[FPV_MAX_LEDS][2]; /* x, y */
@@ -988,6 +989,13 @@ FPV_API void fpv_set_default_betaflight_diff(const char *diff_text);
  * the same data dir shares: the default only reaches drones with no LEDs
  * configured yet. */
 FPV_API void fpv_led_set_default_color(int betaflight_palette_index);
+
+/* The pilot's LED light sliders (F8 > LEDs, saved in settings.json), for the
+ * game's own lights at the frame's LEDs: `brightness` scales their intensity
+ * (0..3, default 1) and `reach` their radius (0.25..3, default 1). libfpv
+ * only stores them: read them when you set the lights up, or every frame to
+ * follow the sliders live. Either pointer may be NULL. */
+FPV_API void fpv_led_get_light(float *brightness, float *reach);
 
 /* Physical presets (frame, motor, prop, battery, camera). */
 FPV_API uint32_t fpv_preset_count(void);
