@@ -412,7 +412,12 @@ enum fpv_drone_flags {
     /* The pilot's OSD disable switch is on: Betaflight draws no OSD, and the
      * game must hide any UI it still shows over the FPV view too. See
      * docs/INTEGRATION.md#osd-disable-switch. */
-    FPV_DRONE_OSD_DISABLED = 1u << 9
+    FPV_DRONE_OSD_DISABLED = 1u << 9,
+    /* The pilot flipped the respawn switch on the radio (libfpv's Radio tab,
+     * not a Betaflight mode): set on exactly one frame per flip. The game
+     * runs its own reset, for example fpv_drone_repair, then fpv_drone_reset
+     * at its launch spot. Never set without a radio respawn switch. */
+    FPV_DRONE_RESPAWN_REQUEST = 1u << 11
 #if defined(LIBFPV_KAMIKAZE)
     ,
     /* Kamikaze builds: the warhead exploded. The drone is destroyed (frozen

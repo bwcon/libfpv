@@ -298,7 +298,39 @@ void Overlay::channelBars(const float *ch) {
         ImGui::SameLine();
         ImGui::TextUnformatted(names[i]);
     }
+    InputStatus st = lib().input.status();
+    if (st.respawnBound) {
+        // libfpv's own switch: the game sees it as FPV_DRONE_RESPAWN_REQUEST
+        ImGui::ProgressBar(st.respawnSwitch ? 1.0f : 0.0f, ImVec2(ImGui::GetFontSize() * 14, 0),
+                           st.respawnSwitch ? "on" : "off");
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Respawn (libfpv, not Betaflight)");
+    }
 }
+
+namespace {
+
+std::string bindingText(const ChannelBinding &b) {
+    if (b.button >= 0) return "button " + std::to_string(b.button + 1);
+    if (b.axis >= 0) return "axis " + std::to_string(b.axis + 1);
+    return "not set";
+}
+
+// An axis or button of the radio that no binding uses yet.
+bool hasFreeSwitch(const RawDevice &d, const DeviceMapping &m) {
+    auto used = [&](bool axis, int i) {
+        for (auto &b : m.channels)
+            if ((axis ? b.axis : b.button) == i) return true;
+        return false;
+    };
+    for (int i = 0; i < (int)d.axes.size(); i++)
+        if (!used(true, i)) return true;
+    for (int i = 0; i < (int)d.buttons.size(); i++)
+        if (!used(false, i)) return true;
+    return false;
+}
+
+}  // namespace
 
 void Overlay::tabFly() {
     Lib &L = lib();
@@ -422,6 +454,17 @@ void Overlay::wizardUi(const std::vector<RawDevice> &devs) {
         if (!m_wizardSaved) {
             // persisted once; flight input switches to the mapped radio
             DeviceMapping m = m_wizard.mapping();
+            if (m_wizard.respawnSwitchOnly()) {
+                // only the respawn switch changes
+                DeviceMapping cur;
+                if (L.input.getMapping(m.guid, cur)) {
+                    RadioWizard::mergeSwitch(cur, m, kRespawnSwitch, false);
+                    m = cur;
+                }
+            } else {  // (bomb-only: replaced by the current mapping below)
+                // a new full setup keeps the respawn switch if it still fits
+                RadioWizard::mergeSwitch(m, m_previousMapping, kRespawnSwitch, true);
+            }
 #if defined(LIBFPV_KAMIKAZE)
             if (m_wizard.bombSwitchesOnly()) {
                 // only AUX7 / AUX8 change, whatever else is set up now
@@ -443,6 +486,11 @@ void Overlay::wizardUi(const std::vector<RawDevice> &devs) {
         if (ImGui::Button("Finish")) m_wizard.cancel();
         ImGui::SameLine();
         if (ImGui::Button("Start over")) {
+            if (m_wizard.respawnSwitchOnly()) {
+                DeviceMapping cur;
+                L.input.getMapping(dev->guid, cur);
+                m_wizard.startRespawnSwitch(*dev, cur);
+            } else
 #if defined(LIBFPV_KAMIKAZE)
             if (m_wizard.bombSwitchesOnly()) {
                 DeviceMapping cur;
@@ -518,11 +566,9 @@ void Overlay::tabRadio() {
         else if (d.isGamepad) ImGui::TextDisabled("(gamepad: default layout, degraded)");
         else ImGui::TextColored(ImVec4(1, 0.8f, 0.3f, 1), "(not set up)");
         if (ImGui::Button(mapped ? "Set up again" : "Set up")) {
-#if defined(LIBFPV_KAMIKAZE)
-            // the bomb switches have their own setup (Kamikaze tab): keep them
+            // the respawn and bomb switches have their own setup: keep them
             m_previousMapping = DeviceMapping{};
             L.input.getMapping(d.guid, m_previousMapping);
-#endif
             m_wizard.start(d);
             m_wizardHint.clear();
             m_wizardSaved = false;
@@ -531,6 +577,29 @@ void Overlay::tabRadio() {
         if (mapped) {
             ImGui::SameLine();
             if (ImGui::Button("Forget")) L.input.forgetMapping(d.guid);
+            // libfpv's own switch: the game resets the drone, Betaflight never sees it
+            const ChannelBinding &rb = m.channels[kRespawnSwitch];
+            bool bound = rb.axis >= 0 || rb.button >= 0;
+            ImGui::Text("Respawn switch: %s", bindingText(rb).c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton(bound ? "Change" : "Set up respawn switch")) {
+                m_wizard.startRespawnSwitch(d, m);
+                m_wizardHint.clear();
+                m_wizardSaved = false;
+                L.input.setWizardActive(true);
+            }
+            if (bound) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear")) {
+                    RadioWizard::mergeSwitch(m, DeviceMapping{}, kRespawnSwitch, false);
+                    L.input.setMapping(m);
+                }
+            } else if (!hasFreeSwitch(d, m)) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.8f, 0.3f, 1));
+                ImGui::TextWrapped("No free switch: every axis and button of this radio is in use. A free position "
+                                   "of a 3-position switch still works, or free a switch with Set up again.");
+                ImGui::PopStyleColor();
+            }
         }
         ImGui::PopID();
         ImGui::Separator();
@@ -559,16 +628,6 @@ void Overlay::warheadStatus() {
         ImGui::TextUnformatted("- press Repair (Fly tab) for a new drone");
     }
 }
-
-namespace {
-
-std::string bindingText(const ChannelBinding &b) {
-    if (b.button >= 0) return "button " + std::to_string(b.button + 1);
-    if (b.axis >= 0) return "axis " + std::to_string(b.axis + 1);
-    return "not set";
-}
-
-}  // namespace
 
 void Overlay::tabKamikaze() {
     Lib &L = lib();

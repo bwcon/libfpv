@@ -27,6 +27,10 @@ constexpr int kChannelCount = 12;
 #else
 constexpr int kChannelCount = 10;
 #endif
+// libfpv's own switches after the Betaflight channels, never sent to
+// Betaflight: the respawn switch (FPV_DRONE_RESPAWN_REQUEST).
+constexpr int kRespawnSwitch = kChannelCount;
+constexpr int kBindingCount = kChannelCount + 1;
 
 // Channel value at rest: sticks centred, throttle idle, every switch off.
 constexpr float idleChannel(int c) { return (c == kThrottle || c >= kAux1) ? -1.0f : 0.0f; }
@@ -53,7 +57,7 @@ struct ChannelBinding {
 struct DeviceMapping {
     std::string guid;
     std::string name;
-    std::array<ChannelBinding, kChannelCount> channels{};
+    std::array<ChannelBinding, kBindingCount> channels{};  // Betaflight's, then kRespawnSwitch
     bool complete = false;
 };
 
@@ -64,7 +68,7 @@ inline float switchPosition(const DeviceMapping &m, int c, float raw) {
     const ChannelBinding &b = m.channels[c];
     float on = b.switchOn();
     float nearest = std::fabs(b.switchOff() - on);
-    for (int o = kAux1; o < kChannelCount; o++) {
+    for (int o = kAux1; o < kBindingCount; o++) {
         const ChannelBinding &ob = m.channels[o];
         if (o == c || ob.axis != b.axis) continue;
         float d = std::fabs(ob.switchOn() - on);
@@ -85,6 +89,26 @@ struct RawDevice {
     // gamepad layout (when isGamepad): leftX, leftY, rightX, rightY, lt, rt
     float pad[6] = {0, 0, 0, 0, 0, 0};
     uint32_t padButtons = 0;  // bit per SDL_GamepadButton
+};
+
+// Switch `c` (AUX or kRespawnSwitch) of a mapped radio: +1 on, -1 off or unbound.
+inline float switchValue(const RawDevice &d, const DeviceMapping &m, int c) {
+    const ChannelBinding &b = m.channels[c];
+    if (b.axis >= 0 && b.axis < (int)d.axes.size()) return switchPosition(m, c, d.axes[b.axis]);
+    if (b.button >= 0 && b.button < (int)d.buttons.size()) return ((d.buttons[b.button] != 0) != b.inverted) ? 1.0f : -1.0f;
+    return -1.0f;
+}
+
+// Fires once when a switch goes on. Blocked (no radio, setup running) it
+// must go off first, so a switch already on then never fires.
+struct SwitchEdge {
+    bool prev = true;
+    bool update(bool on) {
+        bool fire = on && !prev;
+        prev = on;
+        return fire;
+    }
+    void block() { prev = true; }
 };
 
 class DeviceBackend {
@@ -126,6 +150,8 @@ struct InputStatus {
     bool needsSetup = false;
     bool radioDetected = false;  // a mapped or unmapped radio is connected
     int deviceCount = 0;
+    bool respawnBound = false;   // the radio flying has a respawn switch
+    bool respawnSwitch = false;  // and it is on now
 };
 
 class InputManager {
@@ -159,6 +185,9 @@ public:
     // After the radio vanished, failsafe holds until Betaflight disarmed;
     // then other sources (gamepad, keyboard) may take over.
     void resetRadioLatch();
+
+    // True once per flip of the radio's respawn switch (any thread).
+    bool takeRespawnRequest();
 
     InputStatus status();
     std::vector<RawDevice> devicesSnapshot();
@@ -213,6 +242,8 @@ private:
     InputStatus m_status;
     std::string m_activeGuid;
     bool m_radioWasActive = false;
+    SwitchEdge m_respawnEdge;
+    bool m_respawnRequest = false;
 };
 
 }  // namespace fpv

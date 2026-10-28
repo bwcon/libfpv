@@ -14,6 +14,7 @@ constexpr float kMoveThreshold = 0.35f;  // raw units (-1..1) a stick must move 
 void RadioWizard::start(const RawDevice &dev) {
     m_active = true;
     m_bombOnly = false;
+    m_respawnOnly = false;
     m_step = Step::Rest;
     m_mapping = DeviceMapping{};
     m_mapping.guid = dev.guid;
@@ -43,26 +44,36 @@ void RadioWizard::startBombSwitches(const RawDevice &dev, const DeviceMapping &c
 }
 
 void RadioWizard::mergeBombSwitches(DeviceMapping &into, const DeviceMapping &from, bool onlyIfFree) {
-    for (int c : {kAux7, kAux8}) {
-        const ChannelBinding &b = from.channels[c];
-        into.channels[c] = ChannelBinding{};
-        if (b.axis < 0 && b.button < 0) continue;
-        bool free = true;
-        if (onlyIfFree) {
-            for (int o = 0; o < kChannelCount; o++) {
-                const ChannelBinding &ob = into.channels[o];
-                if (o == c) continue;
-                if (b.button >= 0 && ob.button == b.button) free = false;
-                // a stick axis, or a switch in the same position
-                if (b.axis >= 0 && ob.axis == b.axis &&
-                    (o < kAux1 || std::fabs(ob.switchOn() - b.switchOn()) < kMoveThreshold))
-                    free = false;
-            }
-        }
-        if (free) into.channels[c] = b;
-    }
+    for (int c : {kAux7, kAux8}) mergeSwitch(into, from, c, onlyIfFree);
 }
 #endif
+
+void RadioWizard::startRespawnSwitch(const RawDevice &dev, const DeviceMapping &current) {
+    start(dev);
+    m_respawnOnly = true;
+    m_mapping = current;
+    m_mapping.guid = dev.guid;
+    m_mapping.name = dev.name;
+    m_mapping.channels[kRespawnSwitch] = ChannelBinding{};
+}
+
+void RadioWizard::mergeSwitch(DeviceMapping &into, const DeviceMapping &from, int c, bool onlyIfFree) {
+    const ChannelBinding &b = from.channels[c];
+    into.channels[c] = ChannelBinding{};
+    if (b.axis < 0 && b.button < 0) return;
+    if (onlyIfFree) {
+        for (int o = 0; o < kBindingCount; o++) {
+            const ChannelBinding &ob = into.channels[o];
+            if (o == c) continue;
+            if (b.button >= 0 && ob.button == b.button) return;
+            // a stick axis, or a switch in the same position
+            if (b.axis >= 0 && ob.axis == b.axis &&
+                (o < kAux1 || std::fabs(ob.switchOn() - b.switchOn()) < kMoveThreshold))
+                return;
+        }
+    }
+    into.channels[c] = b;
+}
 
 int RadioWizard::channelForStep(Step s) const {
     switch (s) {
@@ -76,6 +87,7 @@ int RadioWizard::channelForStep(Step s) const {
     case Step::TurtleSwitch: return kAux4;
     case Step::AirModeSwitch: return kAux5;
     case Step::OsdSwitch: return kAux6;
+    case Step::RespawnSwitch: return kRespawnSwitch;
 #if defined(LIBFPV_KAMIKAZE)
     case Step::BombArmSwitch: return kAux7;
     case Step::ExplodeSwitch: return kAux8;
@@ -85,6 +97,7 @@ int RadioWizard::channelForStep(Step s) const {
 }
 
 RadioWizard::Step RadioWizard::lastSwitch() const {
+    if (m_respawnOnly) return Step::RespawnSwitch;
 #if defined(LIBFPV_KAMIKAZE)
     if (m_bombOnly) return Step::ExplodeSwitch;
 #endif
@@ -107,7 +120,7 @@ bool RadioWizard::stickAxisUsed(int axis) const {
 // switch: beeper in the middle, turtle at the top), but only in a position
 // none of them uses.
 bool RadioWizard::positionFree(int axis, float value) const {
-    for (int c = kAux1; c < kChannelCount; c++) {
+    for (int c = kAux1; c < kBindingCount; c++) {
         const ChannelBinding &b = m_mapping.channels[c];
         if (b.axis == axis && std::fabs(value - b.switchOn()) < kMoveThreshold) return false;
     }
@@ -115,7 +128,7 @@ bool RadioWizard::positionFree(int axis, float value) const {
 }
 
 int RadioWizard::sharedWith(int axis) const {
-    for (int c = kAux1; c < kChannelCount; c++)
+    for (int c = kAux1; c < kBindingCount; c++)
         if (m_mapping.channels[c].axis == axis) return c;
     return -1;
 }
@@ -198,6 +211,11 @@ bool RadioWizard::next(std::string &hint) {
         if (m_rest.size() < 4) {
             hint = "This device has fewer than 4 axes; it cannot be used as a radio.";
             return false;
+        }
+        if (m_respawnOnly) {
+            m_step = Step::RespawnSwitch;
+            m_candidate = -1;
+            return true;
         }
 #if defined(LIBFPV_KAMIKAZE)
         if (m_bombOnly) {
@@ -308,6 +326,11 @@ void RadioWizard::skip() {
 
 void RadioWizard::back() {
     if (m_step <= Step::Rest) return;
+    if (m_respawnOnly && m_step == Step::RespawnSwitch) {
+        m_step = Step::Rest;
+        m_candidate = -1;
+        return;
+    }
 #if defined(LIBFPV_KAMIKAZE)
     if (m_bombOnly && m_step == Step::BombArmSwitch) {
         m_step = Step::Rest;
@@ -338,6 +361,7 @@ const char *RadioWizard::title() const {
     case Step::TurtleSwitch: return "Turtle (crash flip) switch";
     case Step::AirModeSwitch: return "Air mode switch";
     case Step::OsdSwitch: return "OSD disable switch";
+    case Step::RespawnSwitch: return "Respawn switch";
 #if defined(LIBFPV_KAMIKAZE)
     case Step::BombArmSwitch: return "Bomb arm switch";
     case Step::ExplodeSwitch: return "Explode switch";
@@ -351,6 +375,9 @@ const char *RadioWizard::instruction() const {
     switch (m_step) {
     case Step::PickDevice: return "Select the radio you want to fly with.";
     case Step::Rest:
+        if (m_respawnOnly)
+            return "Put every switch in its OFF position, then press Next. Only the respawn switch is set up here; the "
+                   "rest of your radio setup stays as it is.";
 #if defined(LIBFPV_KAMIKAZE)
         if (m_bombOnly)
             return "Put every switch in its OFF position (the bomb switches too), then press Next. Only the bomb arm "
@@ -382,6 +409,9 @@ const char *RadioWizard::instruction() const {
     case Step::OsdSwitch:
         return "Optional: flip a switch to the position that should DISABLE THE OSD (hide everything drawn over the "
                "video), or Skip. It can be another position of the air mode switch.";
+    case Step::RespawnSwitch:
+        return "Flip the switch (a momentary one is best) that should RESPAWN the drone: repaired and back at the "
+               "launch spot. It fires once each time it goes on. A free position of a 3-position switch works too.";
 #if defined(LIBFPV_KAMIKAZE)
     case Step::BombArmSwitch:
         return "Flip the switch that should ARM THE BOMB to its armed position. Use a switch of its own, away from "
@@ -392,6 +422,7 @@ const char *RadioWizard::instruction() const {
                "It only works while the bomb is armed and live.";
 #endif
     case Step::Done:
+        if (m_respawnOnly) return "The respawn switch is set; the rest of your radio setup is unchanged.";
 #if defined(LIBFPV_KAMIKAZE)
         if (m_bombOnly)
             return "The bomb switches are set; the rest of your radio setup is unchanged. Check the bars below.";
@@ -410,7 +441,8 @@ std::string RadioWizard::detectedLabel() const {
     std::string label = "axis " + std::to_string(m_candidate + 1);
     if (m_step >= Step::ArmSwitch) {
         int other = sharedWith(m_candidate);
-        if (other >= 0) label += ", same switch as AUX" + std::to_string(other - kAux1 + 1) + " in another position";
+        if (other == kRespawnSwitch) label += ", same switch as respawn in another position";
+        else if (other >= 0) label += ", same switch as AUX" + std::to_string(other - kAux1 + 1) + " in another position";
         return label;
     }
     return label + (m_candidateValue > rest ? "" : ", reversed");
@@ -418,6 +450,7 @@ std::string RadioWizard::detectedLabel() const {
 
 float RadioWizard::progress() const {
     if (m_step == Step::Done) return 1;
+    if (m_respawnOnly) return m_step == Step::Rest ? 0.0f : 0.5f;
 #if defined(LIBFPV_KAMIKAZE)
     if (m_bombOnly) return m_step == Step::Rest ? 0.0f : m_step == Step::BombArmSwitch ? 1 / 3.0f : 2 / 3.0f;
 #endif

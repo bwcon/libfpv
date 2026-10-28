@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <utility>
 
 #include "libfpv.h"
 #include "nlohmann/json.hpp"
@@ -98,7 +99,7 @@ void InputManager::loadMappings() {
             m.name = jm.value("name", "");
             m.complete = jm.value("complete", false);
             auto &chs = jm.at("channels");
-            for (size_t i = 0; i < (size_t)kChannelCount && i < chs.size(); i++) {
+            for (size_t i = 0; i < (size_t)kBindingCount && i < chs.size(); i++) {
                 ChannelBinding &b = m.channels[i];
                 b.axis = chs[i].value("axis", -1);
                 b.button = chs[i].value("button", -1);
@@ -377,6 +378,9 @@ void InputManager::update(double wallTime, float dt, float out[kChannelCount], b
         }
         if (radio) {
             mapRadio(*radio, *radioMap, ch);
+            const ChannelBinding &rb = radioMap->channels[kRespawnSwitch];
+            st.respawnBound = rb.axis >= 0 || rb.button >= 0;
+            st.respawnSwitch = switchValue(*radio, *radioMap, kRespawnSwitch) > 0;
             st.source = InputSource::Radio;
             st.deviceName = radio->name;
             m_activeGuid = radio->guid;
@@ -412,6 +416,11 @@ void InputManager::update(double wallTime, float dt, float out[kChannelCount], b
         // presses while setting up do not flip toggles for the flight after
         m_toggleGuid.clear();
     }
+    if (st.respawnBound && !m_wizardActive) {
+        if (m_respawnEdge.update(st.respawnSwitch)) m_respawnRequest = true;
+    } else {
+        m_respawnEdge.block();
+    }
     std::copy(ch, ch + kChannelCount, out);
     if (!radioLost) std::copy(ch, ch + kChannelCount, m_lastOut);
     m_status = st;
@@ -420,6 +429,11 @@ void InputManager::update(double wallTime, float dt, float out[kChannelCount], b
 void InputManager::resetRadioLatch() {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_radioWasActive = false;
+}
+
+bool InputManager::takeRespawnRequest() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return std::exchange(m_respawnRequest, false);
 }
 
 InputStatus InputManager::status() {

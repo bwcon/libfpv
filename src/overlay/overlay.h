@@ -76,9 +76,7 @@ private:
     RadioWizard m_wizard;
     std::string m_wizardHint;
     bool m_wizardSaved = false;
-#if defined(LIBFPV_KAMIKAZE)
-    DeviceMapping m_previousMapping;  // before a full setup: its bomb switches are kept
-#endif
+    DeviceMapping m_previousMapping;  // before a full setup: its respawn and bomb switches are kept
     std::vector<std::string> m_promptedRadios;
     using TabFn = void (Overlay::*)();
     TabFn m_requestTab = nullptr;  // the tab to bring to the front
