@@ -405,7 +405,25 @@ void testLedStrip() {
         CHECK(b[2] > 100 && b[0] < 60, "LED 1 blue");
     }
     s.destroy();
-    CHECK(fpv_cli_exec("led 0 0,0::C:0\nled 1 0,0::C:0\nfeature -LED_STRIP\nsave\n", &o) == FPV_OK, "LEDs off");
+    // the overlay's default strip (Overlay::tabLeds): two per arm, top then bottom, colour 4 yellow
+    CHECK(fpv_cli_exec("led 0 0,0:U:C:4\nled 1 0,0:D:C:4\nled 2 15,0:U:C:4\nled 3 15,0:D:C:4\n"
+                       "led 4 15,15:U:C:4\nled 5 15,15:D:C:4\nled 6 0,15:U:C:4\nled 7 0,15:D:C:4\nsave\n",
+                       &o) == FPV_OK, "default LEDs: %s", o ? o : fpv_last_error());
+    fpv_free(o);
+    Session d;
+    d.spawn(p);
+    d.run(1.0f);
+    CHECK(d.f.led_count == 8, "8 LEDs, got %u", d.f.led_count);
+    static const uint8_t cells[4][2] = {{0, 0}, {15, 0}, {15, 15}, {0, 15}};
+    for (uint32_t i = 0; i < d.f.led_count && i < 8; i++) {
+        const uint8_t *c = d.f.led_rgb[i];
+        CHECK(d.f.led_grid[i][0] == cells[i / 2][0] && d.f.led_grid[i][1] == cells[i / 2][1], "LED %u cell", i);
+        CHECK(c[0] > 100 && c[1] > 100 && c[2] < 60, "LED %u yellow, rgb %d %d %d", i, c[0], c[1], c[2]);
+    }
+    d.destroy();
+    std::string off;
+    for (int i = 0; i < 8; i++) off += "led " + std::to_string(i) + " 0,0::C:0\n";
+    CHECK(fpv_cli_exec((off + "feature -LED_STRIP\nsave\n").c_str(), &o) == FPV_OK, "LEDs off");
     fpv_free(o);
 }
 

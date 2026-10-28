@@ -51,6 +51,8 @@ private:
     void tabRates();
     void tabTuning();
     void tabOsd();
+    void tabLeds();
+    void readLeds();
     void tabImport();
     void tabCamera();
     void tabControls();
@@ -90,6 +92,14 @@ private:
     std::string m_fontError;  // the last font that failed to load
     std::string m_cliInput, m_cliOutput;
     int m_osdSelected = 0;
+    struct LedState {
+        bool on = false;
+        std::vector<std::string> leds;  // "x,y:dirs:functions" of each configured LED
+        int color = -1;                 // palette index shared by all, -1 when mixed
+        double readAt = -1e9;
+        bool autoApplied = false;
+        std::string error;
+    } m_led;
     int m_rateAxis = 0;
     bool m_rebindingToggle = false;
     bool m_ctrl = false;

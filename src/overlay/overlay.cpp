@@ -4,8 +4,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <sstream>
 
 #include "core/bf_bridge.h"
 #include "imgui.h"
@@ -1035,6 +1038,114 @@ void Overlay::tabOsd() {
     ImGui::EndGroup();
 }
 
+// --- LEDs: Betaflight's LED_STRIP, through its CLI ---------------------------------
+
+namespace {
+
+// Betaflight's colour palette (colorId_e in io/ledstrip.h); 0 is black (off).
+const char *const kLedColors[] = {"black",      "white", "red",         "orange",     "yellow",
+                                  "lime green", "green", "mint green",  "cyan",       "light blue",
+                                  "blue",       "dark violet", "magenta", "deep pink"};
+constexpr int kLedColorCount = (int)(sizeof(kLedColors) / sizeof(kLedColors[0]));
+constexpr int kLedYellow = 4;
+
+// The strip hosts map back to arms (see fpv_frame.led_grid): two LEDs per
+// arm, top then bottom, arms front-left, front-right, rear-right, rear-left.
+// Function C: one fixed colour.
+std::string defaultLedLayout(int color) {
+    static const char *const arms[] = {"0,0", "15,0", "15,15", "0,15"};
+    std::string s;
+    for (int i = 0; i < 8; i++)
+        s += "led " + std::to_string(i) + " " + arms[i / 2] + (i % 2 ? ":D:C:" : ":U:C:") + std::to_string(color) + "\n";
+    return s;
+}
+
+}  // namespace
+
+// The feature and the configured LEDs, from `feature` and `led`.
+void Overlay::readLeds() {
+    char *out = nullptr;
+    fpv_result r = fpv_cli_exec("feature\nled\n", &out);
+    std::string text = out ? out : "";
+    fpv_free(out);
+    m_led.readAt = wallSeconds();
+    if (r != FPV_OK) {
+        m_led.error = fpv_last_error();
+        return;
+    }
+    m_led.error.clear();
+    m_led.on = false;
+    m_led.leds.clear();
+    m_led.color = -1;
+    std::istringstream lines(text);
+    bool mixed = false;
+    for (std::string line; std::getline(lines, line);) {
+        if (line.rfind("Enabled:", 0) == 0) m_led.on = (line + " ").find(" LED_STRIP ") != std::string::npos;
+        int i;
+        char cfg[32];
+        // Betaflight keeps the configured LEDs first; all zero ends the strip
+        if (std::sscanf(line.c_str(), "led %d %31s", &i, cfg) != 2 || i != (int)m_led.leds.size() ||
+            std::strcmp(cfg, "0,0::C:0") == 0)
+            continue;
+        std::string c = cfg;
+        size_t colon = c.rfind(':');
+        if (colon == std::string::npos) continue;
+        int color = std::atoi(c.c_str() + colon + 1);
+        mixed |= !m_led.leds.empty() && color != m_led.color;
+        m_led.color = color;
+        m_led.leds.push_back(c.substr(0, colon));
+    }
+    if (mixed) m_led.color = -1;
+}
+
+void Overlay::tabLeds() {
+    Lib &L = lib();
+    if (wallSeconds() - m_led.readAt > 1.0) readLeds();
+    auto run = [&](const std::string &script) {
+        char *out = nullptr;
+        if (fpv_cli_exec(script.c_str(), &out) != FPV_OK) m_led.error = fpv_last_error();
+        fpv_free(out);
+        readLeds();
+    };
+    // a new pilot gets the default strip, yellow and on
+    if (m_led.error.empty() && m_led.leds.empty() && !m_led.autoApplied) {
+        m_led.autoApplied = true;
+        run(defaultLedLayout(kLedYellow) + "feature LED_STRIP\nsave\n");
+    }
+    const bool armed = L.droneExists && L.flight.snapshot().armed;
+    bool on = m_led.on;
+    ImGui::BeginDisabled(armed);
+    if (ImGui::Checkbox("LEDs on", &on)) run(on ? "feature LED_STRIP\nsave\n" : "feature -LED_STRIP\nsave\n");
+    ImGui::EndDisabled();
+    if (armed) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(disarm to turn them on or off: Betaflight restarts)");
+    }
+    int color = m_led.color;
+    if (ImGui::BeginCombo("Colour", color >= 0 && color < kLedColorCount ? kLedColors[color] : "mixed")) {
+        for (int c = 1; c < kLedColorCount; c++) {
+            if (!ImGui::Selectable(kLedColors[c], c == color) || m_led.leds.empty()) continue;
+            std::string s;
+            for (size_t i = 0; i < m_led.leds.size(); i++)
+                s += "led " + std::to_string(i) + " " + m_led.leds[i] + ":" + std::to_string(c) + "\n";
+            run(s + "save\n");
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::Button("Default layout")) {
+        std::string s = defaultLedLayout(m_led.color > 0 ? m_led.color : kLedYellow);
+        for (size_t i = 8; i < m_led.leds.size(); i++) s += "led " + std::to_string(i) + " 0,0::C:0\n";  // longer strip
+        run(s + "save\n");
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("8 LEDs, two per arm (top and bottom)");
+    ImGui::Text("%d LEDs configured, %s, colour %s", (int)m_led.leds.size(), m_led.on ? "on" : "off",
+                m_led.color >= 0 && m_led.color < kLedColorCount ? kLedColors[m_led.color] : "mixed");
+    if (!m_led.error.empty()) ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "%s", m_led.error.c_str());
+    ImGui::TextWrapped("For a custom layout, functions or overlays, use the LED Strip tab in Betaflight "
+                       "Configurator. Changing the colour here sets every LED to it.");
+}
+
 void Overlay::tabImport() {
     ImGui::TextWrapped(
         "Paste the output of `diff all` from your real quad's Betaflight CLI. Hardware lines (resources, serial, "
@@ -1240,6 +1351,7 @@ void Overlay::buildUi() {
                                      {"Rates", &Overlay::tabRates},
                                      {"Tuning", &Overlay::tabTuning},
                                      {"OSD", &Overlay::tabOsd},
+                                     {"LEDs", &Overlay::tabLeds},
                                      {"Import & CLI", &Overlay::tabImport},
                                      {"Camera & sound", &Overlay::tabCamera},
                                      {"Controls", &Overlay::tabControls},
