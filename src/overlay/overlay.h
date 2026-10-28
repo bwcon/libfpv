@@ -60,6 +60,7 @@ private:
     void tabCamera();
     void tabControls();
     void tabConfigurator();
+    void blackboxSection();
 #if defined(LIBFPV_KAMIKAZE)
     void tabKamikaze();
     void warheadStatus();
@@ -80,6 +81,10 @@ private:
     double m_time = 0;
 
     BfSettingsCache m_bf;
+    // the blackbox folder's LOG*.BFL files, counted once a second
+    double m_blackboxScan = -1e9;
+    int m_blackboxLogs = 0;
+    uintmax_t m_blackboxBytes = 0;
     RadioWizard m_wizard;
     std::string m_wizardHint;
     bool m_wizardSaved = false;

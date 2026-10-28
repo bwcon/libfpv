@@ -222,6 +222,25 @@ The web build of the same example runs in a browser:
 python3 -m http.server -d build/web/web 8080   # then open http://localhost:8080
 ```
 
+### Blackbox logs
+
+Blackbox logging is off by default. To turn it on for the current model,
+open F8 > Configurator and select "Blackbox logging". This sets
+Betaflight's `blackbox_device` to `VIRTUAL`. To turn it off again, clear
+the checkbox (`blackbox_device = NONE`).
+
+When logging is on, each arm writes a new `LOGnnnnn.BFL` file to
+`<data_dir>/blackbox`, and the disarm closes it. Betaflight's default
+rate applies. The files open in Blackbox Explorer
+(blackbox.betaflight.com).
+
+Logs use disk space: 10 s of flight is about 600 KB. Each new log deletes
+all `LOG*.BFL` files in that folder except the newest 20. The "Keep newest
+logs" value on the same page sets this number, and `settings.json` stores
+it as `blackboxKeep`. Libfpv never deletes other files. The page shows the
+number of logs and their total size. On Windows, it also has a button that
+opens the folder. Turn blackbox off when you finish tuning.
+
 ## Integrating into a game
 
 ```c

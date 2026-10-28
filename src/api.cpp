@@ -97,6 +97,7 @@ void loadSettings() {
         }
         s.keyboardThrottleExpo = std::clamp(j.value("keyboardThrottleExpo", s.keyboardThrottleExpo), 0.5f, 10.0f);
         s.keyboardYawExpo = std::clamp(j.value("keyboardYawExpo", s.keyboardYawExpo), 0.5f, 20.0f);
+        s.blackboxKeep = std::clamp(j.value("blackboxKeep", s.blackboxKeep), 1, 1000);
 #if defined(LIBFPV_KAMIKAZE)
         s.kamikazeArmingDelay = std::clamp(j.value("kamikazeArmingDelay", s.kamikazeArmingDelay), 0.0f, 600.0f);
         s.kamikazeMinImpactSpeed = std::clamp(j.value("kamikazeMinImpactSpeed", s.kamikazeMinImpactSpeed), 0.1f, 30.0f);
@@ -146,7 +147,8 @@ void saveSettings() {
                                 : s.keyboardHover == KeyboardHover::Off ? "off"
                                                                         : "auto"},
               {"keyboardThrottleExpo", s.keyboardThrottleExpo},
-              {"keyboardYawExpo", s.keyboardYawExpo}};
+              {"keyboardYawExpo", s.keyboardYawExpo},
+              {"blackboxKeep", s.blackboxKeep}};
 #if defined(LIBFPV_KAMIKAZE)
     j["kamikazeArmingDelay"] = s.kamikazeArmingDelay;
     j["kamikazeMinImpactSpeed"] = s.kamikazeMinImpactSpeed;
@@ -701,6 +703,7 @@ FPV_API fpv_result fpv_global_init(const fpv_global_config *cfgIn) {
     for (auto &e : errors) FPV_LOGW("preset ignored: %s", e.c_str());
     if (L.presets.empty()) L.presets.push_back(builtinDefaultPreset());
     loadSettings();
+    bfb_blackbox_set_keep(L.settings.blackboxKeep);
     std::string userDefaults;
     L.userDefaults.clear();
     if (readTextFile(root / "defaults.diff.txt", userDefaults)) {

@@ -1,0 +1,13 @@
+--- a/src/main/osd/osd.c
++++ b/src/main/osd/osd.c
+@@ -1378,6 +1378,10 @@ osdState_e osdState = OSD_STATE_INIT;
+ void osdRestart(void)
+ {
+     osdState = OSD_STATE_INIT;
++    // nor do the last flight's stats stay up (they would hold the logo off for 60 s)
++    resumeRefreshAt = 0;
++    osdStatsEnabled = false;
++    osdStatsVisible = false;
+ }
+ 
+ #define OSD_UPDATE_INTERVAL_US (1000000 / osdConfig()->framerate_hz)

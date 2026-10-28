@@ -1,8 +1,8 @@
 diff --git a/src/main/blackbox/blackbox_virtual.c b/src/main/blackbox/blackbox_virtual.c
-index 3ec6d7778..ba2d7cf9f 100644
+index 3ec6d7778..6173ae153 100644
 --- a/src/main/blackbox/blackbox_virtual.c
 +++ b/src/main/blackbox/blackbox_virtual.c
-@@ -28,16 +28,23 @@
+@@ -28,31 +28,72 @@
  #include <dirent.h>
  #include <common/maths.h>
  
@@ -15,6 +15,48 @@ index 3ec6d7778..ba2d7cf9f 100644
  static FILE *blackboxVirtualFile = NULL;
  static int32_t largestLogFileNumber = 0;
 +char blackboxVirtualDir[512] = ".";
++int blackboxVirtualKeep = 0;
++
++// libfpv: the number of a LOGnnnnn.BFL file name, -1 for any other name
++static int32_t logFileNumber(const char *name)
++{
++    if (strlen(name) != NAME_BUFFER_LENGTH - 1
++        || strncmp(name, LOGFILE_PREFIX, strlen(LOGFILE_PREFIX)) != 0
++        || name[8] != '.'
++        || strncmp(name + 9, LOGFILE_SUFFIX, strlen(LOGFILE_SUFFIX)) != 0) {
++        return -1;
++    }
++    for (int i = 3; i < 8; i++) {
++        if (name[i] < '0' || name[i] > '9') {
++            return -1;
++        }
++    }
++    return (int32_t)atoi(name + 3);
++}
++
++// libfpv: deletes the logs older than the newest blackboxVirtualKeep
++// (0 = keep all), counting the log `newest` about to start.
++// ponytail: by number, so after a wrap past LOG99999 the old high numbers stay
++static void blackboxVirtualPrune(int32_t newest)
++{
++    if (blackboxVirtualKeep <= 0) {
++        return;
++    }
++    DIR *dir = opendir(blackboxVirtualDir);
++    if (!dir) {
++        return;
++    }
++    struct dirent *entry;
++    while ((entry = readdir(dir)) != NULL) {
++        int32_t n = logFileNumber(entry->d_name);
++        if (n >= 0 && n <= newest - blackboxVirtualKeep) {
++            char path[sizeof(blackboxVirtualDir) + NAME_BUFFER_LENGTH + 1];
++            snprintf(path, sizeof(path), "%s/%s", blackboxVirtualDir, entry->d_name);
++            remove(path);
++        }
++    }
++    closedir(dir);
++}
  
  bool blackboxVirtualOpen(void)
  {
@@ -27,7 +69,23 @@ index 3ec6d7778..ba2d7cf9f 100644
      if (!dir) {
          return false; // Failed to open directory
      }
-@@ -75,7 +82,12 @@ void blackboxVirtualWrite(const uint8_t *buffer, uint32_t len)
+ 
+     struct dirent *entry;
+     while ((entry = readdir(dir)) != NULL) {
+-        if (strlen(entry->d_name) == NAME_BUFFER_LENGTH - 1
+-            && strncmp(entry->d_name, LOGFILE_PREFIX, strlen(LOGFILE_PREFIX)) == 0
+-            && strncmp(entry->d_name + 9, LOGFILE_SUFFIX, strlen(LOGFILE_SUFFIX)) == 0) {
+-
+-            char logSequenceNumberString[6];
+-            memcpy(logSequenceNumberString, entry->d_name + 3, 5);
+-            logSequenceNumberString[5] = '\0';
+-            largestLogFileNumber = MAX((int32_t)atoi(logSequenceNumberString), largestLogFileNumber);
+-        }
++        largestLogFileNumber = MAX(logFileNumber(entry->d_name), largestLogFileNumber);
+     }
+     closedir(dir);
+     return true;
+@@ -75,7 +116,12 @@ void blackboxVirtualWrite(const uint8_t *buffer, uint32_t len)
  bool blackboxVirtualFlush(void)
  {
      if (blackboxVirtualFile != NULL) {
@@ -41,11 +99,12 @@ index 3ec6d7778..ba2d7cf9f 100644
          return true;
      } else {
          return false;
-@@ -89,7 +101,9 @@ bool blackboxVirtualBeginLog(void)
+@@ -89,7 +135,10 @@ bool blackboxVirtualBeginLog(void)
      }
      char filename[NAME_BUFFER_LENGTH];
      snprintf(filename, NAME_BUFFER_LENGTH, "%s%05u.%s", LOGFILE_PREFIX, (largestLogFileNumber + 1) % 100000, LOGFILE_SUFFIX);
 -    blackboxVirtualFile = fopen(filename, "w");
++    blackboxVirtualPrune(largestLogFileNumber + 1);
 +    char path[sizeof(blackboxVirtualDir) + NAME_BUFFER_LENGTH + 1];
 +    snprintf(path, sizeof(path), "%s/%s", blackboxVirtualDir, filename);
 +    blackboxVirtualFile = fopen(path, "wb");  // binary: Windows text mode would add a CR before each LF
@@ -53,15 +112,18 @@ index 3ec6d7778..ba2d7cf9f 100644
          largestLogFileNumber++;
      }
 diff --git a/src/main/blackbox/blackbox_virtual.h b/src/main/blackbox/blackbox_virtual.h
-index ebf878e9c..5d956631b 100644
+index ebf878e9c..380b4da6d 100644
 --- a/src/main/blackbox/blackbox_virtual.h
 +++ b/src/main/blackbox/blackbox_virtual.h
-@@ -25,6 +25,9 @@
+@@ -25,6 +25,12 @@
  #error "USE_BLACKBOX_VIRTUAL valid for SITL build only"
  #endif
  
 +// libfpv: the folder the logs go to (default: the working directory)
 +extern char blackboxVirtualDir[512];
++// libfpv: a new log deletes the LOG*.BFL files older than the newest
++// this many (0 = keep all)
++extern int blackboxVirtualKeep;
 +
  bool blackboxVirtualOpen(void);
  void blackboxVirtualPutChar(uint8_t value);

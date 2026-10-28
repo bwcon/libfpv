@@ -49,6 +49,7 @@ struct Settings {
     KeyboardHover keyboardHover = KeyboardHover::Auto;  // automatic hover throttle, see InputManager
     float keyboardThrottleExpo = kDefaultKeyboardThrottleExpo;  // 1/s, see InputManager
     float keyboardYawExpo = kDefaultKeyboardYawExpo;            // 1/s, see InputManager
+    int blackboxKeep = 20;  // a new blackbox log deletes all but the newest this many
 #if defined(LIBFPV_KAMIKAZE)
     // fpv_kamikaze_config, internal units (seconds, m/s, kg, metres)
     float kamikazeArmingDelay = 0.0f, kamikazeMinImpactSpeed = 0.25f;

@@ -418,6 +418,11 @@ void bfb_blackbox_set_dir(const char *dir)
     snprintf(blackboxVirtualDir, sizeof(blackboxVirtualDir), "%s", dir);
 }
 
+void bfb_blackbox_set_keep(int keep)
+{
+    blackboxVirtualKeep = keep;
+}
+
 void bfb_ws_set_base_port(int basePort)
 {
     wsSetBasePort(basePort);

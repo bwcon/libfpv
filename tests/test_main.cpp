@@ -1734,20 +1734,38 @@ void testGps() {
     s.destroy();
 }
 
-// blackbox_device VIRTUAL (the new-model default): an armed flight writes a
-// complete LOGnnnnn.BFL to <data_dir>/blackbox, closed at the disarm.
+// blackbox_device VIRTUAL (off by default): an armed flight writes a complete
+// LOGnnnnn.BFL to <data_dir>/blackbox, closed at the disarm. With 20 logs
+// there (the default limit), the 21st deletes the oldest and nothing else.
 void testBlackbox() {
     namespace fs = std::filesystem;
+    auto cli = [](const char *cmd) {
+        char *o = nullptr;
+        fpv_cli_exec(cmd, &o);
+        std::string r = o ? o : "";
+        fpv_free(o);
+        return r;
+    };
     fs::path dir = fs::path(g_dataDir) / "blackbox";
     auto logs = [&] {
         std::vector<fs::path> v;
         std::error_code ec;
         for (auto &e : fs::directory_iterator(dir, ec))
-            if (e.path().extension() == ".BFL") v.push_back(e.path());
+            if (e.path().extension() == ".BFL" && e.path().filename().string().rfind("LOG", 0) == 0)
+                v.push_back(e.path());
         std::sort(v.begin(), v.end());
         return v;
     };
-    size_t before = logs().size();
+    for (const fs::path &f : logs()) fs::remove(f);
+    for (int i = 1; i <= 20; i++) {
+        char name[16];
+        std::snprintf(name, sizeof name, "LOG%05d.BFL", i);
+        std::ofstream(dir / name) << "old";
+    }
+    std::ofstream(dir / "notes.BFL") << "not a log";
+    std::ofstream(dir / "LOG00001.txt") << "not a log";
+    CHECK(cli("get blackbox_device").find("blackbox_device = NONE") != std::string::npos, "blackbox off by default");
+    cli("set blackbox_device = VIRTUAL");  // read at the next spawn
     Session s;
     float p[3] = {0, 0, 0};
     s.spawn(p);
@@ -1759,7 +1777,10 @@ void testBlackbox() {
     s.rc.ch[4] = -1;  // disarm: Betaflight ends the log
     s.run(1.0f);
     std::vector<fs::path> v = logs();
-    CHECK(v.size() == before + 1, "one new log in %s (%zu before, %zu now)", dir.string().c_str(), before, v.size());
+    CHECK(v.size() == 20, "the newest 20 logs kept: %zu", v.size());
+    CHECK(!fs::exists(dir / "LOG00001.BFL") && fs::exists(dir / "LOG00002.BFL"), "the oldest log deleted");
+    CHECK(fs::exists(dir / "notes.BFL") && fs::exists(dir / "LOG00001.txt"), "other files kept");
+    CHECK(!v.empty() && v.back().filename() == "LOG00021.BFL", "new log LOG00021.BFL");
     if (!v.empty()) {
         std::ifstream in(v.back(), std::ios::binary);
         std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -1771,6 +1792,7 @@ void testBlackbox() {
         CHECK(data.find("End of log") != std::string::npos, "log closed at the disarm");
     }
     s.destroy();
+    cli("set blackbox_device = NONE");
 }
 
 // Betaflight's USER1 mode (RESPAWN in the Modes tab) asks the host to

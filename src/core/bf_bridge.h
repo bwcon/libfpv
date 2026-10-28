@@ -117,6 +117,8 @@ void bfb_ws_set_enabled(int enabled);
 void bfb_ws_set_base_port(int basePort);
 /* The folder blackbox_device VIRTUAL writes LOG00001.BFL... to (it must exist). */
 void bfb_blackbox_set_dir(const char *dir);
+/* A new log deletes all LOG*.BFL there but the newest `keep` (0 = keep all). */
+void bfb_blackbox_set_keep(int keep);
 int bfb_ws_base_port(void);
 int bfb_ws_client_count(void);
 

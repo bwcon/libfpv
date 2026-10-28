@@ -144,6 +144,7 @@ Overlay::Overlay() {
     m_bf.watch("thr_expo");
     m_bf.watch("simplified_");
     m_bf.watch("angle_limit");
+    m_bf.watch("blackbox_device");
     m_bf.watch("osd_");
     m_bf.watch("yaw_motors_reversed");
     m_bf.watch("craft_name");
@@ -1531,6 +1532,7 @@ void Overlay::tabConfigurator() {
 #else
         ImGui::TextWrapped("The Configurator connection is disabled by the game.");
 #endif
+        blackboxSection();
         return;
     }
     ImGui::Text("Address: %s", info.url);
@@ -1546,12 +1548,52 @@ void Overlay::tabConfigurator() {
     if (ImGui::Button("Reboot Betaflight")) {
         lib().runner.call([] { bfb_reboot(); });
     }
-    sectionTitle("Blackbox");
-    ImGui::TextWrapped("With blackbox_device VIRTUAL, each arm writes a new LOG*.BFL file to %s. Open them in "
-                       "Blackbox Explorer (blackbox.betaflight.com).",
-                       lib().blackboxDir.c_str());
+    blackboxSection();
+}
+
+// Betaflight's blackbox_device VIRTUAL: log files in <data_dir>/blackbox,
+// off by default (a full disk is worse than a missing log).
+void Overlay::blackboxSection() {
+    Lib &L = lib();
+    m_bf.refresh(wallSeconds());
+    sectionTitle("Blackbox logs");
+    bool on = m_bf.str("blackbox_device") == "VIRTUAL";
+    if (ImGui::Checkbox("Blackbox logging (this model)", &on) && m_bf.set("blackbox_device", on ? "VIRTUAL" : "NONE", true)) {
+        // Betaflight reads blackbox_device at boot: apply it now, unless a log is running
+        L.runner.call([] {
+            if (!bfb_is_armed()) bfb_blackbox_restart();
+        });
+    }
+    if (on) ImGui::TextColored(ImVec4(1, 0.8f, 0.3f, 1), "Logs use disk space. Turn blackbox off when you finish tuning.");
+    ImGui::TextWrapped("Each arm writes a new LOG*.BFL file to %s. Open them in Blackbox Explorer "
+                       "(blackbox.betaflight.com).",
+                       L.blackboxDir.c_str());
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7);
+    if (ImGui::InputInt("Keep newest logs", &L.settings.blackboxKeep)) {
+        L.settings.blackboxKeep = std::clamp(L.settings.blackboxKeep, 1, 1000);
+        const int keep = L.settings.blackboxKeep;
+        L.runner.call([keep] { bfb_blackbox_set_keep(keep); });
+        saveSettings();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(a new log deletes the oldest LOG*.BFL files)");
+    if (m_time - m_blackboxScan >= 1.0) {
+        m_blackboxScan = m_time;
+        m_blackboxLogs = 0;
+        m_blackboxBytes = 0;
+        std::error_code ec;
+        for (const auto &e : std::filesystem::directory_iterator(pathFromUtf8(L.blackboxDir), ec)) {
+            const std::string name = e.path().filename().string();
+            if (name.rfind("LOG", 0) != 0 || e.path().extension() != ".BFL") continue;
+            m_blackboxLogs++;
+            uintmax_t size = e.file_size(ec);
+            if (!ec) m_blackboxBytes += size;
+        }
+    }
+    ImGui::Text("%d logs, %.1f MB", m_blackboxLogs, m_blackboxBytes / (1024.0 * 1024.0));
 #if defined(_WIN32)
-    if (ImGui::Button("Open blackbox folder")) openFolder(lib().blackboxDir);
+    ImGui::SameLine();
+    if (ImGui::Button("Open blackbox folder")) openFolder(L.blackboxDir);
 #endif
 }
 
