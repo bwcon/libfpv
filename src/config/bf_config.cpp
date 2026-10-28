@@ -92,6 +92,7 @@ std::string betaflightFirstRunScript() {
     s << "set crashflip_auto_rearm = ON\n";  // turtle off while armed flies on
     s << "set small_angle = 180\n";          // arms at any attitude, upside down too
     s << "set box_user_1_name = RESPAWN\n";  // USER1 is the respawn switch
+    s << "set blackbox_device = VIRTUAL\n";  // log files in <data_dir>/blackbox, like an SD card
     s << "set osd_avg_cell_voltage_pos = " << osdPos(1, 14) << "\n";
     s << "set osd_vbat_pos = " << osdPos(1, 13) << "\n";
     s << "set osd_current_pos = " << osdPos(23, 13) << "\n";
@@ -308,7 +309,7 @@ DiffImport buildDiffImport(const std::string &diffText) {
         {"adc_", "hardware ADC"},
         {"sdcard_", "SD card hardware"},
         {"flash_", "flash chip hardware"},
-        {"blackbox_device", "no blackbox storage"},
+        {"blackbox_device", "the simulator logs to files (VIRTUAL)"},
         {"pinio_", "hardware pins"},
         {"beeper_inversion", "beeper hardware"},
         {"beeper_od", "beeper hardware"},

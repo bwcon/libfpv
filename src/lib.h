@@ -65,7 +65,7 @@ struct Lib {
     bool initialized = false;
     bool everInitialized = false;
     fpv_global_config config{};
-    std::string dataDir, presetDir, eepromDir;
+    std::string dataDir, presetDir, eepromDir, blackboxDir;
     CoordConverter conv;
 
     CollisionWorld world;

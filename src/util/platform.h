@@ -14,6 +14,9 @@ std::string envUtf8(const char *name);
 // ~/.config elsewhere.
 std::string userConfigDir();
 
+// Shows a folder in the file manager (Windows only; false elsewhere).
+bool openFolder(const std::string &utf8Dir);
+
 // Prevents the host from unmapping libfpv (FreeLibrary/dlclose) while its
 // threads exist. Returns false if pinning is not possible.
 bool pinLibraryInMemory();

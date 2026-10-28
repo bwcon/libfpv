@@ -1734,6 +1734,45 @@ void testGps() {
     s.destroy();
 }
 
+// blackbox_device VIRTUAL (the new-model default): an armed flight writes a
+// complete LOGnnnnn.BFL to <data_dir>/blackbox, closed at the disarm.
+void testBlackbox() {
+    namespace fs = std::filesystem;
+    fs::path dir = fs::path(g_dataDir) / "blackbox";
+    auto logs = [&] {
+        std::vector<fs::path> v;
+        std::error_code ec;
+        for (auto &e : fs::directory_iterator(dir, ec))
+            if (e.path().extension() == ".BFL") v.push_back(e.path());
+        std::sort(v.begin(), v.end());
+        return v;
+    };
+    size_t before = logs().size();
+    Session s;
+    float p[3] = {0, 0, 0};
+    s.spawn(p);
+    s.run(0.5f);
+    s.arm();
+    CHECK(s.armed(), "armed: %s", s.f.arming_disable_text);
+    s.rc.ch[2] = -0.5f;
+    s.run(2.0f);
+    s.rc.ch[4] = -1;  // disarm: Betaflight ends the log
+    s.run(1.0f);
+    std::vector<fs::path> v = logs();
+    CHECK(v.size() == before + 1, "one new log in %s (%zu before, %zu now)", dir.string().c_str(), before, v.size());
+    if (!v.empty()) {
+        std::ifstream in(v.back(), std::ios::binary);
+        std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        // "\n", not "\r\n": the file is binary (Windows text mode broke it)
+        const char *head = "H Product:Blackbox flight data recorder by Nicholas Sherlock\n";
+        CHECK(data.compare(0, std::strlen(head), head) == 0, "BFL header: %.60s", data.c_str());
+        CHECK(data.find("H Data version:2\n") != std::string::npos, "data version line");
+        CHECK(data.size() > 20000, "two seconds of frames: %zu bytes", data.size());
+        CHECK(data.find("End of log") != std::string::npos, "log closed at the disarm");
+    }
+    s.destroy();
+}
+
 // Betaflight's USER1 mode (RESPAWN in the Modes tab) asks the host to
 // respawn once per flip, like the radio's own respawn switch.
 void testRespawnMode() {
@@ -2436,6 +2475,7 @@ int main(int argc, char **argv) {
         {"axes_z_up_right_in", [] { testAxes(FPV_COORDS_Z_UP_RIGHT_HANDED, 39.37f, "Z-up right-handed (in)"); }},
         {"gps", testGps},
         {"respawn_mode", testRespawnMode},
+        {"blackbox", testBlackbox},
         {"osd_audio_overlay", testOsdAudioOverlay},
         {"osd_style", testOsdStyle},
         {"osd_layout_per_style", testOsdLayoutPerStyle},

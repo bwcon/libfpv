@@ -688,6 +688,9 @@ FPV_API fpv_result fpv_global_init(const fpv_global_config *cfgIn) {
     L.presetDir = pathToUtf8(root / "presets");
     L.eepromDir = pathToUtf8(root / "eeprom");
     fs::create_directories(pathFromUtf8(L.eepromDir), ec);
+    L.blackboxDir = pathToUtf8(root / "blackbox");
+    fs::create_directories(pathFromUtf8(L.blackboxDir), ec);
+    bfb_blackbox_set_dir(L.blackboxDir.c_str());  // blackbox_device VIRTUAL logs here
 
     pinLibraryInMemory();
 
@@ -968,6 +971,7 @@ FPV_API fpv_result fpv_drone_create(const fpv_drone_desc *descIn, fpv_drone **ou
         at = pos + rotate(rot, Vec3{0, L.flight.restHeight() + 0.002f, 0});
         L.flight.teleport(at, rot);
         bfb_osd_restart();  // a new drone powers up: the boot logo
+        bfb_blackbox_restart();
     });
     L.droneExists = true;
     L.input.takeRespawnRequest();  // a flip with no drone does not respawn the new one

@@ -91,6 +91,8 @@ void bfb_set_link(float signal);
 void bfb_osd_set_host_message(int index, const char *text);
 /* Shows the boot logo again for its few seconds, as after a power-up. */
 void bfb_osd_restart(void);
+/* A new drone powers up: blackbox logging follows its blackbox_device. */
+void bfb_blackbox_restart(void);
 /* Calibration, RX recovery or boot grace still pending. */
 int bfb_settling(void);
 
@@ -113,6 +115,8 @@ void bfb_gps_set_home(float east, float north, float up);
 
 void bfb_ws_set_enabled(int enabled);
 void bfb_ws_set_base_port(int basePort);
+/* The folder blackbox_device VIRTUAL writes LOG00001.BFL... to (it must exist). */
+void bfb_blackbox_set_dir(const char *dir);
 int bfb_ws_base_port(void);
 int bfb_ws_client_count(void);
 

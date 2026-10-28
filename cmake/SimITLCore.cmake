@@ -127,6 +127,9 @@ set(BF_MAIN_SOURCES
   msp/msp.c msp/msp_box.c msp/msp_serial.c msp/msp_build_info.c
   cli/cli.c
   blackbox/blackbox.c blackbox/blackbox_encoding.c
+  # Betaflight's own blackbox IO: its VIRTUAL device writes log files (SimITL's
+  # stub wrote blackbox.bbl to the working directory)
+  blackbox/blackbox_io.c blackbox/blackbox_virtual.c
 )
 list(TRANSFORM BF_MAIN_SOURCES PREPEND "${BF_DIR}/src/main/")
 file(GLOB BF_PG_SOURCES "${BF_DIR}/src/main/pg/*.c")
@@ -137,7 +140,6 @@ file(GLOB BFEXT_SOURCES
   "${BFEXT_DIR}/src/main/io/*.c"
   "${BFEXT_DIR}/src/main/scheduler/*.c"
   "${BFEXT_DIR}/src/main/sensors/*.c"
-  "${BFEXT_DIR}/src/main/blackbox/*.c"
 )
 # SimITL's string_light.c re-implements libc's ctype/strcasecmp functions;
 # with every object linked that collides with msvcrt. The platform libc is
@@ -172,7 +174,7 @@ add_library(simitl_core STATIC
 target_compile_features(simitl_core PUBLIC cxx_std_17)
 target_compile_definitions(simitl_core PRIVATE
   _GNU_SOURCE SITL SIMULATOR_BUILD=1 "__TARGET__=\"SimITL\"" "__REVISION__=\"libfpv\""
-  HSE_VALUE=8000000 FLASH_SIZE=2048 FMT_HEADER_ONLY=1)
+  HSE_VALUE=8000000 FLASH_SIZE=2048 FMT_HEADER_ONLY=1 USE_BLACKBOX_VIRTUAL)
 target_include_directories(simitl_core
   PRIVATE
     ${BFEXT_DIR}/src/main

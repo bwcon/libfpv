@@ -13,6 +13,7 @@
 #    define WIN32_LEAN_AND_MEAN
 #  endif
 #  include <windows.h>
+#  include <shellapi.h>
 #  include <shlobj.h>
 #elif !defined(__EMSCRIPTEN__)
 #  include <dlfcn.h>
@@ -60,6 +61,19 @@ std::string userConfigDir() {
 #else
     std::string xdg = envUtf8("XDG_CONFIG_HOME"), home = envUtf8("HOME");
     return !xdg.empty() ? xdg : home.empty() ? home : home + "/.config";
+#endif
+}
+
+bool openFolder(const std::string &utf8Dir) {
+#if defined(_WIN32)
+    int n = MultiByteToWideChar(CP_UTF8, 0, utf8Dir.c_str(), -1, nullptr, 0);
+    if (n <= 0) return false;
+    std::wstring w(n, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8Dir.c_str(), -1, &w[0], n);
+    return (INT_PTR)ShellExecuteW(nullptr, L"open", w.c_str(), nullptr, nullptr, SW_SHOWNORMAL) > 32;
+#else
+    (void)utf8Dir;
+    return false;
 #endif
 }
 

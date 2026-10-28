@@ -43,6 +43,8 @@
 #include "drivers/system.h"
 
 #include "drivers/serial_ws.h"
+#include "blackbox/blackbox.h"
+#include "blackbox/blackbox_virtual.h"
 
 #include "bf_bridge.h"
 
@@ -362,6 +364,14 @@ void bfb_osd_restart(void)
     osdRestart();
 }
 
+void bfb_blackbox_restart(void)
+{
+    /* Betaflight reads blackbox_device at boot only; models switch and get
+     * their first-run settings without a reboot. A log still open from the
+     * previous drone is closed at the next arm. */
+    blackboxInit();
+}
+
 int bfb_osd_hd(void)
 {
 #if defined(USE_OSD_HD)
@@ -401,6 +411,11 @@ int bfb_settling(void)
     return (getArmingDisableFlags() &
             (ARMING_DISABLED_CALIBRATING | ARMING_DISABLED_RX_FAILSAFE | ARMING_DISABLED_BOOT_GRACE_TIME |
              ARMING_DISABLED_FAILSAFE)) != 0;
+}
+
+void bfb_blackbox_set_dir(const char *dir)
+{
+    snprintf(blackboxVirtualDir, sizeof(blackboxVirtualDir), "%s", dir);
 }
 
 void bfb_ws_set_base_port(int basePort)

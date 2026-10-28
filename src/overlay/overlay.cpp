@@ -16,6 +16,7 @@
 #include "lib.h"
 #include "osd/osd.h"
 #include "util/fs.h"
+#include "util/platform.h"
 #include "util/log.h"
 #include "web/web.h"
 
@@ -1545,6 +1546,13 @@ void Overlay::tabConfigurator() {
     if (ImGui::Button("Reboot Betaflight")) {
         lib().runner.call([] { bfb_reboot(); });
     }
+    sectionTitle("Blackbox");
+    ImGui::TextWrapped("With blackbox_device VIRTUAL, each arm writes a new LOG*.BFL file to %s. Open them in "
+                       "Blackbox Explorer (blackbox.betaflight.com).",
+                       lib().blackboxDir.c_str());
+#if defined(_WIN32)
+    if (ImGui::Button("Open blackbox folder")) openFolder(lib().blackboxDir);
+#endif
 }
 
 // --- frame -------------------------------------------------------------------------
