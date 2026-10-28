@@ -54,7 +54,7 @@ static void makeCamera(fpv_camera &c, Vec3 pos, Vec3 fwd, Vec3 up, float fovY, f
 }
 
 // Host raycast callback -> temporary collision planes around the drone.
-static void refreshRaycastProxies(const FlightSnapshot &s) {
+void refreshRaycastProxies(const FlightSnapshot &s) {
     Lib &L = lib();
     if (!L.raycast || !s.active) return;
     const CoordConverter &cv = L.conv;

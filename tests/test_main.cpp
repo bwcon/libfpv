@@ -218,6 +218,37 @@ void testSharedDataDir() {
     setEnv("LIBFPV_DATA_DIR", "");
 }
 
+// Host ground at y = 50 (Y up), only through the raycast callback.
+static int raycastLedge(void *, const float o[3], const float d[3], float maxDist, fpv_raycast_hit *hit) {
+    if (d[1] >= 0 || o[1] < 50) return 0;
+    float t = (o[1] - 50) / -d[1];
+    if (t > maxDist) return 0;
+    *hit = fpv_raycast_hit{};
+    hit->distance = t;
+    hit->normal[1] = 1;
+    return 1;
+}
+
+// The host's first fpv_drone_tick can come late (it sets up its camera, the
+// game hitches). The sim must already stand the drone on the raycast ground,
+// whether the callback was set before or after fpv_drone_create.
+void testRaycastGroundAtSpawn() {
+    for (int after = 0; after < 2; after++) {
+        if (!after) fpv_world_set_raycast_callback(raycastLedge, nullptr);
+        Session s;
+        float p[3] = {0, 50, 0};
+        s.spawn(p);
+        if (after) fpv_world_set_raycast_callback(raycastLedge, nullptr);
+        s.rc.send();  // disarmed, not the previous test's sticks
+        for (int i = 0; i < 50; i++) fpv_step(0.01f);  // 0.5 s with no tick
+        s.run(1.0f);
+        CHECK(std::fabs(s.f.position[1] - 50) < 0.1f, "callback set %s create: rests at y %.2f",
+              after ? "after" : "before", s.f.position[1]);
+        s.destroy();
+        fpv_world_set_raycast_callback(nullptr, nullptr);
+    }
+}
+
 void testArmDisarm() {
     Host h(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));
     loadWorld(makeLevel(h, 100, 0));
@@ -2007,6 +2038,7 @@ int main(int argc, char **argv) {
         {"axes_z_up_right_in", [] { testAxes(FPV_COORDS_Z_UP_RIGHT_HANDED, 39.37f, "Z-up right-handed (in)"); }},
         {"gps", testGps},
         {"osd_audio_overlay", testOsdAudioOverlay},
+        {"raycast_ground_at_spawn", testRaycastGroundAtSpawn},
         {"pinned", testPinned},
         {"terminate_reinit", testTerminateReinit},
         {"threaded", testThreadedMode},
