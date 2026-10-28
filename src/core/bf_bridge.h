@@ -73,6 +73,8 @@ int bfb_yaw_motors_reversed(void);
 int bfb_crash_flip_active(void);
 /* The OSD DISABLE mode is on: Betaflight clears the OSD. */
 int bfb_osd_disabled(void);
+/* The USER1 mode (RESPAWN in the Modes tab) is on: libfpv's respawn switch. */
+int bfb_respawn_mode(void);
 // vcd_video_system is HD: the OSD canvas is 53 x 20 after the next boot.
 int bfb_osd_hd(void);
 /* The LED strip's last frame (src/core/bf_ledstrip.c): for each configured

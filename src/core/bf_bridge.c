@@ -376,6 +376,11 @@ int bfb_osd_disabled(void)
     return IS_RC_MODE_ACTIVE(BOXOSD) ? 1 : 0;
 }
 
+int bfb_respawn_mode(void)
+{
+    return IS_RC_MODE_ACTIVE(BOXUSER1) ? 1 : 0;
+}
+
 void bfb_battery_reset(void)
 {
     batteryInit();

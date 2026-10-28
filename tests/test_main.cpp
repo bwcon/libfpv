@@ -1443,6 +1443,9 @@ void testCli() {
     CHECK(out && std::strstr(out, "aux 4 28 4 1700 2100"), "air mode on AUX5 by default: %s", out ? out : "");
     CHECK(out && std::strstr(out, "aux 5 19 5 1700 2100"), "OSD disable on AUX6 by default: %s", out ? out : "");
     fpv_free(out);
+    CHECK(fpv_cli_exec("get box_user_1_name", &out) == FPV_OK, "get box_user_1_name");
+    CHECK(out && std::strstr(out, "box_user_1_name = RESPAWN"), "USER1 named RESPAWN: %s", out ? out : "");
+    fpv_free(out);
     CHECK(fpv_cli_exec("get crashflip_rate", &out) == FPV_OK, "get crashflip_rate");
     CHECK(out && std::strstr(out, "crashflip_rate = 30"), "turtle cut-off on by default: %s", out ? out : "");
     fpv_free(out);
@@ -1728,6 +1731,48 @@ void testGps() {
     fpv_drone_reset(s.drone, p, nullptr);
     armAndShow();
     CHECK(number(3) >= 0 && number(3) <= 1, "home distance %g m at the new arming point", number(3));
+    s.destroy();
+}
+
+// Betaflight's USER1 mode (RESPAWN in the Modes tab) asks the host to
+// respawn once per flip, like the radio's own respawn switch.
+void testRespawnMode() {
+    auto cli = [](const char *cmd) {
+        char *o = nullptr;
+        fpv_cli_exec(cmd, &o);
+        fpv_free(o);
+    };
+    cli("aux 7 40 2 1700 2100 0 0");  // USER1 on AUX3 high
+    Session s;
+    float p[3] = {0, 0, 0};
+    s.rc.ch[6] = 1;  // on before the drone exists: no request
+    s.rc.send();
+    s.spawn(p);
+    int requests = 0;
+    auto count = [&](float) {
+        if (s.f.flags & FPV_DRONE_RESPAWN_REQUEST) requests++;
+    };
+    s.run(1.0f, count);
+    CHECK(requests == 0, "switch already on at spawn: %d requests", requests);
+    for (int flip = 1; flip <= 3; flip++) {
+        s.rc.ch[6] = -1;
+        s.run(0.3f, count);
+        s.rc.ch[6] = 1;
+        s.run(0.3f, count);
+        s.run(0.01f, count);  // the last frame's flags
+        CHECK(requests == flip, "flip %d: %d requests", flip, requests);
+    }
+    // the host respawns with the switch still on: no second request
+    fpv_drone_reset(s.drone, p, nullptr);
+    s.run(1.0f, count);
+    CHECK(requests == 3, "reset with the switch on: %d requests", requests);
+    s.destroy();
+    s.spawn(p);
+    s.run(1.0f, count);
+    CHECK(requests == 3, "new drone with the switch on: %d requests", requests);
+    cli("aux 7 0 0 900 900 0 0");
+    s.rc.ch[6] = -1;
+    s.run(0.1f);
     s.destroy();
 }
 
@@ -2390,6 +2435,7 @@ int main(int argc, char **argv) {
         {"axes_z_up_left_cm", [] { testAxes(FPV_COORDS_Z_UP_LEFT_HANDED, 100, "Z-up left-handed (cm)"); }},
         {"axes_z_up_right_in", [] { testAxes(FPV_COORDS_Z_UP_RIGHT_HANDED, 39.37f, "Z-up right-handed (in)"); }},
         {"gps", testGps},
+        {"respawn_mode", testRespawnMode},
         {"osd_audio_overlay", testOsdAudioOverlay},
         {"osd_style", testOsdStyle},
         {"osd_layout_per_style", testOsdLayoutPerStyle},

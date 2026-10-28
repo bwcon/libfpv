@@ -91,6 +91,7 @@ std::string betaflightFirstRunScript() {
     s << "set crashflip_rate = 30\n";   // turtle cuts power past ~90 deg and fast spins
     s << "set crashflip_auto_rearm = ON\n";  // turtle off while armed flies on
     s << "set small_angle = 180\n";          // arms at any attitude, upside down too
+    s << "set box_user_1_name = RESPAWN\n";  // USER1 is the respawn switch
     s << "set osd_avg_cell_voltage_pos = " << osdPos(1, 14) << "\n";
     s << "set osd_vbat_pos = " << osdPos(1, 13) << "\n";
     s << "set osd_current_pos = " << osdPos(23, 13) << "\n";

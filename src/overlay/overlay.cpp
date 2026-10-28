@@ -590,6 +590,7 @@ void Overlay::tabRadio() {
                                    "of a 3-position switch still works, or free a switch with Set up again.");
                 ImGui::PopStyleColor();
             }
+            ImGui::TextDisabled("Or set it in Betaflight Configurator's Modes tab as RESPAWN (USER1).");
         }
         ImGui::PopID();
         ImGui::Separator();

@@ -84,6 +84,7 @@ struct Lib {
     Vec3 spawnPos;  // internal frame, for "Respawn"
     Quat spawnRot;
     bool droneExists = false;
+    SwitchEdge respawnMode;  // Betaflight's USER1 (RESPAWN) mode, read each frame
 
     fpv_raycast_fn raycast = nullptr;
     void *raycastUser = nullptr;
