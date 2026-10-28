@@ -941,10 +941,44 @@ void Overlay::tabOsd() {
         {"Craft name", "osd_craft_name_pos"},    {"Speed", "osd_gps_speed_pos"},
         {"Altitude", "osd_altitude_pos"},        {"Disarmed", "osd_disarmed_pos"},
         {"G-force", "osd_g_force_pos"},          {"Power", "osd_power_pos"},
-        {"Stick overlay L", "osd_stick_overlay_left_pos"}, {"Stick overlay R", "osd_stick_overlay_right_pos"},
+        // the rest of SITL's `get _pos`, in Betaflight's order
+        {"RSSI", "osd_rssi_pos"},                {"Home direction", "osd_home_dir_pos"},
+        {"Home distance", "osd_home_dist_pos"},  {"Flight distance", "osd_flight_dist_pos"},
+        {"Link quality", "osd_link_quality_pos"}, {"Link TX power", "osd_link_tx_power_pos"},
+        {"RSNR", "osd_rsnr_pos"},                {"Remaining time", "osd_remaining_time_estimate_pos"},
+        {"Anti-gravity", "osd_anti_gravity_pos"}, {"VTX channel", "osd_vtx_channel_pos"},
+        {"Wh used", "osd_wh_drawn_pos"},         {"Motor diagnostics", "osd_motor_diag_pos"},
+        {"Pilot name", "osd_pilot_name_pos"},
 #if defined(LIBFPV_KAMIKAZE)
         {"Bomb status", "osd_custom_msg0_pos"},  // the warhead state (Flight::step)
+#else
+        {"Custom message 1", "osd_custom_msg0_pos"},
 #endif
+        {"Custom message 2", "osd_custom_msg1_pos"}, {"Custom message 3", "osd_custom_msg2_pos"},
+        {"Custom message 4", "osd_custom_msg3_pos"}, {"Longitude", "osd_gps_lon_pos"},
+        {"Latitude", "osd_gps_lat_pos"},         {"GPS satellites", "osd_gps_sats_pos"},
+        {"Compass bar", "osd_compass_bar_pos"},  {"Roll PIDs", "osd_pid_roll_pos"},
+        {"Pitch PIDs", "osd_pid_pitch_pos"},     {"Yaw PIDs", "osd_pid_yaw_pos"},
+        {"Debug", "osd_debug_pos"},              {"Debug 2", "osd_debug2_pos"},
+        {"PID/rate profile", "osd_pidrate_profile_pos"}, {"Pitch angle", "osd_pit_ang_pos"},
+        {"Roll angle", "osd_rol_ang_pos"},       {"Battery usage", "osd_battery_usage_pos"},
+        {"Heading", "osd_nheading_pos"},         {"Up/down reference", "osd_up_down_reference_pos"},
+        {"Ready mode", "osd_ready_mode_pos"},
+        {"Vario", "osd_nvario_pos"},             {"ESC temperature", "osd_esc_tmp_pos"},
+        {"ESC RPM", "osd_esc_rpm_pos"},          {"ESC RPM frequency", "osd_esc_rpm_freq_pos"},
+        {"Date and time", "osd_rtc_date_time_pos"}, {"Adjustment range", "osd_adjustment_range_pos"},
+        {"Flip arrow", "osd_flip_arrow_pos"},    {"Log status", "osd_log_status_pos"},
+        {"Rate profile name", "osd_rate_profile_name_pos"}, {"PID profile name", "osd_pid_profile_name_pos"},
+        {"RC channels", "osd_rcchannels_pos"},
+        {"Camera frame", "osd_camera_frame_pos"}, {"Efficiency", "osd_efficiency_pos"},
+        {"Total flights", "osd_total_flights_pos"}, {"AUX value", "osd_aux_pos"},
+        {"DJI goggle voltage", "osd_sys_goggle_voltage_pos"}, {"DJI VTX voltage", "osd_sys_vtx_voltage_pos"},
+        {"DJI bitrate", "osd_sys_bitrate_pos"},  {"DJI delay", "osd_sys_delay_pos"},
+        {"DJI distance", "osd_sys_distance_pos"}, {"DJI link quality", "osd_sys_lq_pos"},
+        {"DJI goggle DVR", "osd_sys_goggle_dvr_pos"}, {"DJI VTX DVR", "osd_sys_vtx_dvr_pos"},
+        {"DJI warnings", "osd_sys_warnings_pos"}, {"DJI VTX temperature", "osd_sys_vtx_temp_pos"},
+        {"DJI fan speed", "osd_sys_fan_speed_pos"},
+        {"Stick overlay L", "osd_stick_overlay_left_pos"}, {"Stick overlay R", "osd_stick_overlay_right_pos"},
     };
     const int n = (int)(sizeof(elems) / sizeof(elems[0]));
     ImGui::BeginChild("elems", ImVec2(ImGui::GetFontSize() * 13, 0), ImGuiChildFlags_Borders);
