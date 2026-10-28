@@ -71,6 +71,7 @@ struct Lib {
     std::vector<DronePreset> presets;
     std::string defaultDiff;  // fpv_set_default_betaflight_diff, applied to new EEPROMs
     std::string userDefaults; // <data_dir>/defaults.diff.txt, filtered: applied after defaultDiff
+    int ledDefaultColor = 4;  // fpv_led_set_default_color, Betaflight palette (yellow)
     int presetIndex = 0;
     Settings settings;
 

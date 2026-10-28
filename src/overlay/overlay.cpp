@@ -1048,7 +1048,6 @@ const char *const kLedColors[] = {"black",      "white", "red",         "orange"
                                   "lime green", "green", "mint green",  "cyan",       "light blue",
                                   "blue",       "dark violet", "magenta", "deep pink"};
 constexpr int kLedColorCount = (int)(sizeof(kLedColors) / sizeof(kLedColors[0]));
-constexpr int kLedYellow = 4;
 
 // The strip hosts map back to arms (see fpv_frame.led_grid): two LEDs per
 // arm, top then bottom, arms front-left, front-right, rear-right, rear-left.
@@ -1108,10 +1107,10 @@ void Overlay::tabLeds() {
         fpv_free(out);
         readLeds();
     };
-    // a new pilot gets the default strip, yellow and on
+    // a new pilot gets the default strip, in the game's colour and on
     if (m_led.error.empty() && m_led.leds.empty() && !m_led.autoApplied) {
         m_led.autoApplied = true;
-        run(defaultLedLayout(kLedYellow) + "feature LED_STRIP\nsave\n");
+        run(defaultLedLayout(L.ledDefaultColor) + "feature LED_STRIP\nsave\n");
     }
     const bool armed = L.droneExists && L.flight.snapshot().armed;
     bool on = m_led.on;
@@ -1122,7 +1121,7 @@ void Overlay::tabLeds() {
         ImGui::SameLine();
         ImGui::TextDisabled("(disarm to turn them on or off: Betaflight restarts)");
     }
-    int color = m_led.color;
+    int color = m_led.leds.empty() ? L.ledDefaultColor : m_led.color;
     if (ImGui::BeginCombo("Colour", color >= 0 && color < kLedColorCount ? kLedColors[color] : "mixed")) {
         for (int c = 1; c < kLedColorCount; c++) {
             if (!ImGui::Selectable(kLedColors[c], c == color) || m_led.leds.empty()) continue;
@@ -1134,7 +1133,7 @@ void Overlay::tabLeds() {
         ImGui::EndCombo();
     }
     if (ImGui::Button("Default layout")) {
-        std::string s = defaultLedLayout(m_led.color > 0 ? m_led.color : kLedYellow);
+        std::string s = defaultLedLayout(m_led.color > 0 ? m_led.color : L.ledDefaultColor);
         for (size_t i = 8; i < m_led.leds.size(); i++) s += "led " + std::to_string(i) + " 0,0::C:0\n";  // longer strip
         run(s + "save\n");
     }

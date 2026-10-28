@@ -1203,6 +1203,12 @@ FPV_API fpv_result fpv_import_betaflight_diff(const char *diff, char **outReport
     return rc == BFB_CLI_OK ? FPV_OK : setError(FPV_ERROR_INTERNAL, "CLI session failed");
 }
 
+FPV_API void fpv_led_set_default_color(int index) {
+    Lib &L = lib();
+    std::lock_guard<std::recursive_mutex> lock(L.mutex);
+    L.ledDefaultColor = index >= 1 && index <= 13 ? index : 4;
+}
+
 FPV_API void fpv_set_default_betaflight_diff(const char *diff) {
     Lib &L = lib();
     std::lock_guard<std::recursive_mutex> lock(L.mutex);

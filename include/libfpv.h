@@ -509,7 +509,8 @@ typedef struct fpv_frame {
      * led_count LEDs in strip order, each with the colour Betaflight shows
      * now and its cell on Betaflight's 16 x 16 LED grid. On the grid, seen
      * from above, x runs 0..15 left to right and y 0..15 front to back.
-     * led_count is 0 when the feature is off or no LED is configured. */
+     * led_count is 0 when the feature is off or no LED is configured.
+     * fpv_led_set_default_color picks the overlay's default colour. */
     uint32_t led_count;
     uint8_t led_rgb[FPV_MAX_LEDS][3];
     uint8_t led_grid[FPV_MAX_LEDS][2]; /* x, y */
@@ -972,6 +973,16 @@ FPV_API fpv_result fpv_import_betaflight_diff(const char *diff_text, char **out_
  * Existing configurations are left alone. Call it before fpv_global_init
  * to cover the drone that init creates; NULL or "" clears it. */
 FPV_API void fpv_set_default_betaflight_diff(const char *diff_text);
+
+/* The colour of the overlay's default LED strip (F8 > LEDs: set up on first
+ * use when no LED is configured, and by its "Default layout" button), as a
+ * Betaflight palette index: 1 white, 2 red, 3 orange, 4 yellow (the default),
+ * 5 lime green, 6 green, 7 mint green, 8 cyan, 9 light blue, 10 blue,
+ * 11 dark violet, 12 magenta, 13 deep pink. Other values restore yellow.
+ * LED settings live in each drone's Betaflight EEPROM, which every game on
+ * the same data dir shares: the default only reaches drones with no LEDs
+ * configured yet. */
+FPV_API void fpv_led_set_default_color(int betaflight_palette_index);
 
 /* Physical presets (frame, motor, prop, battery, camera). */
 FPV_API uint32_t fpv_preset_count(void);
