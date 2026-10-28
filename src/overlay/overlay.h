@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "config/bf_config.h"
 #include "libfpv.h"
 #include "osd/draw_buffer.h"
 #include "overlay/bf_cache.h"
@@ -54,6 +55,8 @@ private:
     void tabLeds();
     void readLeds();
     void tabImport();
+    void sectionDefaults();
+    void readDefaults();
     void tabCamera();
     void tabControls();
     void tabConfigurator();
@@ -100,6 +103,13 @@ private:
         bool autoApplied = false;
         std::string error;
     } m_led;
+    struct DefaultsState {
+        unsigned categories = kDefaultsAll & ~kDefaultsRates;  // the ticked boxes
+        bool read = false, exists = false;
+        unsigned found = 0;  // categories in defaults.diff.txt
+        std::string saved;   // its date
+        std::string message;
+    } m_defaults;
     int m_rateAxis = 0;
     bool m_rebindingToggle = false;
     bool m_ctrl = false;

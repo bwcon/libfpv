@@ -204,8 +204,8 @@ static const char *const kEepromUpgrades[] = {"turtle-2", "air-osd-3"
 static const char *const kEepromUpgrade = kEepromUpgrades[std::size(kEepromUpgrades) - 1];
 static fs::path upgradeMarker(const std::string &eeprom) { return pathFromUtf8(eeprom + ".upgrade"); }
 
-// libfpv's first-run configuration plus the preset's own tune and the
-// game's default diff, applied to the active EEPROM. Runs on the simulation
+// libfpv's first-run configuration plus the preset's own tune, the game's
+// default diff and the pilot's new-model defaults, applied to the active EEPROM. Runs on the simulation
 // thread.
 static void applyFirstRunConfig(const DronePreset &p) {
     std::string script = betaflightFirstRunScript();
@@ -222,6 +222,7 @@ static void applyFirstRunConfig(const DronePreset &p) {
         if (game.rfind(reset, 0) == 0) game.erase(0, reset.size());
         script += game;
     }
+    script += lib().userDefaults;  // the pilot's own, saved from the overlay
     script += "save noreboot\n";
     char *out = nullptr;
     bfb_cli_run(script.c_str(), &out);
@@ -657,6 +658,12 @@ FPV_API fpv_result fpv_global_init(const fpv_global_config *cfgIn) {
     for (auto &e : errors) FPV_LOGW("preset ignored: %s", e.c_str());
     if (L.presets.empty()) L.presets.push_back(builtinDefaultPreset());
     loadSettings();
+    std::string userDefaults;
+    L.userDefaults.clear();
+    if (readTextFile(root / "defaults.diff.txt", userDefaults)) {
+        L.userDefaults = filterDefaultsProfile(userDefaults, kDefaultsAll);
+        FPV_LOGI("new models start with defaults.diff.txt");
+    }
     if (!L.settings.osdFont.empty()) {
         std::string err;
         if (!osdRenderer().loadPackage(pathToUtf8(pathFromUtf8(L.dataDir) / "fonts" / pathFromUtf8(L.settings.osdFont)), err))

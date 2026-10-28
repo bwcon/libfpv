@@ -427,6 +427,39 @@ void testLedStrip() {
     fpv_free(o);
 }
 
+// The overlay's new-model defaults: a `dump` saved as defaults.diff.txt gives
+// a model set up for the first time the pilot's name, switches and OSD, but
+// never the other model's tune.
+void testNewModelDefaults() {
+    namespace fs = std::filesystem;
+    char *o = nullptr;
+    CHECK(fpv_cli_exec("set craft_name = DEFTEST\nset osd_vbat_pos = 2085\naux 7 13 3 1300 1500 0 0\n"
+                       "set p_roll = 99\nsave\n", &o) == FPV_OK, "setup: %s", o ? o : fpv_last_error());
+    fpv_free(o);
+    CHECK(fpv_cli_exec("dump\n", &o) == FPV_OK, "dump: %s", fpv_last_error());
+    std::string dump = o ? o : "";
+    fpv_free(o);
+    fs::path file = fs::path(g_dataDir) / "defaults.diff.txt";
+    std::ofstream(file, std::ios::binary) << "# libfpv new-model defaults, saved test\n" << dump;
+    fpv_global_terminate();
+    init(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));  // reads the file
+    Session s;
+    float p[3] = {0, 0, 0};
+    s.spawn(p, "skydart350");  // no other test flies it: a new EEPROM
+    s.run(0.5f);
+    CHECK(fpv_cli_exec("get craft_name\nget osd_vbat_pos\nget p_roll\naux\n", &o) == FPV_OK, "get");
+    std::string got = o ? o : "";
+    fpv_free(o);
+    CHECK(got.find("craft_name = DEFTEST") != std::string::npos, "name: %s", got.c_str());
+    CHECK(got.find("osd_vbat_pos = 2085") != std::string::npos, "OSD element");
+    CHECK(got.find("aux 7 13 3 1300 1500 0 0") != std::string::npos, "BEEPER switch");
+    CHECK(got.find("p_roll = 99") == std::string::npos, "the preset's own PIDs");
+    s.destroy();
+    std::error_code ec;
+    fs::remove(file, ec);
+    fpv_global_terminate();  // the next test starts without the file
+}
+
 // Host ground at y = 50 (Y up), only through the raycast callback.
 static int raycastLedge(void *, const float o[3], const float d[3], float maxDist, fpv_raycast_hit *hit) {
     if (d[1] >= 0 || o[1] < 50) return 0;
@@ -2305,6 +2338,7 @@ int main(int argc, char **argv) {
         {"camera_fov", testCameraFov},
         {"rssi", testRssi},
         {"led_strip", testLedStrip},
+        {"new_model_defaults", testNewModelDefaults},
         {"raycast_ground_at_spawn", testRaycastGroundAtSpawn},
         {"pinned", testPinned},
         {"terminate_reinit", testTerminateReinit},
