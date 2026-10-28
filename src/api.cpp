@@ -953,6 +953,7 @@ FPV_API fpv_result fpv_drone_create(const fpv_drone_desc *descIn, fpv_drone **ou
         L.flight.teleport(at, rot);
     });
     L.droneExists = true;
+    L.input.takeRespawnRequest();  // a flip with no drone does not respawn the new one
     L.spawnPos = pos;
     L.spawnRot = rot;
     L.drone.magic = 0xF9D0u;

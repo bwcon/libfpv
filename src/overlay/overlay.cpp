@@ -304,7 +304,39 @@ void Overlay::channelBars(const float *ch) {
         ImGui::SameLine();
         ImGui::TextUnformatted(names[i]);
     }
+    InputStatus st = lib().input.status();
+    if (st.respawnBound) {
+        // libfpv's own switch: the game sees it as FPV_DRONE_RESPAWN_REQUEST
+        ImGui::ProgressBar(st.respawnSwitch ? 1.0f : 0.0f, ImVec2(ImGui::GetFontSize() * 14, 0),
+                           st.respawnSwitch ? "on" : "off");
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Respawn (libfpv, not Betaflight)");
+    }
 }
+
+namespace {
+
+std::string bindingText(const ChannelBinding &b) {
+    if (b.button >= 0) return "button " + std::to_string(b.button + 1);
+    if (b.axis >= 0) return "axis " + std::to_string(b.axis + 1);
+    return "not set";
+}
+
+// An axis or button of the radio that no binding uses yet.
+bool hasFreeSwitch(const RawDevice &d, const DeviceMapping &m) {
+    auto used = [&](bool axis, int i) {
+        for (auto &b : m.channels)
+            if ((axis ? b.axis : b.button) == i) return true;
+        return false;
+    };
+    for (int i = 0; i < (int)d.axes.size(); i++)
+        if (!used(true, i)) return true;
+    for (int i = 0; i < (int)d.buttons.size(); i++)
+        if (!used(false, i)) return true;
+    return false;
+}
+
+}  // namespace
 
 void Overlay::tabFly() {
     Lib &L = lib();
@@ -412,6 +444,17 @@ void Overlay::wizardUi(const std::vector<RawDevice> &devs) {
         if (!m_wizardSaved) {
             // persisted once; flight input switches to the mapped radio
             DeviceMapping m = m_wizard.mapping();
+            if (m_wizard.respawnSwitchOnly()) {
+                // only the respawn switch changes
+                DeviceMapping cur;
+                if (L.input.getMapping(m.guid, cur)) {
+                    RadioWizard::mergeSwitch(cur, m, kRespawnSwitch, false);
+                    m = cur;
+                }
+            } else {  // (bomb-only: replaced by the current mapping below)
+                // a new full setup keeps the respawn switch if it still fits
+                RadioWizard::mergeSwitch(m, m_previousMapping, kRespawnSwitch, true);
+            }
 #if defined(LIBFPV_KAMIKAZE)
             if (m_wizard.bombSwitchesOnly()) {
                 // only AUX7 / AUX8 change, whatever else is set up now
@@ -433,6 +476,11 @@ void Overlay::wizardUi(const std::vector<RawDevice> &devs) {
         if (ImGui::Button("Finish")) m_wizard.cancel();
         ImGui::SameLine();
         if (ImGui::Button("Start over")) {
+            if (m_wizard.respawnSwitchOnly()) {
+                DeviceMapping cur;
+                L.input.getMapping(dev->guid, cur);
+                m_wizard.startRespawnSwitch(*dev, cur);
+            } else
 #if defined(LIBFPV_KAMIKAZE)
             if (m_wizard.bombSwitchesOnly()) {
                 DeviceMapping cur;
@@ -508,11 +556,9 @@ void Overlay::tabRadio() {
         else if (d.isGamepad) ImGui::TextDisabled("(gamepad: default layout, degraded)");
         else ImGui::TextColored(ImVec4(1, 0.8f, 0.3f, 1), "(not set up)");
         if (ImGui::Button(mapped ? "Set up again" : "Set up")) {
-#if defined(LIBFPV_KAMIKAZE)
-            // the bomb switches have their own setup (Kamikaze tab): keep them
+            // the respawn and bomb switches have their own setup: keep them
             m_previousMapping = DeviceMapping{};
             L.input.getMapping(d.guid, m_previousMapping);
-#endif
             m_wizard.start(d);
             m_wizardHint.clear();
             m_wizardSaved = false;
@@ -521,6 +567,29 @@ void Overlay::tabRadio() {
         if (mapped) {
             ImGui::SameLine();
             if (ImGui::Button("Forget")) L.input.forgetMapping(d.guid);
+            // libfpv's own switch: the game resets the drone, Betaflight never sees it
+            const ChannelBinding &rb = m.channels[kRespawnSwitch];
+            bool bound = rb.axis >= 0 || rb.button >= 0;
+            ImGui::Text("Respawn switch: %s", bindingText(rb).c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton(bound ? "Change" : "Set up respawn switch")) {
+                m_wizard.startRespawnSwitch(d, m);
+                m_wizardHint.clear();
+                m_wizardSaved = false;
+                L.input.setWizardActive(true);
+            }
+            if (bound) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear")) {
+                    RadioWizard::mergeSwitch(m, DeviceMapping{}, kRespawnSwitch, false);
+                    L.input.setMapping(m);
+                }
+            } else if (!hasFreeSwitch(d, m)) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.8f, 0.3f, 1));
+                ImGui::TextWrapped("No free switch: every axis and button of this radio is in use. A free position "
+                                   "of a 3-position switch still works, or free a switch with Set up again.");
+                ImGui::PopStyleColor();
+            }
         }
         ImGui::PopID();
         ImGui::Separator();
@@ -549,16 +618,6 @@ void Overlay::warheadStatus() {
         ImGui::TextUnformatted("- press Repair (Fly tab) for a new drone");
     }
 }
-
-namespace {
-
-std::string bindingText(const ChannelBinding &b) {
-    if (b.button >= 0) return "button " + std::to_string(b.button + 1);
-    if (b.axis >= 0) return "axis " + std::to_string(b.axis + 1);
-    return "not set";
-}
-
-}  // namespace
 
 void Overlay::tabKamikaze() {
     Lib &L = lib();
@@ -1050,15 +1109,18 @@ const char *const kLedColors[] = {"black",      "white", "red",         "orange"
 constexpr int kLedColorCount = (int)(sizeof(kLedColors) / sizeof(kLedColors[0]));
 
 // The strip hosts map back to arms (see fpv_frame.led_grid): two LEDs per
-// arm, top then bottom, arms front-left, front-right, rear-right, rear-left.
-// Function C: one fixed colour.
-std::string defaultLedLayout(int color) {
+// arm, top (even) then bottom (odd), arms front-left, front-right,
+// rear-right, rear-left. Function C: one fixed colour.
+std::string defaultLedLayout(int top, int bottom) {
     static const char *const arms[] = {"0,0", "15,0", "15,15", "0,15"};
     std::string s;
     for (int i = 0; i < 8; i++)
-        s += "led " + std::to_string(i) + " " + arms[i / 2] + (i % 2 ? ":D:C:" : ":U:C:") + std::to_string(color) + "\n";
+        s += "led " + std::to_string(i) + " " + arms[i / 2] + (i % 2 ? ":D:C:" : ":U:C:") +
+             std::to_string(i % 2 ? bottom : top) + "\n";
     return s;
 }
+
+const char *ledColorName(int c) { return c >= 0 && c < kLedColorCount ? kLedColors[c] : "mixed"; }
 
 }  // namespace
 
@@ -1076,9 +1138,9 @@ void Overlay::readLeds() {
     m_led.error.clear();
     m_led.on = false;
     m_led.leds.clear();
-    m_led.color = -1;
+    m_led.top = m_led.bottom = -1;
     std::istringstream lines(text);
-    bool mixed = false;
+    bool mixed[2] = {false, false};
     for (std::string line; std::getline(lines, line);) {
         if (line.rfind("Enabled:", 0) == 0) m_led.on = (line + " ").find(" LED_STRIP ") != std::string::npos;
         int i;
@@ -1091,11 +1153,17 @@ void Overlay::readLeds() {
         size_t colon = c.rfind(':');
         if (colon == std::string::npos) continue;
         int color = std::atoi(c.c_str() + colon + 1);
-        mixed |= !m_led.leds.empty() && color != m_led.color;
-        m_led.color = color;
+        int &group = i % 2 ? m_led.bottom : m_led.top;
+        mixed[i % 2] |= i >= 2 && color != group;
+        group = color;
         m_led.leds.push_back(c.substr(0, colon));
     }
-    if (mixed) m_led.color = -1;
+    if (mixed[0]) m_led.top = -1;
+    if (mixed[1]) m_led.bottom = -1;
+    if (m_led.leds.size() < 2) m_led.bottom = m_led.top;  // one LED: no bottom group
+    // "Same for both" starts as Betaflight has it, and turns off when they differ
+    if (!m_led.sameRead || m_led.top != m_led.bottom) m_led.same = m_led.top == m_led.bottom;
+    m_led.sameRead = true;
 }
 
 void Overlay::tabLeds() {
@@ -1110,7 +1178,7 @@ void Overlay::tabLeds() {
     // a new pilot gets the default strip, in the game's colour and on
     if (m_led.error.empty() && m_led.leds.empty() && !m_led.autoApplied) {
         m_led.autoApplied = true;
-        run(defaultLedLayout(L.ledDefaultColor) + "feature LED_STRIP\nsave\n");
+        run(defaultLedLayout(L.ledDefaultColor, L.ledDefaultColor) + "feature LED_STRIP\nsave\n");
     }
     const bool armed = L.droneExists && L.flight.snapshot().armed;
     bool on = m_led.on;
@@ -1121,29 +1189,46 @@ void Overlay::tabLeds() {
         ImGui::SameLine();
         ImGui::TextDisabled("(disarm to turn them on or off: Betaflight restarts)");
     }
-    int color = m_led.leds.empty() ? L.ledDefaultColor : m_led.color;
-    if (ImGui::BeginCombo("Colour", color >= 0 && color < kLedColorCount ? kLedColors[color] : "mixed")) {
+    // one list per group (parity: -1 every LED, 0 top, 1 bottom)
+    auto colorList = [&](const char *label, int color, int parity) {
+        if (m_led.leds.empty()) color = L.ledDefaultColor;
+        if (!ImGui::BeginCombo(label, ledColorName(color))) return;
         for (int c = 1; c < kLedColorCount; c++) {
             if (!ImGui::Selectable(kLedColors[c], c == color) || m_led.leds.empty()) continue;
             std::string s;
             for (size_t i = 0; i < m_led.leds.size(); i++)
-                s += "led " + std::to_string(i) + " " + m_led.leds[i] + ":" + std::to_string(c) + "\n";
+                if (parity < 0 || (int)(i % 2) == parity)
+                    s += "led " + std::to_string(i) + " " + m_led.leds[i] + ":" + std::to_string(c) + "\n";
             run(s + "save\n");
         }
         ImGui::EndCombo();
+    };
+    ImGui::Checkbox("Same for both", &m_led.same);
+    if (m_led.same) {
+        colorList("Colour", m_led.top == m_led.bottom ? m_led.top : -1, -1);
+    } else {
+        colorList("Top", m_led.top, 0);
+        colorList("Bottom", m_led.bottom, 1);
     }
     if (ImGui::Button("Default layout")) {
-        std::string s = defaultLedLayout(m_led.color > 0 ? m_led.color : L.ledDefaultColor);
+        int top = m_led.top > 0 ? m_led.top : L.ledDefaultColor;
+        int bottom = m_led.bottom > 0 ? m_led.bottom : L.ledDefaultColor;
+        std::string s = defaultLedLayout(top, m_led.same ? top : bottom);
         for (size_t i = 8; i < m_led.leds.size(); i++) s += "led " + std::to_string(i) + " 0,0::C:0\n";  // longer strip
         run(s + "save\n");
     }
     ImGui::SameLine();
     ImGui::TextDisabled("8 LEDs, two per arm (top and bottom)");
-    ImGui::Text("%d LEDs configured, %s, colour %s", (int)m_led.leds.size(), m_led.on ? "on" : "off",
-                m_led.color >= 0 && m_led.color < kLedColorCount ? kLedColors[m_led.color] : "mixed");
+    if (m_led.top == m_led.bottom)
+        ImGui::Text("%d LEDs configured, %s, colour %s", (int)m_led.leds.size(), m_led.on ? "on" : "off",
+                    ledColorName(m_led.top));
+    else
+        ImGui::Text("%d LEDs configured, %s, top %s, bottom %s", (int)m_led.leds.size(), m_led.on ? "on" : "off",
+                    ledColorName(m_led.top), ledColorName(m_led.bottom));
     if (!m_led.error.empty()) ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1), "%s", m_led.error.c_str());
     ImGui::TextWrapped("For a custom layout, functions or overlays, use the LED Strip tab in Betaflight "
-                       "Configurator. Changing the colour here sets every LED to it.");
+                       "Configurator. Top is every even LED (0, 2, 4...), bottom every odd one; with \"Same for both\" a colour sets "
+                       "every LED.");
 }
 
 // --- New-model defaults: <data_dir>/defaults.diff.txt, shared by every game -----

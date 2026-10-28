@@ -83,9 +83,7 @@ private:
     RadioWizard m_wizard;
     std::string m_wizardHint;
     bool m_wizardSaved = false;
-#if defined(LIBFPV_KAMIKAZE)
-    DeviceMapping m_previousMapping;  // before a full setup: its bomb switches are kept
-#endif
+    DeviceMapping m_previousMapping;  // before a full setup: its respawn and bomb switches are kept
     std::vector<std::string> m_promptedRadios;
     using TabFn = void (Overlay::*)();
     TabFn m_requestTab = nullptr;  // the tab to bring to the front
@@ -98,7 +96,10 @@ private:
     struct LedState {
         bool on = false;
         std::vector<std::string> leds;  // "x,y:dirs:functions" of each configured LED
-        int color = -1;                 // palette index shared by all, -1 when mixed
+        // palette index shared by the top (even) and bottom (odd) LEDs, -1 when mixed
+        int top = -1, bottom = -1;
+        bool same = true;  // "Same for both": one colour list for every LED
+        bool sameRead = false;  // `same` was set from the first read
         double readAt = -1e9;
         bool autoApplied = false;
         std::string error;

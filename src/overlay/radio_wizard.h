@@ -27,6 +27,7 @@ public:
         TurtleSwitch,
         AirModeSwitch,
         OsdSwitch,
+        RespawnSwitch,  // libfpv's own (kRespawnSwitch), only in startRespawnSwitch
 #if defined(LIBFPV_KAMIKAZE)
         BombArmSwitch,
         ExplodeSwitch,
@@ -47,6 +48,13 @@ public:
     // button `into` uses already is left out (after a new full setup).
     static void mergeBombSwitches(DeviceMapping &into, const DeviceMapping &from, bool onlyIfFree);
 #endif
+    // Only the respawn switch (kRespawnSwitch), on a radio set up already,
+    // like startBombSwitches. Merge the result with mergeSwitch.
+    void startRespawnSwitch(const RawDevice &dev, const DeviceMapping &current);
+    bool respawnSwitchOnly() const { return m_respawnOnly; }
+    // Copies binding `c` of `from` into `into`. With `onlyIfFree`, it is left
+    // out when `into` uses its axis position or button already.
+    static void mergeSwitch(DeviceMapping &into, const DeviceMapping &from, int c, bool onlyIfFree);
     void cancel() { m_active = false; }
     bool active() const { return m_active; }
     Step step() const { return m_step; }
@@ -86,6 +94,7 @@ private:
 
     bool m_active = false;
     bool m_bombOnly = false;  // startBombSwitches: AUX7 and AUX8 only
+    bool m_respawnOnly = false;  // startRespawnSwitch
     Step m_step = Step::PickDevice;
     DeviceMapping m_mapping;
     std::vector<float> m_rest;

@@ -178,6 +178,51 @@ void testMiddleOnly() {
     CHECK(switchPosition(m, kAux3, -1) == -1, "off at rest");
 }
 
+// The respawn switch: its own setup on a mapped radio, avoiding the
+// positions in use, then exactly one request per flip.
+void testRespawnSwitch() {
+    DeviceMapping m;
+    m.complete = true;
+    m.channels[kAux3].axis = 6;  // beeper in the middle of the 3-pos switch
+    m.channels[kAux3].min = -1;
+    m.channels[kAux3].max = 0;
+    FakeRadio r;
+    RadioWizard w;
+    w.startRespawnSwitch(r.d, m);
+    CHECK(step(w, r), "rest");
+    CHECK(w.step() == RadioWizard::Step::RespawnSwitch, "straight to the respawn switch");
+    r.d.axes[6] = 0;  // the beeper position: taken
+    w.update(r.d);
+    CHECK(!w.detected(), "the beeper's position is not offered");
+    r.d.axes[6] = 1;  // the free top position
+    CHECK(step(w, r), "respawn");
+    CHECK(w.step() == RadioWizard::Step::Done, "respawn setup done");
+    DeviceMapping merged = m;
+    RadioWizard::mergeSwitch(merged, w.mapping(), kRespawnSwitch, false);
+    CHECK(merged.channels[kRespawnSwitch].axis == 6 && merged.channels[kAux3].axis == 6, "respawn at the top");
+
+    r.d.axes[6] = -1;
+    SwitchEdge e;  // starts blocked: on when the radio appears is no request
+    int fired = 0;
+    for (float raw : {1.0f, 1.0f, -1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, -1.0f}) {
+        r.d.axes[6] = raw;
+        if (e.update(switchValue(r.d, merged, kRespawnSwitch) > 0)) fired++;
+    }
+    CHECK(fired == 2, "one request per flip, none while held or on at start (%d)", fired);
+    e.block();  // the setup ran: the switch must go off first
+    CHECK(!e.update(true), "no request right after a block");
+    CHECK(switchValue(r.d, merged, kAux3) < 0 && (r.d.axes[6] = 0, switchValue(r.d, merged, kAux3) > 0) &&
+              switchValue(r.d, merged, kRespawnSwitch) < 0,
+          "beeper and respawn apart on one switch");
+    // a new full setup that takes the top position drops the respawn switch
+    DeviceMapping fresh = m;
+    fresh.channels[kAux4].axis = 6;
+    fresh.channels[kAux4].min = -1;
+    fresh.channels[kAux4].max = 1;
+    RadioWizard::mergeSwitch(fresh, merged, kRespawnSwitch, true);
+    CHECK(fresh.channels[kRespawnSwitch].axis < 0, "respawn dropped: turtle uses its position");
+}
+
 }  // namespace
 
 // The optional switches can all be skipped; the bomb switches are not part
@@ -232,6 +277,7 @@ int main() {
     testSharedThreePositionSwitch();
     testSkipOptionalSwitches();
     testMiddleOnly();
+    testRespawnSwitch();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }
