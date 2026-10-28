@@ -909,7 +909,10 @@ FPV_API fpv_result fpv_drone_reset(fpv_drone *d, const float position[3], const 
         fwd.y = 0;
         rot = lookRotation(length2(fwd) > 1e-6f ? fwd : Vec3{0, 0, 1}, {0, 1, 0});
     }
-    L.runner.call([&] { L.flight.teleport(pos + rotate(rot, Vec3{0, L.flight.restHeight() + 0.002f, 0}), rot); });
+    L.runner.call([&] {
+        L.flight.teleport(pos + rotate(rot, Vec3{0, L.flight.restHeight() + 0.002f, 0}), rot);
+        L.flight.resetFlightTime();  // a reset starts a new flight
+    });
     L.chaseValid = false;
     return FPV_OK;
 }

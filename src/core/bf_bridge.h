@@ -57,6 +57,8 @@ int bfb_reboot_required(void);
 /* Forgets the battery so Betaflight detects it again on the next update:
  * the warning and critical voltages follow the new pack's cell count. */
 void bfb_battery_reset(void);
+/* Zeroes the total armed time (the OSD flight timer). */
+void bfb_flight_time_reset(void);
 
 /* Gyro/accelerometer/baro calibration after boot still running. */
 int bfb_calibrating(void);

@@ -72,6 +72,8 @@ public:
     bool active() const { return m_active; }
     void teleport(Vec3 pos, Quat rot);
     void repair();
+    // Zeroes Betaflight's total armed time, the OSD flight timer.
+    void resetFlightTime();
     void applyPreset(const DronePreset &preset);
     const DronePreset &preset() const { return m_preset; }
 

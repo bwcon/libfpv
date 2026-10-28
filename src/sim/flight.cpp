@@ -173,6 +173,7 @@ void Flight::spawn(const DronePreset &preset, Vec3 pos, Quat rot, Vec3 pilotPos)
     applyPreset(preset);
     repair();
     stopMotors();
+    resetFlightTime();
     m_active = true;
     m_pilotPos = pilotPos;
     teleport(pos, rot);
@@ -191,6 +192,10 @@ void Flight::teleport(Vec3 pos, Quat rot) {
     m_angVel = {};
     simitl_command(CommandType::Reset);
     m_lastGroundContact = -1;
+}
+
+void Flight::resetFlightTime() {
+    if (m_bfReady) bfb_flight_time_reset();
 }
 
 void Flight::repair() {

@@ -1028,6 +1028,24 @@ void testPresetSwitchBattery() {
         CHECK(st.find(cells) != std::string::npos, "%s: full battery is OK: %s", name, st.c_str());
         s.destroy();
     }
+    // switched in place, also while armed (Betaflight's own detection only
+    // runs disarmed, and could take the previous pack's voltage)
+    for (bool armed : {false, true}) {
+        Session s;
+        s.spawn(p, "freestyler-5");
+        s.run(1.0f);
+        for (const char *name : {"betafpv-air65-ii", "freestyler-5", "betafpv-air65-ii"}) {
+            if (armed) s.arm();
+            CHECK(fpv_drone_set_preset(s.drone, name) == FPV_OK, "set preset %s: %s", name, fpv_last_error());
+            s.run(1.0f);
+            std::string st = batteryStatus();
+            char cells[16];
+            std::snprintf(cells, sizeof cells, "(%uS battery - OK)", s.f.battery.cell_count);
+            CHECK(st.find(cells) != std::string::npos, "%s switched in place%s: full battery is OK: %s", name,
+                  armed ? " armed" : "", st.c_str());
+        }
+        s.destroy();
+    }
 }
 
 void testCli() {

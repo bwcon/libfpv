@@ -316,6 +316,11 @@ void bfb_battery_reset(void)
     batteryInit();
 }
 
+void bfb_flight_time_reset(void)
+{
+    osdFlyTime = 0;
+}
+
 int bfb_calibrating(void)
 {
     return (getArmingDisableFlags() & ARMING_DISABLED_CALIBRATING) != 0;
