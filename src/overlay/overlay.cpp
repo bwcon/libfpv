@@ -1319,7 +1319,16 @@ void Overlay::tabCamera() {
         L.settings.cameraFov = -1;
         L.settings.cameraFisheye = Settings{}.cameraFisheye;
         saveSettings();
+        done = true;
     }
+    // Betaflight's FPV camera angle follows the uptilt (FPV ANGLE MIX mode)
+    m_cameraAnglePending |= done;
+    const bool armed = L.droneExists && L.flight.snapshot().armed;
+    if (m_cameraAnglePending && !armed) {
+        syncBetaflightCameraAngle();
+        m_cameraAnglePending = false;
+    }
+    if (m_cameraAnglePending) ImGui::TextDisabled("Betaflight's FPV camera angle follows when you disarm");
     sectionTitle("Chase camera");
     bool chaseDone = false;
     ImGui::SliderFloat("Distance behind (m)", &L.settings.chaseDistance, 0.5f, 6.0f, "%.1f");

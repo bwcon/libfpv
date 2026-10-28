@@ -129,6 +129,8 @@ void saveSettings();
 
 // Preset handling, called with the API mutex held.
 const DronePreset &currentPreset();
+// Betaflight's fpv_mix_degrees from the camera uptilt setting. Disarm first.
+void syncBetaflightCameraAngle();
 fpv_result selectPreset(const std::string &nameOrFile, bool applyToFlight);
 std::string eepromPathFor(const DronePreset &p);
 // Erases the current quad's Betaflight EEPROM and restores its shipped preset

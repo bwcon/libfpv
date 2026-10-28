@@ -308,6 +308,29 @@ static void ensureEssentials(bool reboot) {
     rebootIfNeeded(reboot);
 }
 
+// Betaflight's FPV camera angle (fpv_mix_degrees, the Configurator's "FPV
+// Camera Angle", 0-90) follows libfpv's camera uptilt, whose slider goes to
+// 70. Saving suspends RX briefly: not in flight. Runs on the simulation
+// thread.
+static void syncCameraAngle(const DronePreset &p) {
+    float tilt = lib().settings.cameraUptilt >= 0 ? lib().settings.cameraUptilt : p.camera.uptiltDeg;
+    int deg = std::clamp((int)std::lround(tilt), 0, 90);
+    char *o = nullptr;
+    bfb_cli_run("get fpv_mix_degrees", &o);
+    const char *at = o ? std::strstr(o, "fpv_mix_degrees = ") : nullptr;
+    bool same = at && std::atoi(at + 18) == deg;
+    bfb_free(o);
+    if (same) return;
+    bfb_cli_run(("set fpv_mix_degrees = " + std::to_string(deg) + "\nsave noreboot").c_str(), &o);
+    bfb_free(o);
+}
+
+void syncBetaflightCameraAngle() {
+    Lib &L = lib();
+    const DronePreset &p = currentPreset();
+    L.runner.call([&] { syncCameraAngle(p); });
+}
+
 // Activates the preset's EEPROM (one virtual flight controller per quad).
 // Runs on the simulation thread.
 static void activateEepromFor(const DronePreset &p) {
@@ -320,6 +343,7 @@ static void activateEepromFor(const DronePreset &p) {
     // the mixer and features are set up at boot and would stay the previous
     // quad's
     ensureEssentials(true);
+    syncCameraAngle(p);
     warmUpBetaflight();  // reading an EEPROM suspends RX briefly
 }
 
@@ -699,6 +723,7 @@ FPV_API fpv_result fpv_global_init(const fpv_global_config *cfgIn) {
         g_activeEeprom = eeprom;
         if (fresh) applyFirstRunConfig(preset);
         ensureEssentials(fresh);  // the first-run tune is saved without a reboot
+        syncCameraAngle(preset);
         L.flight.applyPreset(preset);
         warmUpBetaflight();
     } else {
@@ -711,6 +736,7 @@ FPV_API fpv_result fpv_global_init(const fpv_global_config *cfgIn) {
             SimITL::Sim::getInstance().startServices();
         }
         activateEepromFor(preset);
+        syncCameraAngle(preset);  // the same EEPROM: settings.json may have changed
         L.flight.applyPreset(preset);
     }
 

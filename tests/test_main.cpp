@@ -442,20 +442,27 @@ void testNewModelDefaults() {
     fs::path file = fs::path(g_dataDir) / "defaults.diff.txt";
     std::ofstream(file, std::ios::binary) << "# libfpv new-model defaults, saved test\n" << dump;
     fpv_global_terminate();
+    std::error_code ec;
+    for (const char *f : {"skydart350.eeprom", "skydart350.eeprom.upgrade"})  // made by the presets test
+        fs::remove(fs::path(g_dataDir) / "eeprom" / f, ec);
     init(fpv_coords_preset(FPV_COORDS_Y_UP_RIGHT_HANDED, 1));  // reads the file
     Session s;
     float p[3] = {0, 0, 0};
-    s.spawn(p, "skydart350");  // no other test flies it: a new EEPROM
+    s.spawn(p, "skydart350");  // a new EEPROM: set up for the first time
     s.run(0.5f);
-    CHECK(fpv_cli_exec("get craft_name\nget osd_vbat_pos\nget p_roll\naux\n", &o) == FPV_OK, "get");
+    CHECK(fpv_cli_exec("get craft_name\nget osd_vbat_pos\nget p_roll\nget small_angle\nget fpv_mix_degrees\naux\n", &o) ==
+              FPV_OK, "get");
     std::string got = o ? o : "";
     fpv_free(o);
+    // libfpv's own first run: arms at any attitude, Betaflight's camera angle is the uptilt (default 0)
+    CHECK(got.find("small_angle = 180") != std::string::npos, "small_angle");
+    size_t mix = got.find("fpv_mix_degrees = ");
+    CHECK(mix != std::string::npos && std::atoi(got.c_str() + mix + 18) > 0, "fpv_mix_degrees from the uptilt");
     CHECK(got.find("craft_name = DEFTEST") != std::string::npos, "name: %s", got.c_str());
     CHECK(got.find("osd_vbat_pos = 2085") != std::string::npos, "OSD element");
     CHECK(got.find("aux 7 13 3 1300 1500 0 0") != std::string::npos, "BEEPER switch");
     CHECK(got.find("p_roll = 99") == std::string::npos, "the preset's own PIDs");
     s.destroy();
-    std::error_code ec;
     fs::remove(file, ec);
     fpv_global_terminate();  // the next test starts without the file
 }
